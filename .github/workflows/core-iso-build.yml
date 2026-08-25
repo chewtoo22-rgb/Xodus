@@ -54,6 +54,8 @@ jobs:
           test "$(git rev-parse HEAD)" = '${{ steps.lock.outputs.commit }}'
           test -x build-binary
           test -f pear/efiboot/ploader/ploader_x64.efi
+          test -f packages/pearos.gpg
+          test -f packages/inled.gpg
 
       - name: Require build headroom
         shell: bash
@@ -84,6 +86,23 @@ jobs:
               pacman -S --needed --noconfirm \
                 arch-install-scripts mtools squashfs-tools xorriso e2fsprogs \
                 git pv erofs-utils gnupg dosfstools syslinux
+
+              # Reproduce pearOS upstream CI trust bootstrap. The ISO profile
+              # consumes pearOS, inled, and CachyOS repositories, so a fresh
+              # Arch container must trust all three before pacstrap runs.
+              pacman-key --init
+              pacman-key --populate archlinux
+              pacman-key -a packages/pearos.gpg
+              pacman-key --lsign-key 4C1A9F3C131ACA95
+              pacman-key -a packages/inled.gpg
+              pacman-key --lsign-key 89F828A9675B63CD0077CE9965AA57CF36E2018F
+
+              awk '\''/^\[cachyos\]/{skip=1; next} /^\[/{skip=0} !skip'\'' pear/pacman.conf > /tmp/pacman-bootstrap.conf
+              pacman -Sy --noconfirm --config /tmp/pacman-bootstrap.conf
+              pacman -S --noconfirm --config /tmp/pacman-bootstrap.conf cachyos-keyring
+              pacman-key --populate cachyos
+              pacman -Sy --noconfirm --config pear/pacman.conf
+
               command -v pacstrap arch-chroot mksquashfs xorriso mkfs.ext4 tune2fs git pv
               ./build-binary --build --filename pearOS-Xodus-reference --compression fastest --clean --sha256
             '
@@ -115,9 +134,8 @@ jobs:
         if: failure()
         shell: bash
         run: |
-          set +e
-          df -h > disk-usage.txt
-          find pearos-iso/work -maxdepth 3 -type f -printf '%p %s bytes\n' 2>/dev/null | tail -500 > build-files.txt
+          df -h > disk-usage.txt || true
+          find pearos-iso/work -maxdepth 3 -type f -printf '%p %s bytes\n' 2>/dev/null | tail -500 > build-files.txt || true
 
       - name: Upload failure diagnostics
         if: failure()
