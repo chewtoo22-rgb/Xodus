@@ -1,0 +1,14 @@
+# name|url|branch
+iso|https://github.com/pearOS-archlinux/iso.git|main
+filesystem|https://github.com/pearOS-archlinux/filesystem.git|main
+pkgbuilds|https://github.com/pearOS-archlinux/pkgbuilds.git|main
+installer|https://github.com/pearOS-archlinux/pearOS-installer.git|main
+calamares-config|https://github.com/pearOS-archlinux/pear-calamares-config.git|main
+settings|https://github.com/pearOS-archlinux/pearos-settings.git|main
+liquid-gel|https://github.com/pearOS-archlinux/liquid-gel.git|main
+bootloader|https://github.com/pearOS-archlinux/pearos-bootloader.git|main
+apps-bundle|https://github.com/pearOS-archlinux/pearos-apps-bundle.git|main
+artwork|https://github.com/pearOS-archlinux/artwork.git|main
+sounds|https://github.com/pearOS-archlinux/pearos-sounds.git|main
+plymouth|https://github.com/pearOS-archlinux/plymouth.git|main
+package-repository|https://github.com/pearOS-archlinux/package-repository.git|main
