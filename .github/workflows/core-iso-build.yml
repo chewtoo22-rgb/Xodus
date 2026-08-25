@@ -1,0 +1,149 @@
+name: Core ISO Build
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'upstream/iso.lock'
+      - '.github/workflows/core-iso-build.yml'
+      - 'docs/core-iso.md'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: core-iso-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-reference-iso:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout Xodus
+        uses: actions/checkout@v4
+
+      - name: Parse pinned pearOS source
+        id: lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          line=$(grep -v '^#' upstream/iso.lock | grep -v '^$' | head -n1)
+          IFS='|' read -r repo branch commit captured <<< "$line"
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
+          echo "repo=$repo" >> "$GITHUB_OUTPUT"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+
+      - name: Reclaim runner disk
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          docker system prune -af || true
+          df -h /
+
+      - name: Fetch exact pearOS revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init pearos-iso
+          cd pearos-iso
+          git remote add origin '${{ steps.lock.outputs.repo }}'
+          git fetch --depth=1 origin '${{ steps.lock.outputs.commit }}'
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = '${{ steps.lock.outputs.commit }}'
+          test -x build-binary
+          test -f pear/efiboot/ploader/ploader_x64.efi
+          test -f packages/pearos.gpg
+          test -f packages/inled.gpg
+
+      - name: Require build headroom
+        shell: bash
+        run: |
+          set -euo pipefail
+          available_kb=$(df -Pk "$GITHUB_WORKSPACE" | awk 'NR==2 {print $4}')
+          required_kb=$((20 * 1024 * 1024))
+          echo "Available workspace storage: $((available_kb / 1024 / 1024)) GiB"
+          if (( available_kb < required_kb )); then
+            echo "Need at least 20 GiB free before starting the ISO build." >&2
+            exit 1
+          fi
+
+      - name: Pull Arch build environment
+        run: docker pull archlinux:base-devel
+
+      - name: Build pinned pearOS reference ISO
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --privileged --network host \
+            -v "$GITHUB_WORKSPACE/pearos-iso:/build" \
+            -w /build \
+            archlinux:base-devel \
+            bash -lc '
+              set -euo pipefail
+              pacman -Syu --noconfirm
+              pacman -S --needed --noconfirm \
+                arch-install-scripts mtools squashfs-tools xorriso e2fsprogs \
+                git pv erofs-utils gnupg dosfstools syslinux
+
+              # Reproduce pearOS upstream CI trust bootstrap. The ISO profile
+              # consumes pearOS, inled, and CachyOS repositories, so a fresh
+              # Arch container must trust all three before pacstrap runs.
+              pacman-key --init
+              pacman-key --populate archlinux
+              pacman-key -a packages/pearos.gpg
+              pacman-key --lsign-key 4C1A9F3C131ACA95
+              pacman-key -a packages/inled.gpg
+              pacman-key --lsign-key 89F828A9675B63CD0077CE9965AA57CF36E2018F
+
+              awk '\''/^\[cachyos\]/{skip=1; next} /^\[/{skip=0} !skip'\'' pear/pacman.conf > /tmp/pacman-bootstrap.conf
+              pacman -Sy --noconfirm --config /tmp/pacman-bootstrap.conf
+              pacman -S --noconfirm --config /tmp/pacman-bootstrap.conf cachyos-keyring
+              pacman-key --populate cachyos
+              pacman -Sy --noconfirm --config pear/pacman.conf
+
+              command -v pacstrap arch-chroot mksquashfs xorriso mkfs.ext4 tune2fs git pv
+              ./build-binary --build --filename pearOS-Xodus-reference --compression fastest --clean --sha256
+            '
+
+      - name: Verify produced image
+        id: artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          iso=$(find pearos-iso -maxdepth 1 -type f -name 'pearOS-Xodus-reference-*.iso' -print -quit)
+          test -n "$iso"
+          test -s "$iso"
+          sha256sum "$iso" | tee pearos-iso/xodus-reference.sha256
+          printf 'iso=%s\n' "$iso" >> "$GITHUB_OUTPUT"
+          ls -lh "$iso" pearos-iso/xodus-reference.sha256
+
+      - name: Upload reference ISO
+        uses: actions/upload-artifact@v4
+        with:
+          name: xodus-reference-iso-${{ steps.lock.outputs.commit }}
+          path: |
+            ${{ steps.artifact.outputs.iso }}
+            pearos-iso/xodus-reference.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+      - name: Preserve failure diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          df -h > disk-usage.txt || true
+          find pearos-iso/work -maxdepth 3 -type f -printf '%p %s bytes\n' 2>/dev/null | tail -500 > build-files.txt || true
+
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xodus-core-iso-failure-diagnostics
+          path: |
+            disk-usage.txt
+            build-files.txt
+          if-no-files-found: ignore
+          retention-days: 7
