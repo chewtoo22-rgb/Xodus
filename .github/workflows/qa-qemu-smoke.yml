@@ -1,0 +1,130 @@
+name: QA QEMU Boot Smoke
+
+on:
+  pull_request:
+    paths:
+      - 'qa/**'
+      - '.github/workflows/qa-qemu-smoke.yml'
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: 'Optional Core ISO commit SHA to test'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: qa-qemu-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  boot-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout Xodus QA lane
+        uses: actions/checkout@v4
+
+      - name: Parse pinned pearOS revision
+        id: lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          line=$(grep -v '^#' upstream/iso.lock | grep -v '^$' | head -n1)
+          IFS='|' read -r repo branch commit captured <<< "$line"
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+
+      - name: Find successful Core ISO build
+        id: run
+        shell: bash
+        run: |
+          set -euo pipefail
+          requested='${{ inputs.source_sha || '' }}'
+          runs=$(gh api \
+            -H 'Accept: application/vnd.github+json' \
+            "/repos/${GITHUB_REPOSITORY}/actions/workflows/core-iso-build.yml/runs?status=success&per_page=50")
+
+          if [[ -n "$requested" ]]; then
+            [[ "$requested" =~ ^[0-9a-f]{40}$ ]]
+            row=$(jq -r --arg sha "$requested" '.workflow_runs[] | select(.head_sha == $sha) | [.id,.head_sha] | @tsv' <<< "$runs" | head -n1)
+          else
+            row=$(jq -r '.workflow_runs[] | select(.head_branch == "work/core-iso") | [.id,.head_sha] | @tsv' <<< "$runs" | head -n1)
+          fi
+
+          if [[ -z "$row" ]]; then
+            echo "No successful Core ISO Build matched the requested source" >&2
+            exit 5
+          fi
+
+          IFS=$'\t' read -r run_id source_sha <<< "$row"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "Using Core ISO workflow run $run_id from $source_sha"
+
+      - name: Reclaim runner disk
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          docker system prune -af || true
+          df -h /
+
+      - name: Install QEMU and ISO inspection tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf xorriso file
+
+      - name: Download reference ISO artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: xodus-reference-iso-${{ steps.lock.outputs.commit }}
+          path: qa-input
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.run.outputs.run_id }}
+
+      - name: Verify checksum
+        id: image
+        shell: bash
+        run: |
+          set -euo pipefail
+          iso=$(find qa-input -type f -name '*.iso' -print -quit)
+          checksum=$(find qa-input -type f -name 'xodus-reference.sha256' -print -quit)
+          test -n "$iso" && test -s "$iso"
+          test -n "$checksum" && test -s "$checksum"
+          iso_abs=$(realpath "$iso")
+          checksum_abs=$(realpath "$checksum")
+          expected=$(awk '{print $1}' "$checksum_abs")
+          actual=$(sha256sum "$iso_abs" | awk '{print $1}')
+          test "$expected" = "$actual"
+          echo "iso=$iso_abs" >> "$GITHUB_OUTPUT"
+          printf 'sha256=%s\ncore_source_sha=%s\ncore_run_id=%s\n' \
+            "$actual" '${{ steps.run.outputs.source_sha }}' '${{ steps.run.outputs.run_id }}' \
+            | tee qa-image-digest.txt
+          ls -lh "$iso_abs"
+
+      - name: Run headless UEFI boot smoke test
+        shell: bash
+        env:
+          BOOT_SECONDS: 90
+        run: |
+          chmod +x qa/qemu-smoke.sh
+          qa/qemu-smoke.sh '${{ steps.image.outputs.iso }}' qa-artifacts
+
+      - name: Upload QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xodus-qemu-smoke-${{ steps.run.outputs.source_sha }}
+          path: |
+            qa-artifacts/
+            qa-image-digest.txt
+          if-no-files-found: warn
+          retention-days: 7
