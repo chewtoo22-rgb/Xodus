@@ -9,19 +9,34 @@ The audited installer is explicitly whole-disk destructive. Its setup path unmou
 - Physical M0 testing is live-boot-only.
 - Do not install to a data-bearing disk.
 - Changes to the pinned installer revision must pass `Installer Safety Contract` and receive an explicit audit.
+- Every automated destructive installer target must first pass `scripts/installer-target-guard.sh`.
 - A physical installation candidate is not allowed until CI performs the destructive path against a newly-created disposable virtual disk and then proves that disk boots under UEFI without the ISO attached.
+
+## Disposable target guard
+
+`installer-target-guard.sh` is a read-only, fail-closed preflight placed in front of the future destructive installer runner. It rejects:
+
+- regular files and partitions instead of whole devices;
+- any target or child partition that is mounted;
+- the device backing the currently running root filesystem;
+- targets smaller than 20 GiB;
+- devices without an exact path confirmation;
+- loop devices that are not explicitly marked disposable or whose backing files are outside approved temporary paths;
+- physical disks unless a separate deliberate physical-install opt-in is present.
+
+The `Installer Target Guard` workflow creates a sparse temporary image, attaches it as a loop device, proves unsafe invocation modes are rejected, proves the marked disposable target is accepted, then mounts that target and proves the guard rejects it again. This establishes a safe storage fixture for the next destructive-install CI slice without relaxing the live-boot-only hardware policy.
 
 ## Next gate
 
 The VM installation gate must:
 
-1. create a uniquely named disposable qcow2 target inside the CI job;
+1. create a uniquely named disposable qcow2/raw target inside the CI job and pass it through the target guard;
 2. boot the exact qualified Xodus ISO under OVMF;
 3. ensure the installer sees only the disposable target as writable test storage;
 4. execute installation without relying on a human clicking an ambiguous disk selector;
 5. shut the VM down and detach the ISO;
-6. boot the installed qcow2 under OVMF;
+6. boot the installed target under OVMF;
 7. verify kernel/userspace startup and capture serial/journal evidence;
-8. delete the qcow2 after artifact/evidence handling.
+8. delete the disposable target after artifact/evidence handling.
 
 Until that exists and passes, the hardware runbook's no-install boundary remains mandatory.
