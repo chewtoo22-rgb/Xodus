@@ -20,9 +20,34 @@ Do not press the installer's destructive Continue/erase path on a disk containin
 
 ## USB preparation
 
+### Preferred: verified candidate fetcher
+
+On a machine with GitHub CLI (`gh`), `jq`, and `sha256sum` installed and authenticated to GitHub, run:
+
+```bash
+./scripts/fetch-qualified-candidate.sh
+```
+
+The fetcher:
+
+- selects the latest successful `Hardware Candidate Gate` run on `main`,
+- downloads its qualification manifest,
+- independently re-checks that the Core ISO and QEMU QA runs are successful and use the same commit SHA,
+- downloads the exact ISO artifact named by the manifest,
+- verifies the producer-provided SHA-256 checksum, and
+- preserves `hardware-candidate.json` beside the image.
+
+An optional output directory may be supplied as the first argument.
+
+### Manual fallback
+
 - Download the exact ISO artifact named in `hardware-candidate.json`.
-- Verify the downloaded artifact/checksum against the evidence from the Core ISO build.
-- Write the ISO to a dedicated USB drive using a raw-image-capable writer.
+- Confirm the candidate, Core ISO, and QEMU QA commit SHAs are identical.
+- Verify the downloaded ISO using the SHA-256 checksum packaged by the Core ISO build.
+
+Then:
+
+- Write the verified ISO to a dedicated USB drive using a raw-image-capable writer.
 - Safely eject the drive after writing.
 
 ## Firmware setup
