@@ -45,31 +45,61 @@ mkdir -p "$work/iso"
 sfs="$work/iso/$sfs_path"
 [[ -f "$sfs" ]] || { echo "ERROR: failed to extract live root squashfs" >&2; exit 4; }
 
+# Record a bounded installer-oriented listing before selective extraction. If upstream
+# layout drifts, the failure artifact should explain what is present instead of dying
+# at unsquashfs with no useful evidence.
+unsquashfs -ll "$sfs" \
+  | awk '/pearOS-installer|bin_install|system_install\/setup/ {print}' \
+  | head -n 200 >"$outdir/installer-layout.txt" || true
+
+setup_rel="$(awk '{print $NF}' "$outdir/installer-layout.txt" | sed 's#^squashfs-root/##' | awk '/(^|\/)usr\/share\/pearOS-installer\/system_install\/setup$/ {print; exit}')"
+entry_rel="$(awk '{print $NF}' "$outdir/installer-layout.txt" | sed 's#^squashfs-root/##' | awk '/(^|\/)usr\/local\/bin\/bin_install$/ {print; exit}')"
+
+if [[ -z "$setup_rel" ]]; then
+  echo "ERROR: qualified ISO live root does not contain the pinned installer setup path" >&2
+  cat "$outdir/installer-layout.txt" >&2
+  exit 5
+fi
+if [[ -z "$entry_rel" ]]; then
+  echo "ERROR: qualified ISO live root does not contain the bin_install entrypoint" >&2
+  cat "$outdir/installer-layout.txt" >&2
+  exit 6
+fi
+printf 'setup_rel=%s\nentry_rel=%s\n' "$setup_rel" "$entry_rel" >>"$outdir/iso-layout.txt"
+
 # Extract only the installer contract surface. This keeps CI disk usage bounded while
 # proving the produced ISO, not merely upstream Git, contains the audited driver.
 mkdir -p "$work/root"
-unsquashfs -no-progress -d "$work/root" "$sfs" \
-  usr/share/pearOS-installer/system_install/setup \
-  usr/local/bin/bin_install >"$outdir/unsquashfs.txt" 2>&1
+if ! unsquashfs -no-progress -d "$work/root" "$sfs" "$setup_rel" "$entry_rel" \
+  >"$outdir/unsquashfs.txt" 2>&1; then
+  echo "ERROR: failed to selectively extract installer contract surface" >&2
+  cat "$outdir/unsquashfs.txt" >&2
+  exit 7
+fi
 
-embedded_setup="$work/root/usr/share/pearOS-installer/system_install/setup"
-embedded_entry="$work/root/usr/local/bin/bin_install"
-[[ -f "$embedded_setup" ]] || { echo "ERROR: live ISO is missing embedded installer setup" >&2; exit 5; }
-[[ -f "$embedded_entry" ]] || { echo "ERROR: live ISO is missing bin_install entrypoint" >&2; exit 6; }
+embedded_setup="$work/root/$setup_rel"
+embedded_entry="$work/root/$entry_rel"
+[[ -f "$embedded_setup" ]] || { echo "ERROR: extracted live root is missing embedded installer setup" >&2; exit 8; }
+[[ -e "$embedded_entry" || -L "$embedded_entry" ]] || { echo "ERROR: extracted live root is missing bin_install entrypoint" >&2; exit 9; }
 
 actual_blob="$(git hash-object "$embedded_setup")"
 printf 'expected_blob=%s\nactual_blob=%s\ninstaller_ref=%s\n' \
   "$SETUP_BLOB" "$actual_blob" "$REF" | tee "$outdir/installer-blob.txt"
 if [[ "$actual_blob" != "$SETUP_BLOB" ]]; then
   echo "ERROR: qualified ISO installer blob differs from upstream/installer.lock" >&2
-  exit 7
+  exit 10
 fi
 
-if ! grep -Fq 'cd /usr/share/pearOS-installer/system_install/' "$embedded_entry" || \
-   ! grep -Eq '(^|[[:space:]])make([[:space:]]|$)' "$embedded_entry"; then
-  echo "ERROR: live installer entrypoint no longer invokes the audited system_install tree" >&2
-  cat "$embedded_entry" >&2
-  exit 8
+if [[ -L "$embedded_entry" ]]; then
+  printf 'entrypoint_symlink=%s\n' "$(readlink "$embedded_entry")" | tee "$outdir/entrypoint.txt"
+else
+  cp "$embedded_entry" "$outdir/entrypoint.txt"
+  if ! grep -Fq 'cd /usr/share/pearOS-installer/system_install/' "$embedded_entry" || \
+     ! grep -Eq '(^|[[:space:]])make([[:space:]]|$)' "$embedded_entry"; then
+    echo "ERROR: live installer entrypoint no longer invokes the audited system_install tree" >&2
+    cat "$embedded_entry" >&2
+    exit 11
+  fi
 fi
 
 # Record the destructive primitives present in the exact embedded setup for later
@@ -80,9 +110,9 @@ grep -nE 'wipefs|sgdisk|parted|mkfs\.|pacstrap|arch-chroot|grub-install|refind' 
 cat >"$outdir/summary.txt" <<EOF
 qualified_iso=$(basename "$iso")
 installer_ref=$REF
-installer_path=/usr/share/pearOS-installer/system_install/setup
+installer_path=$setup_rel
 installer_blob=$actual_blob
-entrypoint=/usr/local/bin/bin_install
+entrypoint=$entry_rel
 live_root_contract=pass
 installer_invoked=no
 physical_install_policy=locked
