@@ -1,0 +1,20 @@
+name: Installer Safety Contract
+
+on:
+  pull_request:
+    paths:
+      - 'upstream/installer.lock'
+      - 'scripts/audit-installer-contract.sh'
+      - '.github/workflows/installer-safety-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Audit pinned installer behavior
+        run: bash scripts/audit-installer-contract.sh
