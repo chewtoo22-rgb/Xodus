@@ -1,0 +1,50 @@
+name: Validate Xodus
+
+on:
+  push:
+    branches: [main, "m0/**", "work/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  repository-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate upstream manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s upstream/pearos-repos.txt
+          awk -F'|' '
+            /^#/ || NF == 0 { next }
+            NF != 3 { print "Invalid manifest line: " $0; exit 1 }
+            $2 !~ /^https:\/\/github\.com\/pearOS-archlinux\// { print "Unexpected upstream: " $2; exit 1 }
+          ' upstream/pearos-repos.txt
+
+      - name: Shell syntax
+        shell: bash
+        run: bash -n scripts/sync-upstream.sh
+
+      - name: Required architecture docs
+        shell: bash
+        run: |
+          test -s docs/ARCHITECTURE.md
+          test -s docs/ROADMAP.md
+
+  upstream-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify upstream repositories are reachable
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS='|' read -r name url branch; do
+            [[ -z "${name:-}" || "$name" == \#* ]] && continue
+            echo "Checking $name ($branch)"
+            git ls-remote --exit-code --heads "$url" "$branch" >/dev/null
+          done < upstream/pearos-repos.txt
