@@ -1,0 +1,64 @@
+name: Core ISO Source Contract
+
+on:
+  pull_request:
+    paths:
+      - 'upstream/iso.lock'
+      - 'docs/core-iso.md'
+      - '.github/workflows/core-source-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-pinned-pearos:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Xodus
+        uses: actions/checkout@v4
+
+      - name: Parse lock
+        id: lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          line=$(grep -v '^#' upstream/iso.lock | grep -v '^$' | head -n1)
+          IFS='|' read -r repo branch commit captured <<< "$line"
+          test -n "$repo"
+          test -n "$branch"
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
+          echo "repo=$repo" >> "$GITHUB_OUTPUT"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch exact pearOS revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init pearos-iso
+          cd pearos-iso
+          git remote add origin '${{ steps.lock.outputs.repo }}'
+          git fetch --depth=1 origin '${{ steps.lock.outputs.commit }}'
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = '${{ steps.lock.outputs.commit }}'
+
+      - name: Validate upstream build contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd pearos-iso
+          test -f build-binary
+          test -x build-binary
+          test -f README.md
+          test -f pear/efiboot/ploader/ploader_x64.efi
+          grep -q 'sudo ./build-binary' README.md
+          sha256sum build-binary > ../build-binary.sha256
+
+      - name: Upload contract fingerprint
+        uses: actions/upload-artifact@v4
+        with:
+          name: pearos-core-source-contract
+          path: build-binary.sha256
+          if-no-files-found: error
+          retention-days: 14

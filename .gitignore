@@ -1,0 +1,7 @@
+vendor/
+*.iso
+*.img
+*.qcow2
+build/
+out/
+.cache/
