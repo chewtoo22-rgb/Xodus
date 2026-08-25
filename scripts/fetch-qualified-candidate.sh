@@ -4,7 +4,7 @@ set -euo pipefail
 REPO="${XODUS_REPO:-chewtoo22-rgb/Xodus}"
 OUT_DIR="${1:-xodus-hardware-candidate}"
 
-for cmd in gh jq sha256sum find; do
+for cmd in gh jq sha256sum find awk; do
   command -v "$cmd" >/dev/null 2>&1 || {
     echo "error: required command '$cmd' is not installed" >&2
     exit 2
@@ -65,20 +65,32 @@ if [[ -z "$checksum_file" ]]; then
   exit 7
 fi
 
-checksum_dir="$(dirname "$checksum_file")"
-checksum_name="$(basename "$checksum_file")"
-(
-  cd "$checksum_dir"
-  sha256sum -c "$checksum_name"
-)
-
-cp "$manifest" "$OUT_DIR/hardware-candidate.json"
-
 iso_file="$(find "$OUT_DIR" -type f -name '*.iso' -print -quit)"
 if [[ -z "$iso_file" ]]; then
   echo "error: no ISO file was found after artifact download" >&2
   exit 8
 fi
+
+# GitHub artifact downloads may flatten the directory structure that existed
+# when the checksum was generated. Verify the digest against the discovered ISO
+# rather than trusting the recorded relative pathname to survive extraction.
+expected_sha="$(awk 'NF >= 2 && $1 ~ /^[0-9a-fA-F]{64}$/ { print tolower($1); exit }' "$checksum_file")"
+if [[ -z "$expected_sha" ]]; then
+  echo "error: checksum file does not contain a valid SHA-256 digest" >&2
+  exit 9
+fi
+
+actual_sha="$(sha256sum "$iso_file" | awk '{ print tolower($1) }')"
+if [[ "$actual_sha" != "$expected_sha" ]]; then
+  echo "error: ISO SHA-256 verification failed" >&2
+  echo "expected=${expected_sha}" >&2
+  echo "actual=${actual_sha}" >&2
+  exit 10
+fi
+
+echo "${iso_file}: OK (${actual_sha})"
+
+cp "$manifest" "$OUT_DIR/hardware-candidate.json"
 
 cat <<EOF
 
