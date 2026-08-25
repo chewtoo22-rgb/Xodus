@@ -1,0 +1,113 @@
+name: Installer VM Rehearsal
+
+on:
+  pull_request:
+    paths:
+      - 'qa/installer-vm-rehearsal.sh'
+      - '.github/workflows/installer-vm-rehearsal.yml'
+      - 'scripts/installer-target-guard.sh'
+      - 'docs/INSTALLER_SAFETY.md'
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: 'Optional successful Core ISO commit SHA to rehearse'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  installer-rehearsal:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse pinned pearOS revision
+        id: lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          line=$(grep -v '^#' upstream/iso.lock | grep -v '^$' | head -n1)
+          IFS='|' read -r repo branch commit captured <<< "$line"
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve proven Core ISO
+        id: run
+        shell: bash
+        run: |
+          set -euo pipefail
+          requested='${{ inputs.source_sha || '' }}'
+          if [[ -n "$requested" ]]; then
+            [[ "$requested" =~ ^[0-9a-f]{40}$ ]]
+            row=$(gh api "/repos/${GITHUB_REPOSITORY}/actions/workflows/core-iso-build.yml/runs?status=success&per_page=50" \
+              | jq -r --arg sha "$requested" '.workflow_runs[] | select(.head_sha == $sha) | [.id,.head_sha] | @tsv' | head -n1)
+          else
+            row=$(gh api "/repos/${GITHUB_REPOSITORY}/actions/workflows/core-iso-build.yml/runs?status=success&per_page=20" \
+              | jq -r '.workflow_runs[] | [.id,.head_sha] | @tsv' | head -n1)
+          fi
+          [[ -n "${row:-}" ]] || { echo 'No successful Core ISO build available' >&2; exit 5; }
+          IFS=$'\t' read -r run_id source_sha <<< "$row"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "Using proven Core ISO run $run_id from $source_sha"
+
+      - name: Reclaim runner disk
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          docker system prune -af || true
+          df -h /
+
+      - name: Install VM tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils ovmf xorriso file
+
+      - name: Download proven ISO artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: xodus-reference-iso-${{ steps.lock.outputs.commit }}
+          path: installer-input
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.run.outputs.run_id }}
+
+      - name: Verify ISO checksum
+        id: image
+        shell: bash
+        run: |
+          set -euo pipefail
+          iso=$(find installer-input -type f -name '*.iso' -print -quit)
+          checksum=$(find installer-input -type f -name 'xodus-reference.sha256' -print -quit)
+          test -n "$iso" && test -s "$iso"
+          test -n "$checksum" && test -s "$checksum"
+          iso_abs=$(realpath "$iso")
+          expected=$(awk '{print $1}' "$checksum")
+          actual=$(sha256sum "$iso_abs" | awk '{print $1}')
+          test "$expected" = "$actual"
+          echo "iso=$iso_abs" >> "$GITHUB_OUTPUT"
+          printf 'sha256=%s\ncore_source_sha=%s\ncore_run_id=%s\n' "$actual" '${{ steps.run.outputs.source_sha }}' '${{ steps.run.outputs.run_id }}' | tee installer-image-digest.txt
+
+      - name: Run installer topology rehearsal
+        env:
+          BOOT_SECONDS: 120
+          DISK_GIB: 32
+        run: |
+          bash -n qa/installer-vm-rehearsal.sh
+          bash qa/installer-vm-rehearsal.sh '${{ steps.image.outputs.iso }}' qa-installer-artifacts
+          grep -Fq 'installer_invoked=no' qa-installer-artifacts/rehearsal-summary.txt
+
+      - name: Upload rehearsal evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xodus-installer-rehearsal-${{ steps.run.outputs.source_sha }}
+          path: |
+            qa-installer-artifacts/
+            installer-image-digest.txt
+          if-no-files-found: warn
+          retention-days: 7

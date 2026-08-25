@@ -24,13 +24,25 @@ The audited installer is explicitly whole-disk destructive. Its setup path unmou
 - loop devices that are not explicitly marked disposable or whose backing files are outside approved temporary paths;
 - physical disks unless a separate deliberate physical-install opt-in is present.
 
-The `Installer Target Guard` workflow creates a sparse temporary image, attaches it as a loop device, proves unsafe invocation modes are rejected, proves the marked disposable target is accepted, then mounts that target and proves the guard rejects it again. This establishes a safe storage fixture for the next destructive-install CI slice without relaxing the live-boot-only hardware policy.
+The `Installer Target Guard` workflow creates a sparse temporary image, attaches it as a loop device, proves unsafe invocation modes are rejected, proves the marked disposable target is accepted, then mounts that target and proves the guard rejects it again.
+
+## Installer VM rehearsal
+
+`qa/installer-vm-rehearsal.sh` is the non-destructive bridge between boot smoke and the future destructive install test. The `Installer VM Rehearsal` workflow:
+
+1. resolves a proven Core ISO build and independently verifies its packaged SHA-256;
+2. creates a fresh 32 GiB qcow2 target in runner-temporary storage;
+3. boots the exact ISO under OVMF/UEFI with that expendable disk attached as the only writable installation target;
+4. keeps the VM alive through a watchdog window and captures serial, firmware, ISO, and virtual-disk evidence;
+5. records `installer_invoked=no` explicitly so a green rehearsal can never be confused with proof of installation.
+
+This closes the VM-topology gap without weakening the physical live-boot-only policy. A rehearsal pass means the qualified ISO remains bootable with the exact disposable-disk topology required by the next gate; it does **not** authorize physical installation.
 
 ## Next gate
 
-The VM installation gate must:
+The destructive VM installation gate must:
 
-1. create a uniquely named disposable qcow2/raw target inside the CI job and pass it through the target guard;
+1. create a uniquely named disposable qcow2/raw target inside the CI job and pass its exposed block device through the target guard;
 2. boot the exact qualified Xodus ISO under OVMF;
 3. ensure the installer sees only the disposable target as writable test storage;
 4. execute installation without relying on a human clicking an ambiguous disk selector;
