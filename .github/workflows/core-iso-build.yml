@@ -2,6 +2,17 @@ name: Core ISO Build
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'upstream/iso.lock'
+      - 'overlay/**'
+      - '.github/workflows/core-iso-build.yml'
+      - 'docs/core-iso.md'
+      - 'docs/desktop-identity.md'
+      - '.github/workflows/qa-qemu-smoke.yml'
+      - '.github/workflows/hardware-candidate.yml'
+      - 'qa/**'
   pull_request:
     paths:
       - 'upstream/iso.lock'
