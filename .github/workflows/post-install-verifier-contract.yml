@@ -1,0 +1,43 @@
+name: Post-Install Verifier Contract
+
+on:
+  pull_request:
+    paths:
+      - 'qa/post-install-uefi-smoke.sh'
+      - 'qa/post-install-verifier-contract.sh'
+      - '.github/workflows/post-install-verifier-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  adversarial-verifier-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install verifier dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-utils qemu-system-x86 ovmf gdisk util-linux
+
+      - name: Shell syntax
+        run: |
+          bash -n qa/post-install-uefi-smoke.sh
+          bash -n qa/post-install-verifier-contract.sh
+
+      - name: Run adversarial contract
+        run: |
+          bash qa/post-install-verifier-contract.sh "$RUNNER_TEMP/post-install-verifier-contract"
+
+      - name: Upload rejection evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-install-verifier-contract-evidence
+          path: ${{ runner.temp }}/post-install-verifier-contract
+          if-no-files-found: warn
+          retention-days: 7
