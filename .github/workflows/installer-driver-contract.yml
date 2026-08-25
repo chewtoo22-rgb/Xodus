@@ -1,0 +1,39 @@
+name: Installer Driver Contract
+
+on:
+  pull_request:
+    paths:
+      - 'upstream/installer.lock'
+      - 'scripts/audit-installer-driver.sh'
+      - '.github/workflows/installer-driver-contract.yml'
+      - 'docs/INSTALLER_SAFETY.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deterministic-installer-entrypoint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate local shell entrypoint
+        run: bash -n scripts/audit-installer-driver.sh
+
+      - name: Audit pinned pearOS installer contract
+        run: bash scripts/audit-installer-driver.sh upstream/installer.lock "$RUNNER_TEMP/pearos-installer"
+
+      - name: Record contract evidence
+        run: |
+          bash scripts/audit-installer-driver.sh upstream/installer.lock "$RUNNER_TEMP/pearos-installer-evidence" \
+            | tee installer-driver-contract.txt
+
+      - name: Upload contract evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: xodus-installer-driver-contract-${{ github.sha }}
+          path: installer-driver-contract.txt
+          if-no-files-found: error
+          retention-days: 14

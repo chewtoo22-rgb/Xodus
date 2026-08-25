@@ -38,6 +38,18 @@ The `Installer Target Guard` workflow creates a sparse temporary image, attaches
 
 This closes the VM-topology gap without weakening the physical live-boot-only policy. A rehearsal pass means the qualified ISO remains bootable with the exact disposable-disk topology required by the next gate; it does **not** authorize physical installation.
 
+## Deterministic installer driver contract
+
+The future destructive VM test does not drive the Electron disk selector. Xodus pins both the installer commit and the Git blob for `system_install/setup`, then `scripts/audit-installer-driver.sh` proves the machine-facing contract we intend to invoke directly:
+
+- the whole-disk target is assigned from positional argument `$1`;
+- that assignment occurs before the first destructive `wipefs` boundary;
+- GPT creation, `sgdisk`, and `partprobe` continue to operate on that same `$DISK` value;
+- the new root filesystem is mounted at `/mnt`;
+- installer progress remains observable through `/tmp/progress`.
+
+`Installer Driver Contract` CI re-fetches the exact pinned commit, verifies the `system_install/setup` blob SHA, syntax-checks the entrypoint, and fails closed if any required target semantics drift. This lets the VM automation pass an exact guarded device path without relying on ambiguous GUI selection.
+
 ## Next gate
 
 The destructive VM installation gate must:
@@ -45,7 +57,7 @@ The destructive VM installation gate must:
 1. create a uniquely named disposable qcow2/raw target inside the CI job and pass its exposed block device through the target guard;
 2. boot the exact qualified Xodus ISO under OVMF;
 3. ensure the installer sees only the disposable target as writable test storage;
-4. execute installation without relying on a human clicking an ambiguous disk selector;
+4. invoke the pinned `system_install/setup <exact-device>` entrypoint only after its blob and driver contract pass;
 5. shut the VM down and detach the ISO;
 6. boot the installed target under OVMF;
 7. verify kernel/userspace startup and capture serial/journal evidence;

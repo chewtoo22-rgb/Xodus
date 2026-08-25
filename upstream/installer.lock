@@ -1,3 +1,5 @@
 REPO=https://github.com/pearOS-archlinux/pearOS-installer.git
 REF=e676698b4a07f797a50fd25241a738ead75248e6
+SETUP_PATH=system_install/setup
+SETUP_BLOB=99046db1958c0f7fe6710f3e7236a6bc2cc4fdde
 POLICY=live-boot-only-until-vm-install-gate-passes
