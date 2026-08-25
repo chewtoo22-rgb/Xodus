@@ -2,7 +2,7 @@ name: Validate Xodus
 
 on:
   push:
-    branches: [main, "m0/**", "work/**"]
+    branches: [main, "m0/**", "work/**", "release/**"]
   pull_request:
 
 permissions:
@@ -27,7 +27,12 @@ jobs:
 
       - name: Shell syntax
         shell: bash
-        run: bash -n scripts/sync-upstream.sh
+        run: |
+          set -euo pipefail
+          mapfile -t scripts < <(find scripts qa -type f -name '*.sh' -print | sort)
+          test "${#scripts[@]}" -gt 0
+          printf 'Checking %s\n' "${scripts[@]}"
+          bash -n "${scripts[@]}"
 
       - name: Required architecture docs
         shell: bash
