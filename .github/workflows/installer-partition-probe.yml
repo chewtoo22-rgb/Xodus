@@ -1,0 +1,41 @@
+name: Installer Destructive Partition Probe
+
+on:
+  pull_request:
+    paths:
+      - 'qa/installer-partition-probe.sh'
+      - 'scripts/installer-target-guard.sh'
+      - 'scripts/audit-installer-driver.sh'
+      - 'upstream/installer.lock'
+      - '.github/workflows/installer-partition-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  destructive-partition-probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install probe dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gdisk dosfstools parted util-linux e2fsprogs
+
+      - name: Run guarded destructive partition probe
+        env:
+          DISK_GIB: '32'
+        run: |
+          bash qa/installer-partition-probe.sh qa-installer-partition-artifacts
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-partition-probe-evidence
+          path: qa-installer-partition-artifacts/
+          if-no-files-found: warn
+          retention-days: 7
