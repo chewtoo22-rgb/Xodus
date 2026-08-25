@@ -25,7 +25,7 @@ jobs:
         run: |
           set -euo pipefail
           truncate -s 24G "$RUNNER_TEMP/not-a-device.img"
-          if scripts/installer-target-guard.sh "$RUNNER_TEMP/not-a-device.img"; then
+          if bash scripts/installer-target-guard.sh "$RUNNER_TEMP/not-a-device.img"; then
             echo 'guard unexpectedly approved a regular file' >&2
             exit 1
           fi
@@ -45,7 +45,7 @@ jobs:
           LOOP: ${{ steps.loop.outputs.loop }}
         run: |
           set -euo pipefail
-          if XODUS_INSTALL_CONFIRM="$LOOP" scripts/installer-target-guard.sh "$LOOP"; then
+          if XODUS_INSTALL_CONFIRM="$LOOP" bash scripts/installer-target-guard.sh "$LOOP"; then
             echo 'guard unexpectedly approved an unmarked loop device' >&2
             exit 1
           fi
@@ -55,7 +55,7 @@ jobs:
           LOOP: ${{ steps.loop.outputs.loop }}
         run: |
           set -euo pipefail
-          if XODUS_DISPOSABLE=1 scripts/installer-target-guard.sh "$LOOP"; then
+          if XODUS_DISPOSABLE=1 bash scripts/installer-target-guard.sh "$LOOP"; then
             echo 'guard unexpectedly approved a loop device without exact confirmation' >&2
             exit 1
           fi
@@ -66,7 +66,7 @@ jobs:
         run: |
           set -euo pipefail
           XODUS_DISPOSABLE=1 XODUS_INSTALL_CONFIRM="$LOOP" \
-            scripts/installer-target-guard.sh "$LOOP" | tee "$RUNNER_TEMP/guard-approved.log"
+            bash scripts/installer-target-guard.sh "$LOOP" | tee "$RUNNER_TEMP/guard-approved.log"
           grep -Fq 'APPROVED DISPOSABLE INSTALL TARGET' "$RUNNER_TEMP/guard-approved.log"
 
       - name: Verify mounted target is rejected
@@ -77,7 +77,7 @@ jobs:
           sudo mkfs.ext4 -F "$LOOP" >/dev/null
           mkdir -p "$RUNNER_TEMP/mnt"
           sudo mount "$LOOP" "$RUNNER_TEMP/mnt"
-          if XODUS_DISPOSABLE=1 XODUS_INSTALL_CONFIRM="$LOOP" scripts/installer-target-guard.sh "$LOOP"; then
+          if XODUS_DISPOSABLE=1 XODUS_INSTALL_CONFIRM="$LOOP" bash scripts/installer-target-guard.sh "$LOOP"; then
             echo 'guard unexpectedly approved a mounted target' >&2
             exit 1
           fi
