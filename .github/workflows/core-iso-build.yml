@@ -5,8 +5,10 @@ on:
   pull_request:
     paths:
       - 'upstream/iso.lock'
+      - 'overlay/**'
       - '.github/workflows/core-iso-build.yml'
       - 'docs/core-iso.md'
+      - 'docs/desktop-identity.md'
 
 permissions:
   contents: read
@@ -57,6 +59,17 @@ jobs:
           test -f packages/pearos.gpg
           test -f packages/inled.gpg
 
+      - name: Apply Xodus identity overlay
+        shell: bash
+        env:
+          XODUS_UPSTREAM_COMMIT: ${{ steps.lock.outputs.commit }}
+        run: |
+          set -euo pipefail
+          bash -n overlay/apply-xodus-identity.sh
+          bash overlay/apply-xodus-identity.sh "$GITHUB_WORKSPACE/pearos-iso"
+          grep -F 'iso_name="Xodus"' pearos-iso/pear/profiledef.sh
+          grep -F 'XODUS_UPSTREAM_COMMIT=${{ steps.lock.outputs.commit }}' pearos-iso/pear/airootfs/usr/lib/xodus/build-info
+
       - name: Require build headroom
         shell: bash
         run: |
@@ -72,7 +85,7 @@ jobs:
       - name: Pull Arch build environment
         run: docker pull archlinux:base-devel
 
-      - name: Build pinned pearOS reference ISO
+      - name: Build pinned Xodus reference ISO
         shell: bash
         run: |
           set -euo pipefail
@@ -104,7 +117,7 @@ jobs:
               pacman -Sy --noconfirm --config pear/pacman.conf
 
               command -v pacstrap arch-chroot mksquashfs xorriso mkfs.ext4 tune2fs git pv
-              ./build-binary --build --filename pearOS-Xodus-reference --compression fastest --clean --sha256
+              ./build-binary --build --filename Xodus-reference --compression fastest --clean --sha256
             '
 
       - name: Verify produced image
@@ -112,7 +125,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          iso=$(find pearos-iso -maxdepth 1 -type f -name 'pearOS-Xodus-reference-*.iso' -print -quit)
+          iso=$(find pearos-iso -maxdepth 1 -type f -name 'Xodus-reference-*.iso' -print -quit)
           test -n "$iso"
           test -s "$iso"
           sha256sum "$iso" | tee pearos-iso/xodus-reference.sha256

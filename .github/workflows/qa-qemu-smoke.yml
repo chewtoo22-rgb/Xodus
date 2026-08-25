@@ -5,6 +5,9 @@ on:
     paths:
       - 'qa/**'
       - '.github/workflows/qa-qemu-smoke.yml'
+  workflow_run:
+    workflows: ['Core ISO Build']
+    types: [completed]
   workflow_dispatch:
     inputs:
       source_sha:
@@ -17,11 +20,12 @@ permissions:
   actions: read
 
 concurrency:
-  group: qa-qemu-${{ github.ref }}
+  group: qa-qemu-${{ github.event.workflow_run.id || github.ref }}
   cancel-in-progress: true
 
 jobs:
   boot-smoke:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -29,6 +33,8 @@ jobs:
     steps:
       - name: Checkout Xodus QA lane
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Parse pinned pearOS revision
         id: lock
@@ -40,29 +46,82 @@ jobs:
           [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
 
-      - name: Find successful Core ISO build
+      - name: Resolve successful Core ISO build
         id: run
         shell: bash
         run: |
           set -euo pipefail
-          requested='${{ inputs.source_sha || '' }}'
-          runs=$(gh api \
-            -H 'Accept: application/vnd.github+json' \
-            "/repos/${GITHUB_REPOSITORY}/actions/workflows/core-iso-build.yml/runs?status=success&per_page=50")
 
-          if [[ -n "$requested" ]]; then
-            [[ "$requested" =~ ^[0-9a-f]{40}$ ]]
-            row=$(jq -r --arg sha "$requested" '.workflow_runs[] | select(.head_sha == $sha) | [.id,.head_sha] | @tsv' <<< "$runs" | head -n1)
+          resolve_success_for_sha() {
+            local sha="$1"
+            gh api -H 'Accept: application/vnd.github+json' \
+              "/repos/${GITHUB_REPOSITORY}/actions/workflows/core-iso-build.yml/runs?status=success&per_page=50" \
+              | jq -r --arg sha "$sha" '.workflow_runs[] | select(.head_sha == $sha) | [.id,.head_sha] | @tsv' \
+              | head -n1
+          }
+
+          if [[ '${{ github.event_name }}' == 'workflow_run' ]]; then
+            run_id='${{ github.event.workflow_run.id }}'
+            source_sha='${{ github.event.workflow_run.head_sha }}'
+            test '${{ github.event.workflow_run.conclusion }}' = 'success'
           else
-            row=$(jq -r '.workflow_runs[] | select(.head_branch == "work/core-iso") | [.id,.head_sha] | @tsv' <<< "$runs" | head -n1)
+            requested='${{ inputs.source_sha || '' }}'
+            target_sha=''
+
+            if [[ -n "$requested" ]]; then
+              [[ "$requested" =~ ^[0-9a-f]{40}$ ]]
+              target_sha="$requested"
+            elif [[ '${{ github.event_name }}' == 'pull_request' ]]; then
+              target_sha='${{ github.event.pull_request.head.sha }}'
+            fi
+
+            row=''
+            if [[ -n "$target_sha" ]]; then
+              row=$(resolve_success_for_sha "$target_sha")
+
+              if [[ -z "$row" && '${{ github.event_name }}' == 'pull_request' ]]; then
+                live=$(gh api -H 'Accept: application/vnd.github+json' \
+                  "/repos/${GITHUB_REPOSITORY}/actions/workflows/core-iso-build.yml/runs?per_page=50" \
+                  | jq -r --arg sha "$target_sha" '.workflow_runs[] | select(.head_sha == $sha and (.status == "queued" or .status == "in_progress" or .status == "waiting")) | .id' \
+                  | head -n1)
+
+                if [[ -n "$live" ]]; then
+                  echo "Core ISO run $live for $target_sha is still active; waiting for artifact producer"
+                  for attempt in $(seq 1 75); do
+                    state=$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/$live" | jq -r '[.status,.conclusion] | @tsv')
+                    IFS=$'\t' read -r status conclusion <<< "$state"
+                    echo "producer status: $status ${conclusion:-} (poll $attempt/75)"
+                    if [[ "$status" == 'completed' ]]; then
+                      if [[ "$conclusion" != 'success' ]]; then
+                        echo "Matching Core ISO producer completed with $conclusion" >&2
+                        exit 6
+                      fi
+                      break
+                    fi
+                    sleep 20
+                  done
+                  row=$(resolve_success_for_sha "$target_sha")
+                fi
+              fi
+            fi
+
+            if [[ -z "$row" && -z "$requested" ]]; then
+              echo "No successful same-head Core ISO build is available; using latest proven ISO for QA-only changes"
+              row=$(gh api -H 'Accept: application/vnd.github+json' \
+                "/repos/${GITHUB_REPOSITORY}/actions/workflows/core-iso-build.yml/runs?status=success&per_page=50" \
+                | jq -r '.workflow_runs[] | [.id,.head_sha] | @tsv' \
+                | head -n1)
+            fi
+
+            if [[ -z "${row:-}" ]]; then
+              echo "No successful Core ISO Build matched the requested source" >&2
+              exit 5
+            fi
+
+            IFS=$'\t' read -r run_id source_sha <<< "$row"
           fi
 
-          if [[ -z "$row" ]]; then
-            echo "No successful Core ISO Build matched the requested source" >&2
-            exit 5
-          fi
-
-          IFS=$'\t' read -r run_id source_sha <<< "$row"
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]
           echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
           echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
           echo "Using Core ISO workflow run $run_id from $source_sha"
