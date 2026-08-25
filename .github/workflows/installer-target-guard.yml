@@ -1,0 +1,93 @@
+name: Installer Target Guard
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/installer-target-guard.sh'
+      - '.github/workflows/installer-target-guard.yml'
+      - 'docs/INSTALLER_SAFETY.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  disposable-target-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Shell syntax
+        run: bash -n scripts/installer-target-guard.sh
+
+      - name: Verify regular files are rejected
+        run: |
+          set -euo pipefail
+          truncate -s 24G "$RUNNER_TEMP/not-a-device.img"
+          if scripts/installer-target-guard.sh "$RUNNER_TEMP/not-a-device.img"; then
+            echo 'guard unexpectedly approved a regular file' >&2
+            exit 1
+          fi
+
+      - name: Create disposable loop target
+        id: loop
+        run: |
+          set -euo pipefail
+          image="$RUNNER_TEMP/xodus-disposable-install.img"
+          truncate -s 24G "$image"
+          loop="$(sudo losetup --find --show "$image")"
+          echo "loop=$loop" >> "$GITHUB_OUTPUT"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+
+      - name: Verify unmarked loop target is rejected
+        env:
+          LOOP: ${{ steps.loop.outputs.loop }}
+        run: |
+          set -euo pipefail
+          if XODUS_INSTALL_CONFIRM="$LOOP" scripts/installer-target-guard.sh "$LOOP"; then
+            echo 'guard unexpectedly approved an unmarked loop device' >&2
+            exit 1
+          fi
+
+      - name: Verify exact confirmation is required
+        env:
+          LOOP: ${{ steps.loop.outputs.loop }}
+        run: |
+          set -euo pipefail
+          if XODUS_DISPOSABLE=1 scripts/installer-target-guard.sh "$LOOP"; then
+            echo 'guard unexpectedly approved a loop device without exact confirmation' >&2
+            exit 1
+          fi
+
+      - name: Approve marked disposable loop target
+        env:
+          LOOP: ${{ steps.loop.outputs.loop }}
+        run: |
+          set -euo pipefail
+          XODUS_DISPOSABLE=1 XODUS_INSTALL_CONFIRM="$LOOP" \
+            scripts/installer-target-guard.sh "$LOOP" | tee "$RUNNER_TEMP/guard-approved.log"
+          grep -Fq 'APPROVED DISPOSABLE INSTALL TARGET' "$RUNNER_TEMP/guard-approved.log"
+
+      - name: Verify mounted target is rejected
+        env:
+          LOOP: ${{ steps.loop.outputs.loop }}
+        run: |
+          set -euo pipefail
+          sudo mkfs.ext4 -F "$LOOP" >/dev/null
+          mkdir -p "$RUNNER_TEMP/mnt"
+          sudo mount "$LOOP" "$RUNNER_TEMP/mnt"
+          if XODUS_DISPOSABLE=1 XODUS_INSTALL_CONFIRM="$LOOP" scripts/installer-target-guard.sh "$LOOP"; then
+            echo 'guard unexpectedly approved a mounted target' >&2
+            exit 1
+          fi
+          sudo umount "$RUNNER_TEMP/mnt"
+
+      - name: Cleanup loop target
+        if: always()
+        env:
+          LOOP: ${{ steps.loop.outputs.loop }}
+        run: |
+          set +e
+          sudo umount "$RUNNER_TEMP/mnt" 2>/dev/null || true
+          [[ -n "$LOOP" ]] && sudo losetup -d "$LOOP" || true
