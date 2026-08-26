@@ -1,0 +1,53 @@
+name: Installer Live Root Contract
+
+on:
+  pull_request:
+    paths:
+      - 'qa/installer-live-root-contract.sh'
+      - 'scripts/fetch-qualified-candidate.sh'
+      - 'upstream/installer.lock'
+      - '.github/workflows/installer-live-root-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  live-root-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reclaim runner disk
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
+          df -h
+
+      - name: Install audit dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libarchive-tools squashfs-tools jq
+
+      - name: Fetch latest qualified Xodus candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bash scripts/fetch-qualified-candidate.sh qualified-candidate
+          find qualified-candidate -maxdepth 2 -type f -printf '%p %s bytes\n'
+
+      - name: Verify embedded installer against pinned contract
+        run: |
+          iso="$(find qualified-candidate -type f -name '*.iso' -print -quit)"
+          test -n "$iso"
+          bash qa/installer-live-root-contract.sh "$iso" installer-live-root-evidence
+
+      - name: Upload installer live-root evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-live-root-contract-evidence
+          path: installer-live-root-evidence/
+          if-no-files-found: warn
+          retention-days: 7
