@@ -20,8 +20,10 @@ DISK_ROOT="${RUNNER_TEMP:-/tmp}"
 mkdir -p "$DISK_ROOT"
 DISK_PATH="$DISK_ROOT/xodus-installed-${GITHUB_RUN_ID:-local}-$$.raw"
 QGA_SOCK="$DISK_ROOT/xodus-qga-${GITHUB_RUN_ID:-local}-$$.sock"
+LIVE_KERNEL="$DISK_ROOT/xodus-live-kernel-${GITHUB_RUN_ID:-local}-$$"
+LIVE_INITRD="$DISK_ROOT/xodus-live-initrd-${GITHUB_RUN_ID:-local}-$$"
 
-for cmd in truncate losetup qemu-system-x86_64 qemu-img python3 base64 git sha256sum lsblk; do
+for cmd in truncate losetup qemu-system-x86_64 qemu-img python3 base64 git sha256sum lsblk xorriso blkid; do
   command -v "$cmd" >/dev/null 2>&1 || { echo "ERROR: required command missing: $cmd" >&2; exit 69; }
 done
 
@@ -42,8 +44,9 @@ SETUP_FILE="$AUDIT_DIR/$SETUP_PATH"
 [[ -s "$SETUP_FILE" ]] || { echo "ERROR: audited installer setup missing" >&2; exit 1; }
 SETUP_B64="$(base64 -w0 "$SETUP_FILE")"
 
-# Host-side destructive guard: the exact bytes later attached to QEMU must first
-# be approved as a disposable loop-backed target under RUNNER_TEMP or /tmp.
+# Host-side destructive guard: approve the exact raw bytes that will later be
+# attached to QEMU. The guard only accepts an explicitly disposable loop target
+# backed by RUNNER_TEMP or /tmp.
 truncate -s "${DISK_GIB}G" "$DISK_PATH"
 loop_dev="$(sudo losetup --find --show "$DISK_PATH")"
 qemu_pid=""
@@ -56,7 +59,7 @@ cleanup() {
   if [[ -n "${loop_dev:-}" ]]; then
     sudo losetup -d "$loop_dev" >/dev/null 2>&1 || true
   fi
-  rm -f "$QGA_SOCK" "$DISK_PATH" >/dev/null 2>&1 || true
+  rm -f "$QGA_SOCK" "$DISK_PATH" "$LIVE_KERNEL" "$LIVE_INITRD" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -90,10 +93,6 @@ mapfile -t ovmf < <(find_ovmf) || true
 [[ ${#ovmf[@]} -eq 2 ]] || { echo "ERROR: OVMF firmware pair not found" >&2; exit 69; }
 cp "${ovmf[1]}" "$OUTDIR/OVMF_VARS_INSTALL.fd"
 
-# Prefer hardware acceleration when the hosted runner exposes /dev/kvm. The
-# full graphical live image can take several minutes under TCG, which makes a
-# machine-control timeout indistinguishable from a boot failure. Keep TCG as a
-# deterministic fallback for environments without nested virtualization.
 if [[ -c /dev/kvm ]]; then
   QEMU_MACHINE="q35,accel=kvm"
   QEMU_CPU="host"
@@ -103,12 +102,31 @@ else
   QEMU_CPU="max"
   QEMU_ACCEL="tcg"
 fi
-printf 'qemu_accel=%s\nboot_timeout_seconds=%s\n' "$QEMU_ACCEL" "$BOOT_SECONDS" \
-  | tee "$OUTDIR/qemu-runtime.txt"
 
-# The pinned pearOS image enables qemu-guest-agent. Use that machine-facing
-# channel instead of assuming the graphical live image exposes a serial getty.
-# This keeps the real ISO bootloader + OVMF path under test.
+# UEFI ISO boot is independently required by QA QEMU Boot Smoke. For this
+# destructive installer gate, extract the kernel and initramfs from the exact
+# checksum-verified ISO and boot that same live root deterministically. This
+# avoids coupling installer automation to SDDM/Plymouth while still preserving
+# the qualified ISO bytes, ArchISO live media, UEFI firmware, and audited
+# installer payload under test.
+xorriso -osirrox on -indev "$ISO_PATH" \
+  -extract /pear/boot/x86_64/vmlinuz-linux "$LIVE_KERNEL" \
+  >"$OUTDIR/kernel-extract.log" 2>&1
+xorriso -osirrox on -indev "$ISO_PATH" \
+  -extract /pear/boot/x86_64/initramfs-linux.img "$LIVE_INITRD" \
+  >"$OUTDIR/initrd-extract.log" 2>&1
+[[ -s "$LIVE_KERNEL" && -s "$LIVE_INITRD" ]] || {
+  echo "ERROR: qualified ISO kernel/initramfs extraction failed" >&2
+  exit 1
+}
+ISO_LABEL="$(blkid -s LABEL -o value "$ISO_PATH" || true)"
+[[ -n "$ISO_LABEL" ]] || { echo "ERROR: qualified ISO volume label unavailable" >&2; exit 1; }
+sha256sum "$LIVE_KERNEL" "$LIVE_INITRD" | tee "$OUTDIR/live-boot-payload.sha256"
+printf 'iso_label=%s\nqemu_accel=%s\nboot_timeout_seconds=%s\nlive_boot_mode=uefi-direct-kernel-from-qualified-iso\n' \
+  "$ISO_LABEL" "$QEMU_ACCEL" "$BOOT_SECONDS" | tee "$OUTDIR/qemu-runtime.txt"
+
+KERNEL_CMDLINE="archisobasedir=pear archisolabel=$ISO_LABEL cow_spacesize=4G module_blacklist=pcspkr nvme_load=yes console=tty0 console=ttyS0,115200n8 systemd.unit=multi-user.target systemd.mask=sddm.service systemd.show_status=true plymouth.enable=0"
+
 qemu-system-x86_64 \
   -machine "$QEMU_MACHINE" \
   -cpu "$QEMU_CPU" \
@@ -120,10 +138,13 @@ qemu-system-x86_64 \
   -drive "if=pflash,format=raw,readonly=on,file=${ovmf[0]}" \
   -drive "if=pflash,format=raw,file=$OUTDIR/OVMF_VARS_INSTALL.fd" \
   -drive "file=$DISK_PATH,if=virtio,format=raw,cache=writeback" \
-  -cdrom "$ISO_PATH" \
-  -boot order=d \
+  -drive "file=$ISO_PATH,media=cdrom,readonly=on" \
+  -kernel "$LIVE_KERNEL" \
+  -initrd "$LIVE_INITRD" \
+  -append "$KERNEL_CMDLINE" \
   -serial "file:$OUTDIR/install-serial.log" \
   -device virtio-rng-pci \
+  -nic user,model=virtio-net-pci \
   -chardev "socket,path=$QGA_SOCK,server=on,wait=off,id=qga0" \
   -device virtio-serial-pci \
   -device virtserialport,chardev=qga0,name=org.qemu.guest_agent.0 \
@@ -208,19 +229,20 @@ python3 "$QGA_HELPER" "$QGA_SOCK" ping --timeout "$BOOT_SECONDS" \
 qga_rc=$?
 set -e
 if [[ $qga_rc -ne 0 ]]; then
-  echo "ERROR: live system never exposed qemu-guest-agent" >&2
+  echo "ERROR: deterministic live userspace never exposed qemu-guest-agent" >&2
   printf 'qemu_alive_at_timeout=%s\n' "$(kill -0 "$qemu_pid" 2>/dev/null && echo yes || echo no)" \
     | tee -a "$OUTDIR/qemu-runtime.txt" >&2
-  tail -n 120 "$OUTDIR/qemu.stderr" >&2 2>/dev/null || true
-  tail -n 120 "$OUTDIR/install-serial.log" >&2 2>/dev/null || true
+  tail -n 160 "$OUTDIR/qemu.stderr" >&2 2>/dev/null || true
+  tail -n 240 "$OUTDIR/install-serial.log" >&2 2>/dev/null || true
   cat "$OUTDIR/qga-ping.err" >&2 2>/dev/null || true
   exit 1
 fi
 
 echo "qga_live_boot=pass" | tee "$OUTDIR/live-control.txt"
+python3 "$QGA_HELPER" "$QGA_SOCK" run --timeout 30 \
+  --command 'systemctl is-system-running --wait || true; systemctl status qemu-guest-agent --no-pager || true; cat /etc/os-release' \
+  >"$OUTDIR/live-system-status.txt" 2>"$OUTDIR/live-system-status.err"
 
-# Resolve the guest target rather than assuming virtio naming, then inject the
-# exact audited setup bytes and execute them as root via QGA.
 TARGET_CMD='for d in /dev/vda /dev/sda /dev/nvme0n1; do test -b "$d" && { echo "$d"; exit 0; }; done; exit 1'
 target_disk="$(python3 "$QGA_HELPER" "$QGA_SOCK" run --timeout 30 --command "$TARGET_CMD" | tr -d '\r\n')"
 [[ "$target_disk" =~ ^/dev/(vd[a-z]+|sd[a-z]+|nvme[0-9]+n[0-9]+)$ ]] || {
@@ -237,8 +259,8 @@ install_rc=$?
 set -e
 if [[ $install_rc -ne 0 ]]; then
   echo "ERROR: pinned installer exited with rc=$install_rc" >&2
-  tail -n 160 "$OUTDIR/installer.stdout" >&2 2>/dev/null || true
-  tail -n 160 "$OUTDIR/installer.stderr" >&2 2>/dev/null || true
+  tail -n 200 "$OUTDIR/installer.stdout" >&2 2>/dev/null || true
+  tail -n 200 "$OUTDIR/installer.stderr" >&2 2>/dev/null || true
   exit 1
 fi
 
@@ -251,7 +273,7 @@ qemu_pid=""
 rm -f "$QGA_SOCK"
 
 qemu-img info "$DISK_PATH" | tee "$OUTDIR/postinstall-image-info.txt"
-printf 'installer_execution=pass\nimage=%s\nformat=raw\ndisk_gib=%s\ncontrol=qemu-guest-agent\n' \
+printf 'installer_execution=pass\nimage=%s\nformat=raw\ndisk_gib=%s\ncontrol=qemu-guest-agent\nlive_boot_mode=uefi-direct-kernel-from-qualified-iso\n' \
   "$DISK_PATH" "$DISK_GIB" | tee "$OUTDIR/install-evidence.txt"
 
 # Independent proof: boot only the installed disk, with no installer ISO, and
@@ -262,6 +284,7 @@ bash "$POST" "$DISK_PATH" "$OUTDIR/post-install"
   echo "destructive_vm_install_gate=pass"
   echo "target_guard=pass"
   echo "installer_driver_contract=pass"
+  echo "qualified_iso_payload=pass"
   echo "live_iso_qga_control=pass"
   echo "installer_execution=pass"
   echo "post_install_uefi_userspace=pass"
