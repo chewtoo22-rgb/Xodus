@@ -1,0 +1,44 @@
+name: Installer Failure Cleanup Contract
+
+on:
+  pull_request:
+    paths:
+      - 'qa/installer-failure-cleanup-contract.sh'
+      - '.github/workflows/installer-failure-cleanup.yml'
+      - 'docs/INSTALLER_SAFETY.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install loop/mount test tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends e2fsprogs util-linux
+
+      - name: Syntax-check cleanup contract
+        run: bash -n qa/installer-failure-cleanup-contract.sh
+
+      - name: Exercise forced-failure cleanup
+        env:
+          RUNNER_TEMP: ${{ runner.temp }}
+        run: |
+          bash qa/installer-failure-cleanup-contract.sh installer-failure-cleanup-evidence
+          grep -Fqx 'installer_failure_cleanup_contract=pass' \
+            installer-failure-cleanup-evidence/cleanup-contract-summary.txt
+
+      - name: Upload cleanup evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-failure-cleanup-${{ github.sha }}
+          path: installer-failure-cleanup-evidence/
+          if-no-files-found: error
+          retention-days: 7
