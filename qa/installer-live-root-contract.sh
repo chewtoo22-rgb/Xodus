@@ -34,7 +34,11 @@ cleanup() {
   if [[ "$mounted" -eq 1 ]]; then
     sudo umount "$iso_mount" >/dev/null 2>&1 || true
   fi
-  rm -rf "$work"
+  # unsquashfs preserves ownership metadata from the live image. Some selectively
+  # extracted paths can therefore be root-owned on the runner, so cleanup must use
+  # the same privilege boundary used for the loop mount. Never let cleanup convert
+  # an already-passed installer contract into a false CI failure.
+  sudo rm -rf "$work" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -58,18 +62,12 @@ fi
 sfs_path="${sfs#"$iso_mount"/}"
 printf 'squashfs_path=%s\n' "$sfs_path" | tee "$outdir/iso-layout.txt"
 
-# Capture the complete installer-oriented listing once so contract path resolution is
-# not affected by evidence truncation. The previous pipeline truncated at 200 matches
-# before system_install/setup on the current image, causing a false missing-path failure.
 installer_listing="$work/installer-layout.full.txt"
 unsquashfs -ll "$sfs" \
   | awk '/pearOS-installer|bin_install|system_install\/setup/ {print}' \
   >"$installer_listing"
 head -n 200 "$installer_listing" >"$outdir/installer-layout.txt" || true
 
-# Resolve paths in one awk process. With `set -o pipefail`, the earlier
-# `awk | sed | awk ... exit` shape let the final early exit close stdout under sed,
-# producing EPIPE and a false contract failure even though the path was found.
 setup_rel="$(awk '{p=$NF; sub(/^squashfs-root\//, "", p); if (p ~ /(^|\/)usr\/share\/pearOS-installer\/system_install\/setup$/) {print p; exit}}' "$installer_listing")"
 entry_rel="$(awk '{p=$NF; sub(/^squashfs-root\//, "", p); if (p ~ /(^|\/)usr\/local\/bin\/bin_install$/) {print p; exit}}' "$installer_listing")"
 
@@ -85,8 +83,6 @@ if [[ -z "$entry_rel" ]]; then
 fi
 printf 'setup_rel=%s\nentry_rel=%s\n' "$setup_rel" "$entry_rel" >>"$outdir/iso-layout.txt"
 
-# Extract only the installer contract surface. This keeps CI disk usage bounded while
-# proving the produced ISO, not merely upstream Git, contains the audited driver.
 mkdir -p "$work/root"
 if ! unsquashfs -no-progress -d "$work/root" "$sfs" "$setup_rel" "$entry_rel" \
   >"$outdir/unsquashfs.txt" 2>&1; then
@@ -120,8 +116,6 @@ else
   fi
 fi
 
-# Record the destructive primitives present in the exact embedded setup for later
-# comparison with the VM execution gate. Do not execute them in this contract test.
 grep -nE 'wipefs|sgdisk|parted|mkfs\.|pacstrap|arch-chroot|grub-install|refind' "$embedded_setup" \
   >"$outdir/destructive-primitives.txt" || true
 
