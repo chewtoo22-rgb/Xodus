@@ -19,8 +19,9 @@ ISO_PATH="$(readlink -f "$ISO_PATH")"
 DISK_ROOT="${RUNNER_TEMP:-/tmp}"
 mkdir -p "$DISK_ROOT"
 DISK_PATH="$DISK_ROOT/xodus-installed-${GITHUB_RUN_ID:-local}-$$.raw"
+QGA_SOCK="$DISK_ROOT/xodus-qga-${GITHUB_RUN_ID:-local}-$$.sock"
 
-for cmd in truncate losetup qemu-system-x86_64 qemu-img expect base64 git sha256sum lsblk; do
+for cmd in truncate losetup qemu-system-x86_64 qemu-img python3 base64 git sha256sum lsblk; do
   command -v "$cmd" >/dev/null 2>&1 || { echo "ERROR: required command missing: $cmd" >&2; exit 69; }
 done
 
@@ -41,20 +42,23 @@ SETUP_FILE="$AUDIT_DIR/$SETUP_PATH"
 [[ -s "$SETUP_FILE" ]] || { echo "ERROR: audited installer setup missing" >&2; exit 1; }
 SETUP_B64="$(base64 -w0 "$SETUP_FILE")"
 
-# The guard intentionally approves disposable loop devices only when their backing
-# files live under /tmp, /var/tmp, or RUNNER_TEMP. Keep the destructive disk outside
-# the repository/evidence tree so CI cannot accidentally archive a 32 GiB test disk.
+# Host-side destructive guard: the exact bytes later attached to QEMU must first
+# be approved as a disposable loop-backed target under RUNNER_TEMP or /tmp.
 truncate -s "${DISK_GIB}G" "$DISK_PATH"
 loop_dev="$(sudo losetup --find --show "$DISK_PATH")"
-cleanup_disk() {
+qemu_pid=""
+cleanup() {
   set +e
+  if [[ -n "${qemu_pid:-}" ]]; then
+    kill "$qemu_pid" >/dev/null 2>&1 || true
+    wait "$qemu_pid" >/dev/null 2>&1 || true
+  fi
   if [[ -n "${loop_dev:-}" ]]; then
     sudo losetup -d "$loop_dev" >/dev/null 2>&1 || true
-    loop_dev=""
   fi
-  rm -f "$DISK_PATH" >/dev/null 2>&1 || true
+  rm -f "$QGA_SOCK" "$DISK_PATH" >/dev/null 2>&1 || true
 }
-trap cleanup_disk EXIT
+trap cleanup EXIT
 
 export XODUS_DISPOSABLE=1
 export XODUS_INSTALL_CONFIRM="$loop_dev"
@@ -86,12 +90,10 @@ mapfile -t ovmf < <(find_ovmf) || true
 [[ ${#ovmf[@]} -eq 2 ]] || { echo "ERROR: OVMF firmware pair not found" >&2; exit 69; }
 cp "${ovmf[1]}" "$OUTDIR/OVMF_VARS_INSTALL.fd"
 
-EXPECT_SCRIPT="$OUTDIR/install.expect"
-cat >"$EXPECT_SCRIPT" <<'EXPECT_EOF'
-set timeout 30
-set boot_deadline [expr {[clock seconds] + __BOOT_SECONDS__}]
-log_file -noappend __SERIAL_LOG__
-spawn qemu-system-x86_64 \
+# The pinned pearOS image enables qemu-guest-agent. Use that machine-facing
+# channel instead of assuming the graphical live image exposes a serial getty.
+# This keeps the real ISO bootloader + OVMF path under test.
+qemu-system-x86_64 \
   -machine q35,accel=tcg \
   -cpu max \
   -m 4096 \
@@ -99,95 +101,149 @@ spawn qemu-system-x86_64 \
   -no-reboot \
   -display none \
   -monitor none \
-  -drive if=pflash,format=raw,readonly=on,file=__OVMF_CODE__ \
-  -drive if=pflash,format=raw,file=__OVMF_VARS__ \
-  -drive file=__DISK_PATH__,if=virtio,format=raw,cache=writeback \
-  -cdrom __ISO_PATH__ \
+  -drive "if=pflash,format=raw,readonly=on,file=${ovmf[0]}" \
+  -drive "if=pflash,format=raw,file=$OUTDIR/OVMF_VARS_INSTALL.fd" \
+  -drive "file=$DISK_PATH,if=virtio,format=raw,cache=writeback" \
+  -cdrom "$ISO_PATH" \
   -boot order=d \
-  -serial stdio
+  -serial "file:$OUTDIR/install-serial.log" \
+  -chardev "socket,path=$QGA_SOCK,server=on,wait=off,id=qga0" \
+  -device virtio-serial-pci \
+  -device virtserialport,chardev=qga0,name=org.qemu.guest_agent.0 \
+  >"$OUTDIR/qemu.stdout" 2>"$OUTDIR/qemu.stderr" &
+qemu_pid=$!
+echo "$qemu_pid" >"$OUTDIR/qemu.pid"
 
-set got_prompt 0
-while {!$got_prompt && [clock seconds] < $boot_deadline} {
-  expect {
-    -re {liveuser@[^#]*#|liveuser@[^$]*\$|root@[^#]*#|root@[^$]*\$} { set got_prompt 1 }
-    "login:" {
-      send "liveuser\r"
-      expect {
-        -re {Password:|password:} { send "pear\r"; expect -re {#|\$}; set got_prompt 1 }
-        -re {liveuser@[^#]*#|liveuser@[^$]*\$|root@[^#]*#|root@[^$]*\$} { set got_prompt 1 }
-        timeout { puts stderr "ERROR: login timeout"; exit 1 }
-      }
-    }
-    timeout { }
-    eof { puts stderr "ERROR: QEMU exited before shell"; exit 1 }
-  }
-}
-if {!$got_prompt} { puts stderr "ERROR: boot timeout"; exit 1 }
+QGA_HELPER="$OUTDIR/qga-run.py"
+cat >"$QGA_HELPER" <<'PY'
+#!/usr/bin/env python3
+import argparse, base64, json, socket, sys, time
 
-send "for d in /dev/vda /dev/sda /dev/nvme0n1; do test -b \"\$d\" && echo \"\$d\"; done | head -n1 > /tmp/target_dev\r"
-expect -re {#|\$}
+p = argparse.ArgumentParser()
+p.add_argument("socket")
+p.add_argument("mode", choices=["ping", "run"])
+p.add_argument("--timeout", type=int, default=60)
+p.add_argument("--command", default="true")
+a = p.parse_args()
 
-send "cat /tmp/target_dev\r"
-expect {
-  -re {(/dev/[a-z0-9]+)} { set target_disk $expect_out(1,string) }
-  timeout { puts stderr "ERROR: no target disk detected"; exit 1 }
-}
+def connect():
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(5)
+    s.connect(a.socket)
+    return s, s.makefile("rwb", buffering=0)
 
-send "echo '__SETUP_B64__' | base64 -d > /tmp/xodus-setup.sh && chmod +x /tmp/xodus-setup.sh\r"
-expect -re {#|\$}
+def rpc(f, execute, arguments=None):
+    req = {"execute": execute}
+    if arguments is not None:
+        req["arguments"] = arguments
+    f.write((json.dumps(req) + "\n").encode())
+    while True:
+        line = f.readline()
+        if not line:
+            raise RuntimeError("QGA connection closed")
+        msg = json.loads(line)
+        if "error" in msg:
+            raise RuntimeError(json.dumps(msg["error"]))
+        if "return" in msg:
+            return msg["return"]
 
-send "sudo bash /tmp/xodus-setup.sh $target_disk\r"
-set timeout __INSTALL_SECONDS__
-expect {
-  -re {Installation finished} { puts "INSTALL_MARKER_SEEN"; exp_continue }
-  eof { puts "QEMU_EOF_AFTER_INSTALL"; exit 0 }
-  timeout { puts stderr "ERROR: installer timeout"; exit 1 }
-}
-EXPECT_EOF
+deadline = time.time() + a.timeout
+last = None
+while time.time() < deadline:
+    try:
+        s, f = connect()
+        rpc(f, "guest-ping")
+        break
+    except Exception as e:
+        last = e
+        time.sleep(2)
+else:
+    raise SystemExit(f"QGA not ready: {last}")
 
-python3 - "$EXPECT_SCRIPT" <<PY
-from pathlib import Path
-p = Path("$EXPECT_SCRIPT")
-s = p.read_text()
-repl = {
-    "__BOOT_SECONDS__": "$BOOT_SECONDS",
-    "__INSTALL_SECONDS__": "$INSTALL_SECONDS",
-    "__SERIAL_LOG__": "$OUTDIR/install-serial.log",
-    "__OVMF_CODE__": "${ovmf[0]}",
-    "__OVMF_VARS__": "$OUTDIR/OVMF_VARS_INSTALL.fd",
-    "__DISK_PATH__": "$DISK_PATH",
-    "__ISO_PATH__": "$ISO_PATH",
-    "__SETUP_B64__": "$SETUP_B64",
-}
-for k, v in repl.items():
-    s = s.replace(k, v)
-p.write_text(s)
+if a.mode == "ping":
+    print("QGA_READY")
+    raise SystemExit(0)
+
+ret = rpc(f, "guest-exec", {
+    "path": "/bin/bash",
+    "arg": ["-lc", a.command],
+    "capture-output": True,
+})
+pid = ret["pid"]
+while time.time() < deadline:
+    st = rpc(f, "guest-exec-status", {"pid": pid})
+    if st.get("exited"):
+        out = base64.b64decode(st.get("out-data", "")).decode(errors="replace")
+        err = base64.b64decode(st.get("err-data", "")).decode(errors="replace")
+        if out:
+            print(out, end="")
+        if err:
+            print(err, end="", file=sys.stderr)
+        raise SystemExit(st.get("exitcode", 1))
+    time.sleep(2)
+raise SystemExit("guest command timeout")
 PY
+chmod +x "$QGA_HELPER"
 
 set +e
-timeout --signal=TERM --kill-after=15s "$((BOOT_SECONDS + INSTALL_SECONDS + 60))s" \
-  expect "$EXPECT_SCRIPT" >"$OUTDIR/expect.log" 2>"$OUTDIR/expect.err"
-expect_rc=$?
+python3 "$QGA_HELPER" "$QGA_SOCK" ping --timeout "$BOOT_SECONDS" \
+  >"$OUTDIR/qga-ping.log" 2>"$OUTDIR/qga-ping.err"
+qga_rc=$?
 set -e
-
-if [[ $expect_rc -ne 0 ]]; then
-  echo "ERROR: destructive installer driver failed (expect rc=$expect_rc)" >&2
-  tail -n 120 "$OUTDIR/expect.log" >&2 2>/dev/null || true
-  tail -n 120 "$OUTDIR/expect.err" >&2 2>/dev/null || true
+if [[ $qga_rc -ne 0 ]]; then
+  echo "ERROR: live system never exposed qemu-guest-agent" >&2
+  tail -n 120 "$OUTDIR/qemu.stderr" >&2 2>/dev/null || true
   tail -n 120 "$OUTDIR/install-serial.log" >&2 2>/dev/null || true
+  cat "$OUTDIR/qga-ping.err" >&2 2>/dev/null || true
   exit 1
 fi
 
+echo "qga_live_boot=pass" | tee "$OUTDIR/live-control.txt"
+
+# Resolve the guest target rather than assuming virtio naming, then inject the
+# exact audited setup bytes and execute them as root via QGA.
+TARGET_CMD='for d in /dev/vda /dev/sda /dev/nvme0n1; do test -b "$d" && { echo "$d"; exit 0; }; done; exit 1'
+target_disk="$(python3 "$QGA_HELPER" "$QGA_SOCK" run --timeout 30 --command "$TARGET_CMD" | tr -d '\r\n')"
+[[ "$target_disk" =~ ^/dev/(vd[a-z]+|sd[a-z]+|nvme[0-9]+n[0-9]+)$ ]] || {
+  echo "ERROR: invalid guest target: $target_disk" >&2
+  exit 1
+}
+printf 'guest_target=%s\n' "$target_disk" | tee "$OUTDIR/guest-target.txt"
+
+INSTALL_CMD="set -e; mkdir -p /home/liveuser/Desktop; echo '$SETUP_B64' | base64 -d > /tmp/xodus-setup.sh; chmod 700 /tmp/xodus-setup.sh; bash /tmp/xodus-setup.sh '$target_disk'"
+set +e
+python3 "$QGA_HELPER" "$QGA_SOCK" run --timeout "$INSTALL_SECONDS" --command "$INSTALL_CMD" \
+  >"$OUTDIR/installer.stdout" 2>"$OUTDIR/installer.stderr"
+install_rc=$?
+set -e
+if [[ $install_rc -ne 0 ]]; then
+  echo "ERROR: pinned installer exited with rc=$install_rc" >&2
+  tail -n 160 "$OUTDIR/installer.stdout" >&2 2>/dev/null || true
+  tail -n 160 "$OUTDIR/installer.stderr" >&2 2>/dev/null || true
+  exit 1
+fi
+
+python3 "$QGA_HELPER" "$QGA_SOCK" run --timeout 30 --command 'sync' \
+  >"$OUTDIR/sync.stdout" 2>"$OUTDIR/sync.stderr"
+
+kill "$qemu_pid" >/dev/null 2>&1 || true
+wait "$qemu_pid" >/dev/null 2>&1 || true
+qemu_pid=""
+rm -f "$QGA_SOCK"
+
 qemu-img info "$DISK_PATH" | tee "$OUTDIR/postinstall-image-info.txt"
-printf 'installer_execution=pass\nimage=%s\nformat=raw\ndisk_gib=%s\n' \
+printf 'installer_execution=pass\nimage=%s\nformat=raw\ndisk_gib=%s\ncontrol=qemu-guest-agent\n' \
   "$DISK_PATH" "$DISK_GIB" | tee "$OUTDIR/install-evidence.txt"
 
+# Independent proof: boot only the installed disk, with no installer ISO, and
+# require the post-install verifier's userspace sentinel.
 bash "$POST" "$DISK_PATH" "$OUTDIR/post-install"
 
 {
   echo "destructive_vm_install_gate=pass"
   echo "target_guard=pass"
   echo "installer_driver_contract=pass"
+  echo "live_iso_qga_control=pass"
   echo "installer_execution=pass"
   echo "post_install_uefi_userspace=pass"
   echo "physical_install_policy=still_locked_pending_human_validation"
