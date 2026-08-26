@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministically harden the pinned pearOS installer package phase.
+"""Deterministically harden the pinned pearOS installer for VM proof.
 
 The pinned upstream package list is currently internally inconsistent on a
 fresh 2026 Arch root: some entries conflict with packages/files installed by
@@ -15,6 +15,9 @@ Observed conflict repairs are explicit and fail closed:
 - pipewire-jack replaces the mutually-exclusive jack2 implementation.
 - plasma-desktop may replace the single lockscreen QML path already staged by
   the pearOS payload.
+- current Plasma may preselect plasmalogin through display-manager.service;
+  pearOS explicitly configures and enables SDDM later, so Xodus removes only a
+  conflicting display-manager alias before enabling and verifying SDDM.
 
 Anything outside those observed cases still gets one database refresh and one
 normal retry, then aborts with exact package names.
@@ -233,6 +236,33 @@ if count != 1:
     )
 
 patched = text.replace(old, new, 1)
+
+old_dm = '''  # Enable Network Manager, vbox additions and SDDM services
+  arch-chroot /mnt systemctl enable NetworkManager.service &> /dev/null
+  arch-chroot /mnt systemctl enable sddm.service &> /dev/null
+'''
+new_dm = '''  # Enable Network Manager and the SDDM service expected by the pearOS
+  # autologin configuration below. Current Plasma may have already selected
+  # plasmalogin through display-manager.service; replace only that alias.
+  arch-chroot /mnt systemctl enable NetworkManager.service &> /dev/null
+  current_display_manager=$(readlink /mnt/etc/systemd/system/display-manager.service 2>/dev/null || true)
+  if [[ -n "$current_display_manager" && "$current_display_manager" != *sddm.service ]]; then
+    echo "Replacing conflicting display-manager alias: $current_display_manager" >> /home/liveuser/Desktop/install.log
+    rm -f /mnt/etc/systemd/system/display-manager.service
+  fi
+  arch-chroot /mnt systemctl enable sddm.service >> /home/liveuser/Desktop/install.log 2>&1 \
+    || error_exit "Failed to enable required SDDM service"
+  arch-chroot /mnt systemctl is-enabled sddm.service >> /home/liveuser/Desktop/install.log 2>&1 \
+    || error_exit "SDDM service is not enabled after display-manager reconciliation"
+'''
+
+dm_count = patched.count(old_dm)
+if dm_count != 1:
+    raise SystemExit(
+        f"upstream display-manager contract changed: expected one patch target, found {dm_count}"
+    )
+patched = patched.replace(old_dm, new_dm, 1)
+
 out.write_text(patched)
 out.chmod(0o700)
 
@@ -241,3 +271,4 @@ out_sha = hashlib.sha256(patched.encode()).hexdigest()
 print(f"upstream_setup_sha256={src_sha}")
 print(f"xodus_setup_sha256={out_sha}")
 print("package_retry_policy=observed-conflict-repair-one-retry-then-fail-closed")
+print("display_manager_policy=reconcile-conflicting-alias-then-require-sddm")
