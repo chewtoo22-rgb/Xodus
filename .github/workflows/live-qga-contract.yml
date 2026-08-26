@@ -1,0 +1,75 @@
+name: Live QGA Contract
+
+on:
+  pull_request:
+    paths:
+      - 'qa/live-qga-contract.sh'
+      - '.github/workflows/live-qga-contract.yml'
+      - 'upstream/iso.lock'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  qga-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse pinned pearOS revision
+        id: lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          line=$(grep -v '^#' upstream/iso.lock | grep -v '^$' | head -n1)
+          IFS='|' read -r repo branch commit captured <<< "$line"
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve proven Core ISO
+        id: run
+        shell: bash
+        run: |
+          set -euo pipefail
+          row=$(gh api "/repos/${GITHUB_REPOSITORY}/actions/workflows/core-iso-build.yml/runs?status=success&per_page=20" \
+            | jq -r '.workflow_runs[] | [.id,.head_sha] | @tsv' | head -n1)
+          [[ -n "${row:-}" ]] || { echo 'No successful Core ISO build available' >&2; exit 5; }
+          IFS=$'\t' read -r run_id source_sha <<< "$row"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Install inspection tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends squashfs-tools util-linux jq
+
+      - name: Download proven ISO artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: xodus-reference-iso-${{ steps.lock.outputs.commit }}
+          path: qga-input
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.run.outputs.run_id }}
+
+      - name: Inspect live QGA contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          iso=$(find qga-input -type f -name '*.iso' -print -quit)
+          test -n "$iso" && test -s "$iso"
+          bash -n qa/live-qga-contract.sh
+          sudo -E bash qa/live-qga-contract.sh "$iso" qga-evidence
+
+      - name: Upload QGA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xodus-live-qga-contract-${{ steps.run.outputs.source_sha }}
+          path: qga-evidence/
+          if-no-files-found: warn
+          retention-days: 7
