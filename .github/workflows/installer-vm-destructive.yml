@@ -117,7 +117,14 @@ jobs:
           INSTALL_SECONDS: 1800
           XODUS_POSTINSTALL_WATCHDOG_SECONDS: 150
         run: |
+          # `systemctl is-system-running --wait` is a diagnostic only. A live
+          # ArchISO may remain in a transitional/degraded state indefinitely,
+          # so do not let that nonessential status probe block target discovery
+          # after qemu-guest-agent has already passed its synchronization gate.
+          sed -i 's/systemctl is-system-running --wait/systemctl is-system-running/' \
+            qa/installer-vm-destructive.sh
           bash -n qa/installer-vm-destructive.sh
+          grep -Fq "systemctl is-system-running || true" qa/installer-vm-destructive.sh
           sudo -E bash qa/installer-vm-destructive.sh \
             '${{ steps.image.outputs.iso }}' destructive-evidence
           grep -Fqx 'destructive_vm_install_gate=pass' \
