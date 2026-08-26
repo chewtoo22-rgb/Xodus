@@ -16,8 +16,8 @@ Observed conflict repairs are explicit and fail closed:
 - plasma-desktop may replace the single lockscreen QML path already staged by
   the pearOS payload.
 - current Plasma may preselect plasmalogin through display-manager.service;
-  pearOS explicitly configures and enables SDDM later, so Xodus removes only a
-  conflicting display-manager alias before enabling and verifying SDDM.
+  pearOS explicitly configures SDDM later, so Xodus force-selects only that
+  shared alias and then verifies it resolves to SDDM.
 
 Anything outside those observed cases still gets one database refresh and one
 normal retry, then aborts with exact package names.
@@ -243,15 +243,20 @@ old_dm = '''  # Enable Network Manager, vbox additions and SDDM services
 '''
 new_dm = '''  # Enable Network Manager and the SDDM service expected by the pearOS
   # autologin configuration below. Current Plasma may have already selected
-  # plasmalogin through display-manager.service; replace only that alias.
+  # plasmalogin through the shared display-manager.service alias. systemd's
+  # supported display-manager switch path is enable --force, which replaces
+  # only a conflicting alias while leaving installed unit payloads intact.
   arch-chroot /mnt systemctl enable NetworkManager.service &> /dev/null
   current_display_manager=$(readlink /mnt/etc/systemd/system/display-manager.service 2>/dev/null || true)
   if [[ -n "$current_display_manager" && "$current_display_manager" != *sddm.service ]]; then
     echo "Replacing conflicting display-manager alias: $current_display_manager" >> /home/liveuser/Desktop/install.log
-    rm -f /mnt/etc/systemd/system/display-manager.service
   fi
-  arch-chroot /mnt systemctl enable sddm.service >> /home/liveuser/Desktop/install.log 2>&1 \
-    || error_exit "Failed to enable required SDDM service"
+  arch-chroot /mnt systemctl enable --force sddm.service >> /home/liveuser/Desktop/install.log 2>&1 \
+    || error_exit "Failed to force-select required SDDM service"
+  selected_display_manager=$(readlink /mnt/etc/systemd/system/display-manager.service 2>/dev/null || true)
+  echo "Selected display-manager alias: ${selected_display_manager:-missing}" >> /home/liveuser/Desktop/install.log
+  [[ "$selected_display_manager" == *sddm.service ]] \
+    || error_exit "display-manager.service does not resolve to SDDM after force-enable"
   arch-chroot /mnt systemctl is-enabled sddm.service >> /home/liveuser/Desktop/install.log 2>&1 \
     || error_exit "SDDM service is not enabled after display-manager reconciliation"
 '''
@@ -271,4 +276,4 @@ out_sha = hashlib.sha256(patched.encode()).hexdigest()
 print(f"upstream_setup_sha256={src_sha}")
 print(f"xodus_setup_sha256={out_sha}")
 print("package_retry_policy=observed-conflict-repair-one-retry-then-fail-closed")
-print("display_manager_policy=reconcile-conflicting-alias-then-require-sddm")
+print("display_manager_policy=force-select-sddm-alias-then-verify")
