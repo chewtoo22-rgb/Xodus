@@ -1,11 +1,22 @@
 #!/usr/bin/env python3
 """Deterministically harden the pinned pearOS installer package phase.
 
-The upstream installer records individual pacstrap failures but continues into
-service enablement. That turns a package/mirror failure into a misleading later
-error (for example missing sddm/plasma-desktop). Xodus verifies the pinned
-upstream blob first, then applies this narrowly-scoped runtime transform for the
-destructive VM proof.
+The pinned upstream package list is currently internally inconsistent on a
+fresh 2026 Arch root: some entries conflict with packages/files installed by
+earlier entries. Xodus audits the exact upstream installer blob first, then
+applies this bounded runtime transform only for the destructive VM proof.
+
+Observed conflict repairs are explicit and fail closed:
+- chwd supersedes the mutually-exclusive chwd-db entry while preserving the
+  later chwd --autoconfigure contract.
+- lsb-release/open-vm-tools may replace the /etc/lsb-release file shipped by
+  filesystem, using pacman's exact-path overwrite escape hatch.
+- pipewire-jack replaces the mutually-exclusive jack2 implementation.
+- plasma-desktop may replace the single lockscreen QML path already staged by
+  the pearOS payload.
+
+Anything outside those observed cases still gets one database refresh and one
+normal retry, then aborts with exact package names.
 """
 
 from __future__ import annotations
@@ -65,42 +76,111 @@ new = '''  trap - ERR
       ((installed_packages++))
     fi
     
-    # Update progress: 18% + (installed_packages / total_packages) * 52%
     progress=$((18 + (installed_packages * 52 / total_packages)))
     update_progress "$progress"
   done
 
-  # A moving Arch repository or transient mirror failure can make a single
-  # pacstrap invocation fail while later requests succeed. Refresh once and
-  # retry only the packages that failed. Never continue into service setup if
-  # any required package is still absent.
+  # A moving repository can cause transient failures, but the pinned pearOS
+  # package list also contains several deterministic conflict pairs. Repair only
+  # those conflicts observed in retained CI evidence, then perform one ordinary
+  # retry for anything else.
   if (( failed_packages > 0 )); then
-    echo "Retrying $failed_packages failed package(s) after database refresh" >> /home/liveuser/Desktop/install.log
+    echo "Repairing/retrying $failed_packages failed package(s) after database refresh" >> /home/liveuser/Desktop/install.log
     pacman -Syy --noconfirm >> /home/liveuser/Desktop/install.log 2>&1 || true
     retry_failures=()
+
     for package in "${failed_package_names[@]}"; do
-      if pacstrap /mnt "$package" >> /home/liveuser/Desktop/install.log 2>&1; then
-        echo "Recovered package on retry: $package" >> /home/liveuser/Desktop/install.log
+      recovered=false
+      case "$package" in
+        chwd-db)
+          # Current chwd and chwd-db packages conflict. The installer later
+          # executes `chwd --autoconfigure`, so keep the working chwd package and
+          # treat the stale duplicate database package as superseded.
+          if arch-chroot /mnt pacman -Q chwd >> /home/liveuser/Desktop/install.log 2>&1 \
+             && arch-chroot /mnt test -x /usr/bin/chwd; then
+            echo "Superseded conflicting package chwd-db with installed chwd" >> /home/liveuser/Desktop/install.log
+            recovered=true
+          fi
+          ;;
+        lsb-release|open-vm-tools)
+          # filesystem currently owns /etc/lsb-release. Install lsb-release and
+          # open-vm-tools atomically while allowing only that exact path to be
+          # replaced, then require both packages to be registered.
+          if arch-chroot /mnt pacman -S --noconfirm \
+               --overwrite 'etc/lsb-release' lsb-release open-vm-tools \
+               >> /home/liveuser/Desktop/install.log 2>&1 \
+             && arch-chroot /mnt pacman -Q lsb-release open-vm-tools \
+               >> /home/liveuser/Desktop/install.log 2>&1; then
+            echo "Recovered package conflict group: lsb-release/open-vm-tools" >> /home/liveuser/Desktop/install.log
+            recovered=true
+          fi
+          ;;
+        pipewire-jack)
+          # pipewire-jack and jack2 are mutually exclusive JACK providers. Drop
+          # jack2 without dependency enforcement only within this atomic repair,
+          # immediately install pipewire-jack, then require pacman's dependency
+          # database check to be clean.
+          arch-chroot /mnt pacman -Rdd --noconfirm jack2 \
+            >> /home/liveuser/Desktop/install.log 2>&1 || true
+          if arch-chroot /mnt pacman -S --noconfirm pipewire-jack \
+               >> /home/liveuser/Desktop/install.log 2>&1 \
+             && arch-chroot /mnt pacman -Q pipewire-jack \
+               >> /home/liveuser/Desktop/install.log 2>&1 \
+             && arch-chroot /mnt pacman -Dk \
+               >> /home/liveuser/Desktop/install.log 2>&1; then
+            echo "Recovered JACK provider conflict with pipewire-jack" >> /home/liveuser/Desktop/install.log
+            recovered=true
+          fi
+          ;;
+        plasma-desktop)
+          # The pearOS payload stages one customized lockscreen QML file before
+          # plasma-desktop. Permit replacement of only that known path.
+          if arch-chroot /mnt pacman -S --noconfirm \
+               --overwrite 'usr/share/plasma/shells/org.kde.plasma.desktop/contents/lockscreen/LockScreenUi.qml' \
+               plasma-desktop >> /home/liveuser/Desktop/install.log 2>&1 \
+             && arch-chroot /mnt pacman -Q plasma-desktop \
+               >> /home/liveuser/Desktop/install.log 2>&1; then
+            echo "Recovered plasma-desktop staged-file conflict" >> /home/liveuser/Desktop/install.log
+            recovered=true
+          fi
+          ;;
+      esac
+
+      if ! $recovered; then
+        if pacstrap /mnt "$package" >> /home/liveuser/Desktop/install.log 2>&1; then
+          echo "Recovered package on normal retry: $package" >> /home/liveuser/Desktop/install.log
+          recovered=true
+        fi
+      fi
+
+      if $recovered; then
         ((installed_packages++))
       else
         echo "FAILED: $package" >> /tmp/failed_packages.log
         retry_failures+=("$package")
       fi
     done
+
     failed_package_names=("${retry_failures[@]}")
     failed_packages=${#failed_package_names[@]}
   fi
 
   trap 'line_no=$LINENO; error_line=$(sed -n "${line_no}p" "${BASH_SOURCE[0]}" | sed "s/^[[:space:]]*//"); error_exit "Unexpected error at line $line_no:\\n\\n    $error_line"' ERR
 
-  echo "Installed: $installed_packages/$total_packages packages" >> /home/liveuser/Desktop/install.log
+  echo "Installed/satisfied: $installed_packages/$total_packages package entries" >> /home/liveuser/Desktop/install.log
   if (( failed_packages > 0 )); then
-    error_exit "Required package installation failed after retry: ${failed_package_names[*]}"
+    error_exit "Required package installation failed after bounded conflict repair: ${failed_package_names[*]}"
   fi
 
-  # Explicitly require the display-manager payload before service enablement.
+  # Fail closed on the payloads needed by later installer steps.
+  arch-chroot /mnt test -x /usr/bin/chwd || error_exit "Required chwd binary missing after package phase"
   arch-chroot /mnt test -x /usr/bin/sddm || error_exit "Required SDDM binary missing after package phase"
   arch-chroot /mnt test -d /usr/share/plasma || error_exit "Required Plasma payload missing after package phase"
+  arch-chroot /mnt pacman -Q open-vm-tools pipewire-jack plasma-desktop \
+    >> /home/liveuser/Desktop/install.log 2>&1 \
+    || error_exit "Required repaired package group missing after package phase"
+  arch-chroot /mnt pacman -Dk >> /home/liveuser/Desktop/install.log 2>&1 \
+    || error_exit "Pacman dependency database inconsistent after conflict repair"
   
   update_progress "70"
 '''
@@ -119,4 +199,4 @@ src_sha = hashlib.sha256(text.encode()).hexdigest()
 out_sha = hashlib.sha256(patched.encode()).hexdigest()
 print(f"upstream_setup_sha256={src_sha}")
 print(f"xodus_setup_sha256={out_sha}")
-print("package_retry_policy=one-refresh-one-retry-then-fail-closed")
+print("package_retry_policy=observed-conflict-repair-one-retry-then-fail-closed")
