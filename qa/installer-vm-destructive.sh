@@ -16,7 +16,9 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 mkdir -p "$OUTDIR"
 OUTDIR="$(readlink -f "$OUTDIR")"
 ISO_PATH="$(readlink -f "$ISO_PATH")"
-DISK_PATH="$OUTDIR/xodus-installed.raw"
+DISK_ROOT="${RUNNER_TEMP:-/tmp}"
+mkdir -p "$DISK_ROOT"
+DISK_PATH="$DISK_ROOT/xodus-installed-${GITHUB_RUN_ID:-local}-$$.raw"
 
 for cmd in truncate losetup qemu-system-x86_64 qemu-img expect base64 git sha256sum lsblk; do
   command -v "$cmd" >/dev/null 2>&1 || { echo "ERROR: required command missing: $cmd" >&2; exit 69; }
@@ -31,9 +33,6 @@ LOCK="$repo_root/upstream/installer.lock"
   exit 66
 }
 
-# Fail closed if the pinned upstream installer drifted from the contract this
-# driver expects. The audit workspace also provides the exact setup script that
-# will be injected into the live ISO guest.
 AUDIT_DIR="$OUTDIR/installer-audit"
 bash "$AUDIT" "$LOCK" "$AUDIT_DIR" | tee "$OUTDIR/driver-contract.txt"
 # shellcheck disable=SC1090
@@ -42,25 +41,27 @@ SETUP_FILE="$AUDIT_DIR/$SETUP_PATH"
 [[ -s "$SETUP_FILE" ]] || { echo "ERROR: audited installer setup missing" >&2; exit 1; }
 SETUP_B64="$(base64 -w0 "$SETUP_FILE")"
 
-# Use a sparse RAW image so the same bytes can be approved through a host loop
-# device and then attached directly to QEMU. qcow2 must not be losetup'd.
+# The guard intentionally approves disposable loop devices only when their backing
+# files live under /tmp, /var/tmp, or RUNNER_TEMP. Keep the destructive disk outside
+# the repository/evidence tree so CI cannot accidentally archive a 32 GiB test disk.
 truncate -s "${DISK_GIB}G" "$DISK_PATH"
 loop_dev="$(sudo losetup --find --show "$DISK_PATH")"
-cleanup_loop() {
+cleanup_disk() {
   set +e
   if [[ -n "${loop_dev:-}" ]]; then
     sudo losetup -d "$loop_dev" >/dev/null 2>&1 || true
     loop_dev=""
   fi
+  rm -f "$DISK_PATH" >/dev/null 2>&1 || true
 }
-trap cleanup_loop EXIT
+trap cleanup_disk EXIT
 
 export XODUS_DISPOSABLE=1
 export XODUS_INSTALL_CONFIRM="$loop_dev"
 bash "$GUARD" "$loop_dev" | tee "$OUTDIR/target-guard.txt"
 lsblk -o NAME,PATH,SIZE,TYPE,FSTYPE,MOUNTPOINTS "$loop_dev" | tee "$OUTDIR/preinstall-lsblk.txt"
-cleanup_loop
-trap - EXIT
+sudo losetup -d "$loop_dev"
+loop_dev=""
 
 find_ovmf() {
   local code vars
@@ -181,8 +182,6 @@ qemu-img info "$DISK_PATH" | tee "$OUTDIR/postinstall-image-info.txt"
 printf 'installer_execution=pass\nimage=%s\nformat=raw\ndisk_gib=%s\n' \
   "$DISK_PATH" "$DISK_GIB" | tee "$OUTDIR/install-evidence.txt"
 
-# Independent verifier: no installer ISO attached. It requires GPT, an ESP
-# executable, a real Linux userspace and the ttyS0 systemd sentinel.
 bash "$POST" "$DISK_PATH" "$OUTDIR/post-install"
 
 {
