@@ -164,11 +164,13 @@ def connect():
     f = s.makefile("rwb", buffering=0)
     return s, f
 
-def rpc(f, execute, arguments=None):
+def send(f, execute, arguments=None):
     req = {"execute": execute}
     if arguments is not None:
         req["arguments"] = arguments
     f.write((json.dumps(req) + "\n").encode())
+
+def read_json(f):
     while True:
         line = f.readline()
         if not line:
@@ -176,22 +178,34 @@ def rpc(f, execute, arguments=None):
         line = line.lstrip(b"\xff")
         if not line.strip():
             continue
-        msg = json.loads(line)
+        try:
+            return json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+def rpc(f, execute, arguments=None):
+    send(f, execute, arguments)
+    while True:
+        msg = read_json(f)
         if "error" in msg:
             raise RuntimeError(json.dumps(msg["error"]))
         if "return" in msg:
             return msg["return"]
 
 def synchronize(f):
-    # QGA's documented recovery sequence is a raw 0xFF delimiter followed by
-    # guest-sync-delimited. The response to guest-sync-delimited is itself
-    # prefixed with 0xFF, letting us prove that the byte stream is aligned
-    # before sending guest-ping or any destructive guest-exec request.
-    token = random.randint(1, (1 << 31) - 1)
+    # QGA stream recovery is deliberately different from a normal RPC.
+    # The leading 0xFF can provoke an expected parser error, and stale output
+    # from an earlier client may also be present. QEMU's protocol requires us
+    # to ignore all of that until guest-sync-delimited returns our nonce.
+    token = random.randint(1, (1 << 63) - 1)
     f.write(b"\xff")
-    returned = rpc(f, "guest-sync-delimited", {"id": token})
-    if returned != token:
-        raise RuntimeError(f"QGA sync mismatch: expected {token}, got {returned}")
+    send(f, "guest-sync-delimited", {"id": token})
+    while True:
+        msg = read_json(f)
+        if msg.get("return") == token:
+            return
+        # Ignore parser-reset errors, stale replies, and unrelated output
+        # until the matching sync token proves the stream is aligned.
 
 deadline = time.time() + a.timeout
 last = None
