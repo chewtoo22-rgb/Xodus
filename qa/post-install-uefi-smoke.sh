@@ -68,7 +68,6 @@ root_dev=$(lsblk -nrpo PATH,PARTTYPE "$nbd" | awk -v guid="$linux_guid" 'tolower
 [[ -n "$efi_dev" ]] || { echo "ERROR: installed disk has no EFI System Partition" >&2; exit 1; }
 [[ -n "$root_dev" ]] || { echo "ERROR: installed disk has no Linux root/data partition" >&2; exit 1; }
 
-# Verify firmware payload independently of whatever QEMU later decides to do.
 sudo mount -o ro "$efi_dev" "$efi_mnt"
 mapfile -t efi_bins < <(sudo find "$efi_mnt" -type f -iname '*.efi' -print 2>/dev/null)
 [[ ${#efi_bins[@]} -gt 0 ]] || {
@@ -78,7 +77,6 @@ mapfile -t efi_bins < <(sudo find "$efi_mnt" -type f -iname '*.efi' -print 2>/de
 printf '%s\n' "${efi_bins[@]}" | sed "s#^$efi_mnt##" | tee "$outdir/efi-executables.txt"
 sudo umount "$efi_mnt"
 
-# Verify the root is an installed Linux system, not merely a formatted partition.
 sudo mount "$root_dev" "$root_mnt"
 [[ -f "$root_mnt/etc/os-release" ]] || { echo "ERROR: root filesystem lacks /etc/os-release" >&2; exit 1; }
 [[ -x "$root_mnt/usr/lib/systemd/systemd" || -x "$root_mnt/sbin/init" ]] || {
@@ -87,8 +85,6 @@ sudo mount "$root_dev" "$root_mnt"
 }
 sudo cp "$root_mnt/etc/os-release" "$outdir/installed-os-release.txt"
 
-# Inject a CI-only systemd sentinel. A pass now requires installed userspace to
-# reach multi-user.target and write this exact token to the emulated serial port.
 unit="$root_mnt/etc/systemd/system/xodus-ci-boot-sentinel.service"
 sudo tee "$unit" >/dev/null <<EOF
 [Unit]
@@ -139,10 +135,29 @@ cp "${ovmf[1]}" "$outdir/OVMF_VARS.fd"
 serial="$outdir/post-install-serial.log"
 qemu_log="$outdir/qemu.log"
 
+# Prefer hardware virtualization when CI exposes it. Keep a deterministic TCG
+# fallback, but grant the slower path enough time that CPU emulation does not
+# masquerade as a userspace boot regression.
+if [[ -c /dev/kvm ]]; then
+  sudo chmod 666 /dev/kvm >/dev/null 2>&1 || true
+  qemu_machine='q35,accel=kvm'
+  qemu_cpu='host'
+  qemu_accel='kvm'
+else
+  qemu_machine='q35,accel=tcg'
+  qemu_cpu='max'
+  qemu_accel='tcg'
+  if (( watchdog < 240 )); then
+    watchdog=240
+  fi
+fi
+printf 'qemu_accel=%s\nwatchdog_seconds=%s\ninstaller_iso_attached=no\n' \
+  "$qemu_accel" "$watchdog" | tee "$outdir/post-install-runtime.txt"
+
 set +e
 timeout "$watchdog" qemu-system-x86_64 \
-  -machine q35,accel=tcg \
-  -cpu max \
+  -machine "$qemu_machine" \
+  -cpu "$qemu_cpu" \
   -m 4096 \
   -smp 2 \
   -nodefaults \
@@ -157,12 +172,10 @@ timeout "$watchdog" qemu-system-x86_64 \
 rc=$?
 set -e
 
-# timeout(1) returning 124 is expected. An early QEMU exit is tolerated only
-# if userspace already emitted the sentinel, which is the actual boot proof.
 if ! grep -Fqx "$sentinel" "$serial" 2>/dev/null; then
-  echo "ERROR: installed userspace never emitted the boot sentinel (qemu rc=$rc)" >&2
-  tail -n 100 "$serial" >&2 2>/dev/null || true
-  tail -n 100 "$qemu_log" >&2 2>/dev/null || true
+  echo "ERROR: installed userspace never emitted the boot sentinel (qemu rc=$rc, accel=$qemu_accel)" >&2
+  tail -n 160 "$serial" >&2 2>/dev/null || true
+  tail -n 120 "$qemu_log" >&2 2>/dev/null || true
   exit 1
 fi
 
@@ -171,6 +184,7 @@ fi
   echo "userspace_sentinel=$sentinel"
   echo "installer_iso_attached=no"
   echo "watchdog_seconds=$watchdog"
+  echo "qemu_accel=$qemu_accel"
   echo "image_format=$format"
   echo "efi_partition=$efi_dev"
   echo "root_partition=$root_dev"
