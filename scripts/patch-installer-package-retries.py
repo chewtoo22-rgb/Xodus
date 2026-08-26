@@ -10,7 +10,8 @@ Observed conflict repairs are explicit and fail closed:
 - chwd supersedes the mutually-exclusive chwd-db entry while preserving the
   later chwd --autoconfigure contract.
 - lsb-release/open-vm-tools may replace the /etc/lsb-release file shipped by
-  filesystem, using pacman's exact-path overwrite escape hatch.
+  filesystem. After the exact-path overwrite, ownership of that one path is
+  transferred in pacman's local metadata from filesystem to lsb-release.
 - pipewire-jack replaces the mutually-exclusive jack2 implementation.
 - plasma-desktop may replace the single lockscreen QML path already staged by
   the pearOS payload.
@@ -103,16 +104,56 @@ new = '''  trap - ERR
           fi
           ;;
         lsb-release|open-vm-tools)
-          # filesystem currently owns /etc/lsb-release. Install lsb-release and
-          # open-vm-tools atomically while allowing only that exact path to be
-          # replaced, then require both packages to be registered.
-          if arch-chroot /mnt pacman -S --noconfirm \
-               --overwrite 'etc/lsb-release' lsb-release open-vm-tools \
+          # filesystem currently owns /etc/lsb-release, while open-vm-tools
+          # requires the lsb-release package. First accept an already-clean
+          # repair so this case is idempotent when both package-list entries
+          # failed on the first pass.
+          if arch-chroot /mnt pacman -Q lsb-release open-vm-tools \
                >> /home/liveuser/Desktop/install.log 2>&1 \
-             && arch-chroot /mnt pacman -Q lsb-release open-vm-tools \
+             && arch-chroot /mnt pacman -Qo /etc/lsb-release \
+               >> /home/liveuser/Desktop/install.log 2>&1 \
+             && arch-chroot /mnt pacman -Dk \
                >> /home/liveuser/Desktop/install.log 2>&1; then
-            echo "Recovered package conflict group: lsb-release/open-vm-tools" >> /home/liveuser/Desktop/install.log
+            echo "Verified repaired package group: lsb-release/open-vm-tools" >> /home/liveuser/Desktop/install.log
             recovered=true
+          else
+            # Install the two packages atomically while allowing replacement of
+            # only the observed path. pacman's --overwrite changes the payload
+            # but leaves the old filesystem package ownership record in place,
+            # so transfer ownership of exactly etc/lsb-release in the local DB.
+            if arch-chroot /mnt pacman -S --noconfirm \
+                 --overwrite 'etc/lsb-release' lsb-release open-vm-tools \
+                 >> /home/liveuser/Desktop/install.log 2>&1 \
+               && arch-chroot /mnt pacman -Q lsb-release open-vm-tools \
+                 >> /home/liveuser/Desktop/install.log 2>&1; then
+              mapfile -t filesystem_files < <(find /mnt/var/lib/pacman/local -maxdepth 2 \
+                -path '*/filesystem-*/files' -type f -print)
+              mapfile -t lsb_files < <(find /mnt/var/lib/pacman/local -maxdepth 2 \
+                -path '*/lsb-release-*/files' -type f -print)
+              if (( ${#filesystem_files[@]} != 1 || ${#lsb_files[@]} != 1 )); then
+                echo "ERROR: unexpected pacman local DB layout for lsb-release ownership repair" \
+                  >> /home/liveuser/Desktop/install.log
+              elif ! grep -Fxq 'etc/lsb-release' "${lsb_files[0]}"; then
+                echo "ERROR: lsb-release package DB does not own expected etc/lsb-release path" \
+                  >> /home/liveuser/Desktop/install.log
+              else
+                if grep -Fxq 'etc/lsb-release' "${filesystem_files[0]}"; then
+                  db_tmp=$(mktemp)
+                  awk '$0 != "etc/lsb-release"' "${filesystem_files[0]}" > "$db_tmp"
+                  install -m 644 "$db_tmp" "${filesystem_files[0]}"
+                  rm -f "$db_tmp"
+                  echo "Transferred etc/lsb-release ownership metadata from filesystem to lsb-release" \
+                    >> /home/liveuser/Desktop/install.log
+                fi
+                if arch-chroot /mnt pacman -Qo /etc/lsb-release \
+                     >> /home/liveuser/Desktop/install.log 2>&1 \
+                   && arch-chroot /mnt pacman -Dk \
+                     >> /home/liveuser/Desktop/install.log 2>&1; then
+                  echo "Recovered package conflict group: lsb-release/open-vm-tools" >> /home/liveuser/Desktop/install.log
+                  recovered=true
+                fi
+              fi
+            fi
           fi
           ;;
         pipewire-jack)
