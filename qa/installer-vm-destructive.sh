@@ -148,7 +148,7 @@ echo "$qemu_pid" >"$OUTDIR/qemu.pid"
 QGA_HELPER="$OUTDIR/qga-run.py"
 cat >"$QGA_HELPER" <<'PY'
 #!/usr/bin/env python3
-import argparse, base64, json, socket, sys, time
+import argparse, base64, json, random, socket, sys, time
 
 p = argparse.ArgumentParser()
 p.add_argument("socket")
@@ -162,11 +162,6 @@ def connect():
     s.settimeout(5)
     s.connect(a.socket)
     f = s.makefile("rwb", buffering=0)
-    # QEMU Guest Agent's stream protocol permits stale/partial input from a
-    # previous client. 0xFF resets its JSON parser before the first request.
-    # Without this delimiter a healthy guest-agent can be running while the
-    # host waits forever for a response to otherwise-valid JSON.
-    f.write(b"\xff")
     return s, f
 
 def rpc(f, execute, arguments=None):
@@ -187,17 +182,31 @@ def rpc(f, execute, arguments=None):
         if "return" in msg:
             return msg["return"]
 
+def synchronize(f):
+    # QGA's documented recovery sequence is a raw 0xFF delimiter followed by
+    # guest-sync-delimited. The response to guest-sync-delimited is itself
+    # prefixed with 0xFF, letting us prove that the byte stream is aligned
+    # before sending guest-ping or any destructive guest-exec request.
+    token = random.randint(1, (1 << 31) - 1)
+    f.write(b"\xff")
+    returned = rpc(f, "guest-sync-delimited", {"id": token})
+    if returned != token:
+        raise RuntimeError(f"QGA sync mismatch: expected {token}, got {returned}")
+
 deadline = time.time() + a.timeout
 last = None
 while time.time() < deadline:
+    s = None
     try:
         s, f = connect()
+        synchronize(f)
         rpc(f, "guest-ping")
         break
     except Exception as e:
         last = e
         try:
-            s.close()
+            if s is not None:
+                s.close()
         except Exception:
             pass
         time.sleep(2)
@@ -229,8 +238,6 @@ raise SystemExit("guest command timeout")
 PY
 chmod +x "$QGA_HELPER"
 
-# Record host transport state independently of guest readiness. This makes a
-# missing QEMU socket distinguishable from a guest-agent protocol failure.
 for _ in $(seq 1 30); do
   [[ -S "$QGA_SOCK" ]] && break
   sleep 1
