@@ -72,6 +72,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             qemu-system-x86 qemu-utils ovmf expect gdisk dosfstools e2fsprogs util-linux jq git
+          if [[ -e /dev/kvm ]]; then
+            sudo chmod 666 /dev/kvm || true
+            ls -l /dev/kvm
+          else
+            echo 'KVM unavailable; destructive gate will use TCG fallback'
+          fi
 
       - name: Download proven ISO artifact
         uses: actions/download-artifact@v4
@@ -107,7 +113,7 @@ jobs:
       - name: Run destructive VM install gate
         env:
           DISK_GIB: 32
-          BOOT_SECONDS: 240
+          BOOT_SECONDS: 600
           INSTALL_SECONDS: 1800
           XODUS_POSTINSTALL_WATCHDOG_SECONDS: 150
         run: |
