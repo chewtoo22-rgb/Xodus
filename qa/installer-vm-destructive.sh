@@ -44,9 +44,6 @@ SETUP_FILE="$AUDIT_DIR/$SETUP_PATH"
 [[ -s "$SETUP_FILE" ]] || { echo "ERROR: audited installer setup missing" >&2; exit 1; }
 SETUP_B64="$(base64 -w0 "$SETUP_FILE")"
 
-# Host-side destructive guard: approve the exact raw bytes that will later be
-# attached to QEMU. The guard only accepts an explicitly disposable loop target
-# backed by RUNNER_TEMP or /tmp.
 truncate -s "${DISK_GIB}G" "$DISK_PATH"
 loop_dev="$(sudo losetup --find --show "$DISK_PATH")"
 qemu_pid=""
@@ -103,17 +100,8 @@ else
   QEMU_ACCEL="tcg"
 fi
 
-# pearOS's pinned profiledef.sh sets install_dir="arch". Keep the direct-kernel
-# harness aligned with the actual built ISO rather than the source profile name
-# (pear/). The ordinary boot smoke independently exercises the ISO bootloader.
 ARCHISO_BASEDIR="arch"
 
-# UEFI ISO boot is independently required by QA QEMU Boot Smoke. For this
-# destructive installer gate, extract the kernel and initramfs from the exact
-# checksum-verified ISO and boot that same live root deterministically. This
-# avoids coupling installer automation to SDDM/Plymouth while still preserving
-# the qualified ISO bytes, ArchISO live media, UEFI firmware, and audited
-# installer payload under test.
 xorriso -osirrox on -indev "$ISO_PATH" \
   -extract "/${ARCHISO_BASEDIR}/boot/x86_64/vmlinuz-linux" "$LIVE_KERNEL" \
   >"$OUTDIR/kernel-extract.log" 2>&1
@@ -173,7 +161,13 @@ def connect():
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     s.settimeout(5)
     s.connect(a.socket)
-    return s, s.makefile("rwb", buffering=0)
+    f = s.makefile("rwb", buffering=0)
+    # QEMU Guest Agent's stream protocol permits stale/partial input from a
+    # previous client. 0xFF resets its JSON parser before the first request.
+    # Without this delimiter a healthy guest-agent can be running while the
+    # host waits forever for a response to otherwise-valid JSON.
+    f.write(b"\xff")
+    return s, f
 
 def rpc(f, execute, arguments=None):
     req = {"execute": execute}
@@ -184,6 +178,9 @@ def rpc(f, execute, arguments=None):
         line = f.readline()
         if not line:
             raise RuntimeError("QGA connection closed")
+        line = line.lstrip(b"\xff")
+        if not line.strip():
+            continue
         msg = json.loads(line)
         if "error" in msg:
             raise RuntimeError(json.dumps(msg["error"]))
@@ -199,6 +196,10 @@ while time.time() < deadline:
         break
     except Exception as e:
         last = e
+        try:
+            s.close()
+        except Exception:
+            pass
         time.sleep(2)
 else:
     raise SystemExit(f"QGA not ready: {last}")
@@ -227,6 +228,19 @@ while time.time() < deadline:
 raise SystemExit("guest command timeout")
 PY
 chmod +x "$QGA_HELPER"
+
+# Record host transport state independently of guest readiness. This makes a
+# missing QEMU socket distinguishable from a guest-agent protocol failure.
+for _ in $(seq 1 30); do
+  [[ -S "$QGA_SOCK" ]] && break
+  sleep 1
+done
+{
+  printf 'qga_socket=%s\n' "$QGA_SOCK"
+  printf 'qga_socket_exists=%s\n' "$([[ -S "$QGA_SOCK" ]] && echo yes || echo no)"
+  stat "$QGA_SOCK" 2>&1 || true
+} | tee "$OUTDIR/qga-transport.txt"
+[[ -S "$QGA_SOCK" ]] || { echo "ERROR: QEMU QGA socket was never created" >&2; exit 1; }
 
 set +e
 python3 "$QGA_HELPER" "$QGA_SOCK" ping --timeout "$BOOT_SECONDS" \
@@ -281,8 +295,6 @@ qemu-img info "$DISK_PATH" | tee "$OUTDIR/postinstall-image-info.txt"
 printf 'installer_execution=pass\nimage=%s\nformat=raw\ndisk_gib=%s\ncontrol=qemu-guest-agent\nlive_boot_mode=uefi-direct-kernel-from-qualified-iso\n' \
   "$DISK_PATH" "$DISK_GIB" | tee "$OUTDIR/install-evidence.txt"
 
-# Independent proof: boot only the installed disk, with no installer ISO, and
-# require the post-install verifier's userspace sentinel.
 bash "$POST" "$DISK_PATH" "$OUTDIR/post-install"
 
 {
