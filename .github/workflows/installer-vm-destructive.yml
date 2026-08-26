@@ -7,6 +7,7 @@ on:
       - '.github/workflows/installer-vm-destructive.yml'
       - 'scripts/installer-target-guard.sh'
       - 'scripts/audit-installer-driver.sh'
+      - 'scripts/patch-installer-package-retries.py'
       - 'upstream/installer.lock'
       - 'qa/post-install-uefi-smoke.sh'
       - 'qa/post-install-verifier-contract.sh'
@@ -124,25 +125,51 @@ jobs:
           sed -i 's/systemctl is-system-running --wait/systemctl is-system-running/' \
             qa/installer-vm-destructive.sh
 
+          # Start from the exact audited upstream setup, then apply one
+          # deterministic Xodus transform to its package-install phase. The
+          # transform retries only packages that failed the first pacstrap,
+          # refreshes package databases once, and fails closed if any required
+          # package remains unavailable. This prevents a missing Plasma/SDDM
+          # payload from surfacing later as a misleading service-enable error.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('qa/installer-vm-destructive.sh')
+          text = p.read_text()
+          old = '''SETUP_FILE="$AUDIT_DIR/$SETUP_PATH"
+          [[ -s "$SETUP_FILE" ]] || { echo "ERROR: audited installer setup missing" >&2; exit 1; }
+          SETUP_B64="$(base64 -w0 "$SETUP_FILE")"'''
+          new = '''SETUP_FILE="$AUDIT_DIR/$SETUP_PATH"
+          [[ -s "$SETUP_FILE" ]] || { echo "ERROR: audited installer setup missing" >&2; exit 1; }
+          PATCHED_SETUP_FILE="$OUTDIR/xodus-setup-runtime.sh"
+          python3 "$repo_root/scripts/patch-installer-package-retries.py" "$SETUP_FILE" "$PATCHED_SETUP_FILE" \
+            | tee "$OUTDIR/installer-runtime-patch.txt"
+          SETUP_B64="$(base64 -w0 "$PATCHED_SETUP_FILE")"'''
+          if text.count(old) != 1:
+              raise SystemExit('audited setup handoff contract changed; refusing runtime hardening')
+          p.write_text(text.replace(old, new, 1))
+          PY
+
           # The pinned installer writes its detailed failure reason to the live
           # guest's Desktop log and /tmp/progress instead of stdout/stderr. Keep
-          # executing the exact audited installer bytes, but extend the outer
-          # QGA wrapper so a nonzero exit preserves those guest-only diagnostics
-          # in the normal CI evidence artifact before the VM is torn down.
+          # the audited-base/runtime-patch evidence, and extend the outer QGA
+          # wrapper so any nonzero exit preserves guest-only diagnostics.
           python3 - <<'PY'
           from pathlib import Path
           p = Path('qa/installer-vm-destructive.sh')
           text = p.read_text()
           old = '''INSTALL_CMD="set -e; mkdir -p /home/liveuser/Desktop; echo '$SETUP_B64' | base64 -d > /tmp/xodus-setup.sh; chmod 700 /tmp/xodus-setup.sh; bash /tmp/xodus-setup.sh '$target_disk'"'''
-          new = '''INSTALL_CMD="set +e; mkdir -p /home/liveuser/Desktop; echo '$SETUP_B64' | base64 -d > /tmp/xodus-setup.sh; chmod 700 /tmp/xodus-setup.sh; bash /tmp/xodus-setup.sh '$target_disk'; rc=\\$?; echo __XODUS_INSTALLER_PROGRESS__; cat /tmp/progress 2>/dev/null || true; echo; echo __XODUS_INSTALLER_LOG__; tail -n 400 /home/liveuser/Desktop/install.log 2>/dev/null || true; echo __XODUS_FAILED_PACKAGES__; cat /tmp/failed_packages.log 2>/dev/null || true; echo __XODUS_MNT_STATE__; findmnt -R /mnt 2>/dev/null || true; lsblk -f 2>/dev/null || true; exit \\$rc"'''
+          new = '''INSTALL_CMD="set +e; mkdir -p /home/liveuser/Desktop; echo '$SETUP_B64' | base64 -d > /tmp/xodus-setup.sh; chmod 700 /tmp/xodus-setup.sh; bash /tmp/xodus-setup.sh '$target_disk'; rc=\\$?; echo __XODUS_INSTALLER_PROGRESS__; cat /tmp/progress 2>/dev/null || true; echo; echo __XODUS_INSTALLER_LOG__; tail -n 400 /home/liveuser/Desktop/install.log 2>/dev/null || true; echo __XODUS_FAILED_PACKAGES__; cat /tmp/failed_packages.log 2>/dev/null || true; echo __XODUS_PACKAGE_REPORT__; cat /home/liveuser/Desktop/packages-report.txt 2>/dev/null || true; echo __XODUS_MNT_STATE__; findmnt -R /mnt 2>/dev/null || true; lsblk -f 2>/dev/null || true; exit \\$rc"'''
           if old not in text:
               raise SystemExit('installer wrapper contract changed; refusing diagnostic patch')
           p.write_text(text.replace(old, new, 1))
           PY
 
+          python3 -m py_compile scripts/patch-installer-package-retries.py
           bash -n qa/installer-vm-destructive.sh
           grep -Fq "systemctl is-system-running || true" qa/installer-vm-destructive.sh
+          grep -Fq 'patch-installer-package-retries.py' qa/installer-vm-destructive.sh
           grep -Fq '__XODUS_INSTALLER_LOG__' qa/installer-vm-destructive.sh
+          grep -Fq '__XODUS_PACKAGE_REPORT__' qa/installer-vm-destructive.sh
           sudo -E bash qa/installer-vm-destructive.sh \
             '${{ steps.image.outputs.iso }}' destructive-evidence
           grep -Fqx 'destructive_vm_install_gate=pass' \
