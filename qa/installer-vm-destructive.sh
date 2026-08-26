@@ -263,8 +263,39 @@ done
 } | tee "$OUTDIR/qga-transport.txt"
 [[ -S "$QGA_SOCK" ]] || { echo "ERROR: QEMU QGA socket was never created" >&2; exit 1; }
 
+# Do not connect a host client to the QGA transport before the guest service is
+# actually running. Early connect/timeouts can repeatedly tear down the socket
+# while virtio-serial is still coming online, obscuring an otherwise healthy
+# live boot. Serial evidence is independent and gives us a fail-closed readiness
+# boundary before the first QGA protocol byte is sent.
+serial_deadline=$((SECONDS + BOOT_SECONDS))
+serial_qga_ready=0
+while (( SECONDS < serial_deadline )); do
+  if ! kill -0 "$qemu_pid" 2>/dev/null; then
+    echo "ERROR: QEMU exited before qemu-guest-agent startup evidence" >&2
+    tail -n 160 "$OUTDIR/qemu.stderr" >&2 2>/dev/null || true
+    tail -n 240 "$OUTDIR/install-serial.log" >&2 2>/dev/null || true
+    exit 1
+  fi
+  if [[ -f "$OUTDIR/install-serial.log" ]] \
+      && grep -Fq '/dev/virtio-ports/org.qemu.guest_agent.0' "$OUTDIR/install-serial.log" \
+      && grep -Fq 'QEMU Guest Agent' "$OUTDIR/install-serial.log"; then
+    serial_qga_ready=1
+    break
+  fi
+  sleep 2
+done
+if [[ $serial_qga_ready -ne 1 ]]; then
+  echo "ERROR: live userspace never reported qemu-guest-agent startup" >&2
+  printf 'qemu_alive_at_timeout=%s\n' "$(kill -0 "$qemu_pid" 2>/dev/null && echo yes || echo no)" \
+    | tee -a "$OUTDIR/qemu-runtime.txt" >&2
+  tail -n 240 "$OUTDIR/install-serial.log" >&2 2>/dev/null || true
+  exit 1
+fi
+printf 'serial_qga_service=started\n' | tee -a "$OUTDIR/qemu-runtime.txt"
+
 set +e
-python3 "$QGA_HELPER" "$QGA_SOCK" ping --timeout "$BOOT_SECONDS" \
+python3 "$QGA_HELPER" "$QGA_SOCK" ping --timeout 90 \
   >"$OUTDIR/qga-ping.log" 2>"$OUTDIR/qga-ping.err"
 qga_rc=$?
 set -e
