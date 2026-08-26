@@ -71,7 +71,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            qemu-system-x86 qemu-utils ovmf expect gdisk dosfstools e2fsprogs util-linux jq git
+            qemu-system-x86 qemu-utils ovmf xorriso expect gdisk dosfstools e2fsprogs util-linux jq git
           if [[ -e /dev/kvm ]]; then
             sudo chmod 666 /dev/kvm || true
             ls -l /dev/kvm
