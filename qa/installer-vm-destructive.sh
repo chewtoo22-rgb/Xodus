@@ -4,7 +4,7 @@ set -euo pipefail
 ISO_PATH="${1:-}"
 OUTDIR="${2:-destructive-evidence}"
 DISK_GIB="${DISK_GIB:-32}"
-BOOT_SECONDS="${BOOT_SECONDS:-240}"
+BOOT_SECONDS="${BOOT_SECONDS:-600}"
 INSTALL_SECONDS="${INSTALL_SECONDS:-1800}"
 
 if [[ -z "$ISO_PATH" || ! -f "$ISO_PATH" ]]; then
@@ -90,12 +90,28 @@ mapfile -t ovmf < <(find_ovmf) || true
 [[ ${#ovmf[@]} -eq 2 ]] || { echo "ERROR: OVMF firmware pair not found" >&2; exit 69; }
 cp "${ovmf[1]}" "$OUTDIR/OVMF_VARS_INSTALL.fd"
 
+# Prefer hardware acceleration when the hosted runner exposes /dev/kvm. The
+# full graphical live image can take several minutes under TCG, which makes a
+# machine-control timeout indistinguishable from a boot failure. Keep TCG as a
+# deterministic fallback for environments without nested virtualization.
+if [[ -c /dev/kvm ]]; then
+  QEMU_MACHINE="q35,accel=kvm"
+  QEMU_CPU="host"
+  QEMU_ACCEL="kvm"
+else
+  QEMU_MACHINE="q35,accel=tcg"
+  QEMU_CPU="max"
+  QEMU_ACCEL="tcg"
+fi
+printf 'qemu_accel=%s\nboot_timeout_seconds=%s\n' "$QEMU_ACCEL" "$BOOT_SECONDS" \
+  | tee "$OUTDIR/qemu-runtime.txt"
+
 # The pinned pearOS image enables qemu-guest-agent. Use that machine-facing
 # channel instead of assuming the graphical live image exposes a serial getty.
 # This keeps the real ISO bootloader + OVMF path under test.
 qemu-system-x86_64 \
-  -machine q35,accel=tcg \
-  -cpu max \
+  -machine "$QEMU_MACHINE" \
+  -cpu "$QEMU_CPU" \
   -m 4096 \
   -smp 2 \
   -no-reboot \
@@ -107,6 +123,7 @@ qemu-system-x86_64 \
   -cdrom "$ISO_PATH" \
   -boot order=d \
   -serial "file:$OUTDIR/install-serial.log" \
+  -device virtio-rng-pci \
   -chardev "socket,path=$QGA_SOCK,server=on,wait=off,id=qga0" \
   -device virtio-serial-pci \
   -device virtserialport,chardev=qga0,name=org.qemu.guest_agent.0 \
@@ -192,6 +209,8 @@ qga_rc=$?
 set -e
 if [[ $qga_rc -ne 0 ]]; then
   echo "ERROR: live system never exposed qemu-guest-agent" >&2
+  printf 'qemu_alive_at_timeout=%s\n' "$(kill -0 "$qemu_pid" 2>/dev/null && echo yes || echo no)" \
+    | tee -a "$OUTDIR/qemu-runtime.txt" >&2
   tail -n 120 "$OUTDIR/qemu.stderr" >&2 2>/dev/null || true
   tail -n 120 "$OUTDIR/install-serial.log" >&2 2>/dev/null || true
   cat "$OUTDIR/qga-ping.err" >&2 2>/dev/null || true
