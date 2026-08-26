@@ -67,8 +67,11 @@ unsquashfs -ll "$sfs" \
   >"$installer_listing"
 head -n 200 "$installer_listing" >"$outdir/installer-layout.txt" || true
 
-setup_rel="$(awk '{print $NF}' "$installer_listing" | sed 's#^squashfs-root/##' | awk '/(^|\/)usr\/share\/pearOS-installer\/system_install\/setup$/ {print; exit}')"
-entry_rel="$(awk '{print $NF}' "$installer_listing" | sed 's#^squashfs-root/##' | awk '/(^|\/)usr\/local\/bin\/bin_install$/ {print; exit}')"
+# Resolve paths in one awk process. With `set -o pipefail`, the earlier
+# `awk | sed | awk ... exit` shape let the final early exit close stdout under sed,
+# producing EPIPE and a false contract failure even though the path was found.
+setup_rel="$(awk '{p=$NF; sub(/^squashfs-root\//, "", p); if (p ~ /(^|\/)usr\/share\/pearOS-installer\/system_install\/setup$/) {print p; exit}}' "$installer_listing")"
+entry_rel="$(awk '{p=$NF; sub(/^squashfs-root\//, "", p); if (p ~ /(^|\/)usr\/local\/bin\/bin_install$/) {print p; exit}}' "$installer_listing")"
 
 if [[ -z "$setup_rel" ]]; then
   echo "ERROR: qualified ISO live root does not contain the pinned installer setup path" >&2
