@@ -97,7 +97,15 @@ Record PASS/FAIL for each item:
 
 ## Evidence to capture
 
-For every failure, record:
+As soon as the live system reaches a terminal, run the read-only collector from the Xodus checkout:
+
+```bash
+bash qa/hardware-live-evidence.sh xodus-hardware-evidence
+```
+
+Keep the resulting `xodus-hardware-evidence/` directory with the candidate commit SHA. The collector records OS/kernel identity, block and mount topology, PCI/USB devices, networking, rfkill/Bluetooth/audio state, UEFI status, failed units, and boot warnings. It is observational only; CI rejects destructive storage commands in the collector source.
+
+For every failure, additionally record:
 
 - candidate commit SHA,
 - machine model,
@@ -107,7 +115,7 @@ For every failure, record:
 - a photo/screenshot when practical,
 - whether the failure reproduces after one cold reboot.
 
-If the live system reaches a terminal, also capture:
+If the collector cannot be run, capture the minimum fallback manually:
 
 ```bash
 uname -a
