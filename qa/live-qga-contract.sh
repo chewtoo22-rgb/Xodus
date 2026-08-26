@@ -35,12 +35,29 @@ sfs="$(find "$iso_mount" -type f -name 'airootfs.sfs' -print -quit)"
 [[ -n "$sfs" ]] || { echo "ERROR: airootfs.sfs not found" >&2; exit 3; }
 
 listing="$work/qga-layout.full.txt"
-unsquashfs -ll "$sfs" | awk '/qemu-ga$|qemu-guest-agent\.service$|multi-user\.target\.wants\/qemu-guest-agent\.service$|org\.qemu\.guest_agent\.0/ {print}' > "$listing"
+unsquashfs -ll "$sfs" | awk '/qemu-ga$|qemu-guest-agent\.service|org\.qemu\.guest_agent\.0/ {print}' > "$listing"
 cp "$listing" "$outdir/qga-layout.txt"
 
-binary_rel="$(awk '{p=$NF; sub(/^squashfs-root\//, "", p); if (p ~ /(^|\/)usr\/bin\/qemu-ga$/) {print p; exit}}' "$listing")"
-unit_rel="$(awk '{p=$NF; sub(/^squashfs-root\//, "", p); if (p ~ /(^|\/)usr\/lib\/systemd\/system\/qemu-guest-agent\.service$/) {print p; exit}}' "$listing")"
-enabled_rel="$(awk '{p=$NF; sub(/^squashfs-root\//, "", p); if (p ~ /(^|\/)multi-user\.target\.wants\/qemu-guest-agent\.service$/) {print p; exit}}' "$listing")"
+# unsquashfs prints symlinks as "squashfs-root/path -> target".  Reading $NF
+# therefore returns the target instead of the enablement path.  Extract the
+# squashfs-root path directly from each complete line so regular files and
+# symlinks are handled identically.
+path_matching() {
+  local regex="$1"
+  awk -v want="$regex" '
+    {
+      if (match($0, /squashfs-root\/[^[:space:]]+/)) {
+        p = substr($0, RSTART, RLENGTH)
+        sub(/^squashfs-root\//, "", p)
+        if (p ~ want) { print p; exit }
+      }
+    }
+  ' "$listing"
+}
+
+binary_rel="$(path_matching '(^|/)usr/bin/qemu-ga$')"
+unit_rel="$(path_matching '(^|/)usr/lib/systemd/system/qemu-guest-agent\.service$')"
+enabled_rel="$(path_matching '(^|/)multi-user\.target\.wants/qemu-guest-agent\.service$')"
 
 binary_present=no
 unit_present=no
