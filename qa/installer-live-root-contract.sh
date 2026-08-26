@@ -58,15 +58,17 @@ fi
 sfs_path="${sfs#"$iso_mount"/}"
 printf 'squashfs_path=%s\n' "$sfs_path" | tee "$outdir/iso-layout.txt"
 
-# Record a bounded installer-oriented listing before selective extraction. If upstream
-# layout drifts, the failure artifact should explain what is present instead of dying
-# at unsquashfs with no useful evidence.
+# Capture the complete installer-oriented listing once so contract path resolution is
+# not affected by evidence truncation. The previous pipeline truncated at 200 matches
+# before system_install/setup on the current image, causing a false missing-path failure.
+installer_listing="$work/installer-layout.full.txt"
 unsquashfs -ll "$sfs" \
   | awk '/pearOS-installer|bin_install|system_install\/setup/ {print}' \
-  | head -n 200 >"$outdir/installer-layout.txt" || true
+  >"$installer_listing"
+head -n 200 "$installer_listing" >"$outdir/installer-layout.txt" || true
 
-setup_rel="$(awk '{print $NF}' "$outdir/installer-layout.txt" | sed 's#^squashfs-root/##' | awk '/(^|\/)usr\/share\/pearOS-installer\/system_install\/setup$/ {print; exit}')"
-entry_rel="$(awk '{print $NF}' "$outdir/installer-layout.txt" | sed 's#^squashfs-root/##' | awk '/(^|\/)usr\/local\/bin\/bin_install$/ {print; exit}')"
+setup_rel="$(awk '{print $NF}' "$installer_listing" | sed 's#^squashfs-root/##' | awk '/(^|\/)usr\/share\/pearOS-installer\/system_install\/setup$/ {print; exit}')"
+entry_rel="$(awk '{print $NF}' "$installer_listing" | sed 's#^squashfs-root/##' | awk '/(^|\/)usr\/local\/bin\/bin_install$/ {print; exit}')"
 
 if [[ -z "$setup_rel" ]]; then
   echo "ERROR: qualified ISO live root does not contain the pinned installer setup path" >&2
