@@ -1,0 +1,41 @@
+name: Hardware Live Evidence Contract
+
+on:
+  pull_request:
+    paths:
+      - 'qa/hardware-live-evidence.sh'
+      - '.github/workflows/hardware-live-evidence.yml'
+      - 'docs/THURSDAY_HARDWARE_TEST.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  evidence-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Syntax-check collector
+        run: bash -n qa/hardware-live-evidence.sh
+
+      - name: Run collector read-only
+        run: |
+          bash qa/hardware-live-evidence.sh hardware-live-evidence
+          grep -Fqx 'collector=pass' hardware-live-evidence/summary.txt
+          test -s hardware-live-evidence/lsblk.txt
+          test -s hardware-live-evidence/uname.txt
+
+      - name: Assert no destructive storage commands
+        run: |
+          ! grep -En '(^|[[:space:]])(dd|wipefs|mkfs(\.|[[:space:]])|sgdisk|parted|fdisk|losetup[[:space:]]+-d)([[:space:]]|$)' qa/hardware-live-evidence.sh
+
+      - name: Upload sample evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: hardware-live-evidence-${{ github.sha }}
+          path: hardware-live-evidence/
+          if-no-files-found: error
+          retention-days: 7
