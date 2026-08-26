@@ -103,6 +103,11 @@ else
   QEMU_ACCEL="tcg"
 fi
 
+# pearOS's pinned profiledef.sh sets install_dir="arch". Keep the direct-kernel
+# harness aligned with the actual built ISO rather than the source profile name
+# (pear/). The ordinary boot smoke independently exercises the ISO bootloader.
+ARCHISO_BASEDIR="arch"
+
 # UEFI ISO boot is independently required by QA QEMU Boot Smoke. For this
 # destructive installer gate, extract the kernel and initramfs from the exact
 # checksum-verified ISO and boot that same live root deterministically. This
@@ -110,10 +115,10 @@ fi
 # the qualified ISO bytes, ArchISO live media, UEFI firmware, and audited
 # installer payload under test.
 xorriso -osirrox on -indev "$ISO_PATH" \
-  -extract /pear/boot/x86_64/vmlinuz-linux "$LIVE_KERNEL" \
+  -extract "/${ARCHISO_BASEDIR}/boot/x86_64/vmlinuz-linux" "$LIVE_KERNEL" \
   >"$OUTDIR/kernel-extract.log" 2>&1
 xorriso -osirrox on -indev "$ISO_PATH" \
-  -extract /pear/boot/x86_64/initramfs-linux.img "$LIVE_INITRD" \
+  -extract "/${ARCHISO_BASEDIR}/boot/x86_64/initramfs-linux.img" "$LIVE_INITRD" \
   >"$OUTDIR/initrd-extract.log" 2>&1
 [[ -s "$LIVE_KERNEL" && -s "$LIVE_INITRD" ]] || {
   echo "ERROR: qualified ISO kernel/initramfs extraction failed" >&2
@@ -122,10 +127,10 @@ xorriso -osirrox on -indev "$ISO_PATH" \
 ISO_LABEL="$(blkid -s LABEL -o value "$ISO_PATH" || true)"
 [[ -n "$ISO_LABEL" ]] || { echo "ERROR: qualified ISO volume label unavailable" >&2; exit 1; }
 sha256sum "$LIVE_KERNEL" "$LIVE_INITRD" | tee "$OUTDIR/live-boot-payload.sha256"
-printf 'iso_label=%s\nqemu_accel=%s\nboot_timeout_seconds=%s\nlive_boot_mode=uefi-direct-kernel-from-qualified-iso\n' \
-  "$ISO_LABEL" "$QEMU_ACCEL" "$BOOT_SECONDS" | tee "$OUTDIR/qemu-runtime.txt"
+printf 'iso_label=%s\narchisobasedir=%s\nqemu_accel=%s\nboot_timeout_seconds=%s\nlive_boot_mode=uefi-direct-kernel-from-qualified-iso\n' \
+  "$ISO_LABEL" "$ARCHISO_BASEDIR" "$QEMU_ACCEL" "$BOOT_SECONDS" | tee "$OUTDIR/qemu-runtime.txt"
 
-KERNEL_CMDLINE="archisobasedir=pear archisolabel=$ISO_LABEL cow_spacesize=4G module_blacklist=pcspkr nvme_load=yes console=tty0 console=ttyS0,115200n8 systemd.unit=multi-user.target systemd.mask=sddm.service systemd.show_status=true plymouth.enable=0"
+KERNEL_CMDLINE="archisobasedir=$ARCHISO_BASEDIR archisolabel=$ISO_LABEL cow_spacesize=4G module_blacklist=pcspkr nvme_load=yes console=tty0 console=ttyS0,115200n8 systemd.unit=multi-user.target systemd.mask=sddm.service systemd.show_status=true plymouth.enable=0"
 
 qemu-system-x86_64 \
   -machine "$QEMU_MACHINE" \
