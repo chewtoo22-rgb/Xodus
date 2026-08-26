@@ -123,8 +123,26 @@ jobs:
           # after qemu-guest-agent has already passed its synchronization gate.
           sed -i 's/systemctl is-system-running --wait/systemctl is-system-running/' \
             qa/installer-vm-destructive.sh
+
+          # The pinned installer writes its detailed failure reason to the live
+          # guest's Desktop log and /tmp/progress instead of stdout/stderr. Keep
+          # executing the exact audited installer bytes, but extend the outer
+          # QGA wrapper so a nonzero exit preserves those guest-only diagnostics
+          # in the normal CI evidence artifact before the VM is torn down.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('qa/installer-vm-destructive.sh')
+          text = p.read_text()
+          old = '''INSTALL_CMD="set -e; mkdir -p /home/liveuser/Desktop; echo '$SETUP_B64' | base64 -d > /tmp/xodus-setup.sh; chmod 700 /tmp/xodus-setup.sh; bash /tmp/xodus-setup.sh '$target_disk'"'''
+          new = '''INSTALL_CMD="set +e; mkdir -p /home/liveuser/Desktop; echo '$SETUP_B64' | base64 -d > /tmp/xodus-setup.sh; chmod 700 /tmp/xodus-setup.sh; bash /tmp/xodus-setup.sh '$target_disk'; rc=\\$?; echo __XODUS_INSTALLER_PROGRESS__; cat /tmp/progress 2>/dev/null || true; echo; echo __XODUS_INSTALLER_LOG__; tail -n 400 /home/liveuser/Desktop/install.log 2>/dev/null || true; echo __XODUS_FAILED_PACKAGES__; cat /tmp/failed_packages.log 2>/dev/null || true; echo __XODUS_MNT_STATE__; findmnt -R /mnt 2>/dev/null || true; lsblk -f 2>/dev/null || true; exit \\$rc"'''
+          if old not in text:
+              raise SystemExit('installer wrapper contract changed; refusing diagnostic patch')
+          p.write_text(text.replace(old, new, 1))
+          PY
+
           bash -n qa/installer-vm-destructive.sh
           grep -Fq "systemctl is-system-running || true" qa/installer-vm-destructive.sh
+          grep -Fq '__XODUS_INSTALLER_LOG__' qa/installer-vm-destructive.sh
           sudo -E bash qa/installer-vm-destructive.sh \
             '${{ steps.image.outputs.iso }}' destructive-evidence
           grep -Fqx 'destructive_vm_install_gate=pass' \
