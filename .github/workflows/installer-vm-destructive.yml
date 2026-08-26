@@ -170,10 +170,31 @@ jobs:
           grep -Fq 'patch-installer-package-retries.py' qa/installer-vm-destructive.sh
           grep -Fq '__XODUS_INSTALLER_LOG__' qa/installer-vm-destructive.sh
           grep -Fq '__XODUS_PACKAGE_REPORT__' qa/installer-vm-destructive.sh
+
+          set +e
           sudo -E bash qa/installer-vm-destructive.sh \
-            '${{ steps.image.outputs.iso }}' destructive-evidence
+            '${{ steps.image.outputs.iso }}' destructive-evidence \
+            2>&1 | tee destructive-gate-console.log
+          gate_rc=${PIPESTATUS[0]}
+          set -e
+          printf 'destructive_gate_exit=%s\n' "$gate_rc" | tee destructive-gate-exit.txt
+          if [[ "$gate_rc" -ne 0 ]]; then
+            exit "$gate_rc"
+          fi
           grep -Fqx 'destructive_vm_install_gate=pass' \
             destructive-evidence/destructive-gate-summary.txt
+
+      - name: Normalize destructive-install evidence permissions
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -d destructive-evidence ]]; then
+            sudo chmod -R a+rX destructive-evidence || true
+            sudo find destructive-evidence -type f -exec chmod a+r {} + || true
+          fi
+          ls -la destructive-evidence 2>/dev/null || true
+          find destructive-evidence -maxdepth 2 -type f -printf '%m %u:%g %p\n' 2>/dev/null | sort || true
 
       - name: Upload destructive-install evidence
         if: always()
@@ -182,7 +203,10 @@ jobs:
           name: xodus-destructive-install-${{ steps.run.outputs.source_sha }}
           path: |
             destructive-evidence/
+            destructive-gate-console.log
+            destructive-gate-exit.txt
             installer-image-digest.txt
             driver-contract.txt
           if-no-files-found: warn
           retention-days: 7
+          overwrite: true
