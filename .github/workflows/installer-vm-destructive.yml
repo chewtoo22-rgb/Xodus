@@ -131,6 +131,13 @@ jobs:
           # refreshes package databases once, and fails closed if any required
           # package remains unavailable. This prevents a missing Plasma/SDDM
           # payload from surfacing later as a misleading service-enable error.
+          #
+          # The upstream installer reboots the live guest immediately after
+          # writing "Installation finished". That is correct for interactive
+          # use but destroys QGA before CI can receive the installer exit code
+          # and deliberately detach the installer environment. Suppress only
+          # that final reboot in the already-audited runtime copy; the harness
+          # still requires a detached-disk UEFI/userspace boot afterwards.
           python3 - <<'PY'
           from pathlib import Path
           p = Path('qa/installer-vm-destructive.sh')
@@ -143,6 +150,15 @@ jobs:
           PATCHED_SETUP_FILE="$OUTDIR/xodus-setup-runtime.sh"
           python3 "$repo_root/scripts/patch-installer-package-retries.py" "$SETUP_FILE" "$PATCHED_SETUP_FILE" \
             | tee "$OUTDIR/installer-runtime-patch.txt"
+          grep -Fqx '  shutdown -r now' "$PATCHED_SETUP_FILE" \
+            || { echo "ERROR: upstream installer reboot contract changed" >&2; exit 1; }
+          sed -i 's|^  shutdown -r now$|  echo "XODUS_CI_REBOOT_SUPPRESSED" >> /home/liveuser/Desktop/install.log; sync; exit 0|' \
+            "$PATCHED_SETUP_FILE"
+          grep -Fqx '  echo "XODUS_CI_REBOOT_SUPPRESSED" >> /home/liveuser/Desktop/install.log; sync; exit 0' \
+            "$PATCHED_SETUP_FILE" \
+            || { echo "ERROR: CI reboot suppression transform failed" >&2; exit 1; }
+          echo 'ci_reboot_policy=suppress-upstream-reboot-after-installation-finished' \
+            | tee -a "$OUTDIR/installer-runtime-patch.txt"
           SETUP_B64="$(base64 -w0 "$PATCHED_SETUP_FILE")"'''
           if text.count(old) != 1:
               raise SystemExit('audited setup handoff contract changed; refusing runtime hardening')
@@ -168,6 +184,7 @@ jobs:
           bash -n qa/installer-vm-destructive.sh
           grep -Fq "systemctl is-system-running || true" qa/installer-vm-destructive.sh
           grep -Fq 'patch-installer-package-retries.py' qa/installer-vm-destructive.sh
+          grep -Fq 'XODUS_CI_REBOOT_SUPPRESSED' qa/installer-vm-destructive.sh
           grep -Fq '__XODUS_INSTALLER_LOG__' qa/installer-vm-destructive.sh
           grep -Fq '__XODUS_PACKAGE_REPORT__' qa/installer-vm-destructive.sh
 
