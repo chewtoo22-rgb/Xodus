@@ -1,0 +1,229 @@
+name: Destructive VM Install Gate
+
+on:
+  pull_request:
+    paths:
+      - 'qa/installer-vm-destructive.sh'
+      - '.github/workflows/installer-vm-destructive.yml'
+      - 'scripts/installer-target-guard.sh'
+      - 'scripts/audit-installer-driver.sh'
+      - 'scripts/patch-installer-package-retries.py'
+      - 'upstream/installer.lock'
+      - 'qa/post-install-uefi-smoke.sh'
+      - 'qa/post-install-verifier-contract.sh'
+      - 'docs/INSTALLER_SAFETY.md'
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: 'Optional successful Core ISO commit SHA to install'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  destructive-install:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse pinned pearOS revision
+        id: lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          line=$(grep -v '^#' upstream/iso.lock | grep -v '^$' | head -n1)
+          IFS='|' read -r repo branch commit captured <<< "$line"
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve proven Core ISO
+        id: run
+        shell: bash
+        run: |
+          set -euo pipefail
+          requested='${{ inputs.source_sha || '' }}'
+          if [[ -n "$requested" ]]; then
+            [[ "$requested" =~ ^[0-9a-f]{40}$ ]]
+            row=$(gh api "/repos/${GITHUB_REPOSITORY}/actions/workflows/core-iso-build.yml/runs?status=success&per_page=50" \
+              | jq -r --arg sha "$requested" '.workflow_runs[] | select(.head_sha == $sha) | [.id,.head_sha] | @tsv' | head -n1)
+          else
+            row=$(gh api "/repos/${GITHUB_REPOSITORY}/actions/workflows/core-iso-build.yml/runs?status=success&per_page=20" \
+              | jq -r '.workflow_runs[] | [.id,.head_sha] | @tsv' | head -n1)
+          fi
+          [[ -n "${row:-}" ]] || { echo 'No successful Core ISO build available' >&2; exit 5; }
+          IFS=$'\t' read -r run_id source_sha <<< "$row"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "Using proven Core ISO run $run_id from $source_sha"
+
+      - name: Reclaim runner disk
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          docker system prune -af || true
+          df -h /
+
+      - name: Install destructive VM tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            qemu-system-x86 qemu-utils ovmf xorriso expect gdisk dosfstools e2fsprogs util-linux jq git
+          if [[ -e /dev/kvm ]]; then
+            sudo chmod 666 /dev/kvm || true
+            ls -l /dev/kvm
+          else
+            echo 'KVM unavailable; destructive gate will use TCG fallback'
+          fi
+
+      - name: Download proven ISO artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: xodus-reference-iso-${{ steps.lock.outputs.commit }}
+          path: installer-input
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.run.outputs.run_id }}
+
+      - name: Verify ISO checksum
+        id: image
+        shell: bash
+        run: |
+          set -euo pipefail
+          iso=$(find installer-input -type f -name '*.iso' -print -quit)
+          checksum=$(find installer-input -type f -name 'xodus-reference.sha256' -print -quit)
+          test -n "$iso" && test -s "$iso"
+          test -n "$checksum" && test -s "$checksum"
+          iso_abs=$(realpath "$iso")
+          expected=$(awk '{print $1}' "$checksum")
+          actual=$(sha256sum "$iso_abs" | awk '{print $1}')
+          test "$expected" = "$actual"
+          echo "iso=$iso_abs" >> "$GITHUB_OUTPUT"
+          printf 'sha256=%s\ncore_source_sha=%s\ncore_run_id=%s\n' \
+            "$actual" '${{ steps.run.outputs.source_sha }}' '${{ steps.run.outputs.run_id }}' \
+            | tee installer-image-digest.txt
+
+      - name: Audit installer driver contract
+        run: |
+          bash scripts/audit-installer-driver.sh upstream/installer.lock \
+            "${RUNNER_TEMP}/xodus-driver-audit" | tee driver-contract.txt
+
+      - name: Run destructive VM install gate
+        env:
+          DISK_GIB: 32
+          BOOT_SECONDS: 600
+          INSTALL_SECONDS: 1800
+          XODUS_POSTINSTALL_WATCHDOG_SECONDS: 150
+        run: |
+          # `systemctl is-system-running --wait` is a diagnostic only. A live
+          # ArchISO may remain in a transitional/degraded state indefinitely,
+          # so do not let that nonessential status probe block target discovery
+          # after qemu-guest-agent has already passed its synchronization gate.
+          sed -i 's/systemctl is-system-running --wait/systemctl is-system-running/' \
+            qa/installer-vm-destructive.sh
+
+          # Start from the exact audited upstream setup, then apply one
+          # deterministic Xodus transform to its package-install phase. The
+          # transform retries only packages that failed the first pacstrap,
+          # refreshes package databases once, and fails closed if any required
+          # package remains unavailable. This prevents a missing Plasma/SDDM
+          # payload from surfacing later as a misleading service-enable error.
+          #
+          # The upstream installer reboots the live guest immediately after
+          # writing "Installation finished". That is correct for interactive
+          # use but destroys QGA before CI can receive the installer exit code
+          # and deliberately detach the installer environment. Suppress only
+          # that final reboot in the already-audited runtime copy; the harness
+          # still requires a detached-disk UEFI/userspace boot afterwards.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('qa/installer-vm-destructive.sh')
+          text = p.read_text()
+          old = '''SETUP_FILE="$AUDIT_DIR/$SETUP_PATH"
+          [[ -s "$SETUP_FILE" ]] || { echo "ERROR: audited installer setup missing" >&2; exit 1; }
+          SETUP_B64="$(base64 -w0 "$SETUP_FILE")"'''
+          new = '''SETUP_FILE="$AUDIT_DIR/$SETUP_PATH"
+          [[ -s "$SETUP_FILE" ]] || { echo "ERROR: audited installer setup missing" >&2; exit 1; }
+          PATCHED_SETUP_FILE="$OUTDIR/xodus-setup-runtime.sh"
+          python3 "$repo_root/scripts/patch-installer-package-retries.py" "$SETUP_FILE" "$PATCHED_SETUP_FILE" \
+            | tee "$OUTDIR/installer-runtime-patch.txt"
+          grep -Fqx '  shutdown -r now' "$PATCHED_SETUP_FILE" \
+            || { echo "ERROR: upstream installer reboot contract changed" >&2; exit 1; }
+          sed -i 's|^  shutdown -r now$|  echo "XODUS_CI_REBOOT_SUPPRESSED" >> /home/liveuser/Desktop/install.log; sync; exit 0|' \
+            "$PATCHED_SETUP_FILE"
+          grep -Fqx '  echo "XODUS_CI_REBOOT_SUPPRESSED" >> /home/liveuser/Desktop/install.log; sync; exit 0' \
+            "$PATCHED_SETUP_FILE" \
+            || { echo "ERROR: CI reboot suppression transform failed" >&2; exit 1; }
+          echo 'ci_reboot_policy=suppress-upstream-reboot-after-installation-finished' \
+            | tee -a "$OUTDIR/installer-runtime-patch.txt"
+          SETUP_B64="$(base64 -w0 "$PATCHED_SETUP_FILE")"'''
+          if text.count(old) != 1:
+              raise SystemExit('audited setup handoff contract changed; refusing runtime hardening')
+          p.write_text(text.replace(old, new, 1))
+          PY
+
+          # The pinned installer writes its detailed failure reason to the live
+          # guest's Desktop log and /tmp/progress instead of stdout/stderr. Keep
+          # the audited-base/runtime-patch evidence, and extend the outer QGA
+          # wrapper so any nonzero exit preserves guest-only diagnostics.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('qa/installer-vm-destructive.sh')
+          text = p.read_text()
+          old = '''INSTALL_CMD="set -e; mkdir -p /home/liveuser/Desktop; echo '$SETUP_B64' | base64 -d > /tmp/xodus-setup.sh; chmod 700 /tmp/xodus-setup.sh; bash /tmp/xodus-setup.sh '$target_disk'"'''
+          new = '''INSTALL_CMD="set +e; mkdir -p /home/liveuser/Desktop; echo '$SETUP_B64' | base64 -d > /tmp/xodus-setup.sh; chmod 700 /tmp/xodus-setup.sh; bash /tmp/xodus-setup.sh '$target_disk'; rc=\\$?; echo __XODUS_INSTALLER_PROGRESS__; cat /tmp/progress 2>/dev/null || true; echo; echo __XODUS_INSTALLER_LOG__; tail -n 400 /home/liveuser/Desktop/install.log 2>/dev/null || true; echo __XODUS_FAILED_PACKAGES__; cat /tmp/failed_packages.log 2>/dev/null || true; echo __XODUS_PACKAGE_REPORT__; cat /home/liveuser/Desktop/packages-report.txt 2>/dev/null || true; echo __XODUS_MNT_STATE__; findmnt -R /mnt 2>/dev/null || true; lsblk -f 2>/dev/null || true; exit \\$rc"'''
+          if old not in text:
+              raise SystemExit('installer wrapper contract changed; refusing diagnostic patch')
+          p.write_text(text.replace(old, new, 1))
+          PY
+
+          python3 -m py_compile scripts/patch-installer-package-retries.py
+          bash -n qa/installer-vm-destructive.sh
+          grep -Fq "systemctl is-system-running || true" qa/installer-vm-destructive.sh
+          grep -Fq 'patch-installer-package-retries.py' qa/installer-vm-destructive.sh
+          grep -Fq 'XODUS_CI_REBOOT_SUPPRESSED' qa/installer-vm-destructive.sh
+          grep -Fq '__XODUS_INSTALLER_LOG__' qa/installer-vm-destructive.sh
+          grep -Fq '__XODUS_PACKAGE_REPORT__' qa/installer-vm-destructive.sh
+
+          set +e
+          sudo -E bash qa/installer-vm-destructive.sh \
+            '${{ steps.image.outputs.iso }}' destructive-evidence \
+            2>&1 | tee destructive-gate-console.log
+          gate_rc=${PIPESTATUS[0]}
+          set -e
+          printf 'destructive_gate_exit=%s\n' "$gate_rc" | tee destructive-gate-exit.txt
+          if [[ "$gate_rc" -ne 0 ]]; then
+            exit "$gate_rc"
+          fi
+          grep -Fqx 'destructive_vm_install_gate=pass' \
+            destructive-evidence/destructive-gate-summary.txt
+
+      - name: Normalize destructive-install evidence permissions
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -d destructive-evidence ]]; then
+            sudo chmod -R a+rX destructive-evidence || true
+            sudo find destructive-evidence -type f -exec chmod a+r {} + || true
+          fi
+          ls -la destructive-evidence 2>/dev/null || true
+          find destructive-evidence -maxdepth 2 -type f -printf '%m %u:%g %p\n' 2>/dev/null | sort || true
+
+      - name: Upload destructive-install evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xodus-destructive-install-${{ steps.run.outputs.source_sha }}
+          path: |
+            destructive-evidence/
+            destructive-gate-console.log
+            destructive-gate-exit.txt
+            installer-image-digest.txt
+            driver-contract.txt
+          if-no-files-found: warn
+          retention-days: 7
+          overwrite: true

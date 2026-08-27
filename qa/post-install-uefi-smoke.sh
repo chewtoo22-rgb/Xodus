@@ -53,7 +53,10 @@ cleanup() {
 trap cleanup EXIT
 
 sudo modprobe nbd max_part=16
-sudo qemu-nbd --connect="$nbd" "$image"
+# qemu-img already established the exact image format above. Pass it through
+# to qemu-nbd instead of allowing format probing; probing raw media can impose
+# write restrictions on sector 0 and abort this verifier before partition proof.
+sudo qemu-nbd --format="$format" --connect="$nbd" "$image"
 sudo udevadm settle
 
 sudo sgdisk -p "$nbd" | tee "$outdir/partition-table.txt"
@@ -151,11 +154,18 @@ else
     watchdog=240
   fi
 fi
-printf 'qemu_accel=%s\nwatchdog_seconds=%s\ninstaller_iso_attached=no\n' \
+printf 'qemu_accel=%s\nwatchdog_seconds=%s\ninstaller_iso_attached=no\nserial_transport=stdio-live\n' \
   "$qemu_accel" "$watchdog" | tee "$outdir/post-install-runtime.txt"
 
+# Stream the serial console through QEMU stdout rather than `-serial file:`.
+# The file chardev can buffer bytes until QEMU exits; run #26 demonstrated that
+# behavior by revealing the exact sentinel only after the watchdog killed QEMU.
+# stdout redirection is observable while QEMU is alive, so the verifier can
+# prove the exact sentinel in real time and terminate immediately after proof.
+: >"$serial"
+: >"$qemu_log"
 set +e
-timeout "$watchdog" qemu-system-x86_64 \
+qemu-system-x86_64 \
   -machine "$qemu_machine" \
   -cpu "$qemu_cpu" \
   -m 4096 \
@@ -163,16 +173,41 @@ timeout "$watchdog" qemu-system-x86_64 \
   -nodefaults \
   -no-reboot \
   -display none \
-  -serial "file:$serial" \
+  -serial stdio \
   -monitor none \
   -drive "if=pflash,format=raw,readonly=on,file=${ovmf[0]}" \
   -drive "if=pflash,format=raw,file=$outdir/OVMF_VARS.fd" \
   -drive "if=virtio,format=$format,file=$image" \
-  >"$qemu_log" 2>&1
+  >"$serial" 2>"$qemu_log" &
+qemu_pid=$!
+set -e
+
+deadline=$((SECONDS + watchdog))
+sentinel_seen=no
+while (( SECONDS < deadline )); do
+  # ttyS0 commonly emits CRLF and, on this installed image, may leave a
+  # carriage return at both the end of the previous terminal line and the
+  # beginning of the sentinel line. Strip CR bytes only, then require the
+  # remaining line to equal the exact sentinel. No substring match is allowed.
+  if awk -v s="$sentinel" '{ gsub(/\r/, ""); if ($0 == s) found=1 } END { exit(found ? 0 : 1) }' "$serial" 2>/dev/null; then
+    sentinel_seen=yes
+    break
+  fi
+  if ! kill -0 "$qemu_pid" 2>/dev/null; then
+    break
+  fi
+  sleep 1
+done
+
+set +e
+if kill -0 "$qemu_pid" 2>/dev/null; then
+  kill "$qemu_pid" 2>/dev/null || true
+fi
+wait "$qemu_pid"
 rc=$?
 set -e
 
-if ! grep -Fqx "$sentinel" "$serial" 2>/dev/null; then
+if [[ "$sentinel_seen" != yes ]]; then
   echo "ERROR: installed userspace never emitted the boot sentinel (qemu rc=$rc, accel=$qemu_accel)" >&2
   tail -n 160 "$serial" >&2 2>/dev/null || true
   tail -n 120 "$qemu_log" >&2 2>/dev/null || true
@@ -185,6 +220,7 @@ fi
   echo "installer_iso_attached=no"
   echo "watchdog_seconds=$watchdog"
   echo "qemu_accel=$qemu_accel"
+  echo "serial_transport=stdio-live"
   echo "image_format=$format"
   echo "efi_partition=$efi_dev"
   echo "root_partition=$root_dev"
