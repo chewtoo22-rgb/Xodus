@@ -20,9 +20,9 @@ fail() {
 [[ -f "$root/etc/fstab" ]] || fail "missing /etc/fstab"
 [[ -x "$root/usr/lib/systemd/systemd" || -x "$root/sbin/init" ]] || fail "missing usable init"
 
-# UEFI pearOS/Xodus installs mount the ESP directly at /boot. Keep the
-# two-argument contract compatible with synthetic roots, but allow callers that
-# mounted a real partitioned disk to supply the actual /boot filesystem.
+# UEFI pearOS/Xodus installs place the ESP directly at /boot. Keep the
+# two-argument contract compatible with synthetic roots, but allow callers
+# inspecting a real partitioned disk to supply the actual /boot filesystem.
 if [[ -z "$boot_root" ]]; then
   boot_root="$root/boot"
 fi
