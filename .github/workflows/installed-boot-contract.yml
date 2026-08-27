@@ -1,0 +1,77 @@
+name: Installed Boot Contract
+
+on:
+  pull_request:
+    paths:
+      - 'qa/installed-boot-contract.sh'
+      - '.github/workflows/installed-boot-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  installed-boot-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Syntax check
+        run: bash -n qa/installed-boot-contract.sh
+
+      - name: Prove incomplete/live-media roots fail closed
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/bad-root"
+          esp="$RUNNER_TEMP/bad-esp"
+          out="$RUNNER_TEMP/bad-out"
+          mkdir -p "$root/etc" "$root/boot/grub" "$root/boot" "$esp/EFI/BOOT"
+          printf 'NAME=Xodus\n' > "$root/etc/os-release"
+          printf 'UUID=fake / ext4 defaults 0 1\n' > "$root/etc/fstab"
+          : > "$root/boot/vmlinuz-test"
+          : > "$root/boot/initramfs-test.img"
+          : > "$esp/EFI/BOOT/BOOTX64.EFI"
+          cat > "$root/boot/grub/grub.cfg" <<'EOF'
+          menuentry 'bad live residue' {
+            linux /boot/vmlinuz-test archisobasedir=arch archisolabel=XODUS
+            initrd /boot/initramfs-test.img
+          }
+          EOF
+          if bash qa/installed-boot-contract.sh "$root" "$esp" "$out"; then
+            echo 'ERROR: live-media GRUB residue was accepted' >&2
+            exit 1
+          fi
+
+      - name: Prove complete installed boot payload passes
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/good-root"
+          esp="$RUNNER_TEMP/good-esp"
+          out="$RUNNER_TEMP/good-out"
+          mkdir -p "$root/etc" "$root/boot/grub" "$root/boot" "$esp/EFI/BOOT"
+          printf 'NAME=Xodus\n' > "$root/etc/os-release"
+          printf 'UUID=root-test / ext4 defaults 0 1\nUUID=esp-test /boot/efi vfat defaults 0 2\n' > "$root/etc/fstab"
+          : > "$root/boot/vmlinuz-linux-cachyos-lts"
+          : > "$root/boot/initramfs-linux-cachyos-lts.img"
+          : > "$esp/EFI/BOOT/BOOTX64.EFI"
+          cat > "$root/boot/grub/grub.cfg" <<'EOF'
+          menuentry 'Xodus' {
+            linux /boot/vmlinuz-linux-cachyos-lts root=UUID=root-test rw quiet
+            initrd /boot/initramfs-linux-cachyos-lts.img
+          }
+          EOF
+          bash qa/installed-boot-contract.sh "$root" "$esp" "$out"
+          grep -Fqx 'installed_boot_contract=pass' "$out/installed-boot-contract.txt"
+          grep -Fqx 'live_media_references=none' "$out/installed-boot-contract.txt"
+          grep -Fqx 'physical_hardware_claim=not_automatic' "$out/installed-boot-contract.txt"
+
+      - name: Enforce read-only verifier policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -En '\b(mkfs|wipefs|sgdisk|parted|fdisk|mount|umount|losetup|qemu-nbd|systemctl[[:space:]]+(enable|disable|start|stop|restart)|rm[[:space:]]+-rf)\b' qa/installed-boot-contract.sh; then
+            echo 'ERROR: installed boot contract contains a mutating storage/service command' >&2
+            exit 1
+          fi
