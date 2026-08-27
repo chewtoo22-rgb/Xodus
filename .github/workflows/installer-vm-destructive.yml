@@ -11,6 +11,9 @@ on:
       - 'upstream/installer.lock'
       - 'qa/post-install-uefi-smoke.sh'
       - 'qa/post-install-verifier-contract.sh'
+      - 'qa/installed-payload-on-disk.sh'
+      - 'qa/installed-system-contract.sh'
+      - 'qa/installed-boot-contract.sh'
       - 'docs/INSTALLER_SAFETY.md'
   workflow_dispatch:
     inputs:
@@ -180,6 +183,51 @@ jobs:
           p.write_text(text.replace(old, new, 1))
           PY
 
+          # The destructive gate already proves detached UEFI/userspace boot.
+          # Before that final boot proof, also require the installed disk itself
+          # to satisfy the merged installed-system and installed-boot contracts.
+          # This transformation is intentionally limited to the CI runtime copy
+          # of the harness and fails closed if the expected handoff moves.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('qa/installer-vm-destructive.sh')
+          text = p.read_text()
+          old_dep = '''POST="$repo_root/qa/post-install-uefi-smoke.sh"
+          LOCK="$repo_root/upstream/installer.lock"
+          [[ -f "$GUARD" && -f "$AUDIT" && -f "$POST" && -f "$LOCK" ]] || {'''
+          new_dep = '''POST="$repo_root/qa/post-install-uefi-smoke.sh"
+          PAYLOAD="$repo_root/qa/installed-payload-on-disk.sh"
+          LOCK="$repo_root/upstream/installer.lock"
+          [[ -f "$GUARD" && -f "$AUDIT" && -f "$POST" && -f "$PAYLOAD" && -f "$LOCK" ]] || {'''
+          if text.count(old_dep) != 1:
+              raise SystemExit('destructive dependency contract changed; refusing payload integration')
+          text = text.replace(old_dep, new_dep, 1)
+
+          old_handoff = '''bash "$POST" "$DISK_PATH" "$OUTDIR/post-install"
+
+          {
+            echo "destructive_vm_install_gate=pass"'''
+          new_handoff = '''bash "$PAYLOAD" "$DISK_PATH" "$OUTDIR/installed-payload"
+          bash "$POST" "$DISK_PATH" "$OUTDIR/post-install"
+
+          {
+            echo "destructive_vm_install_gate=pass"'''
+          if text.count(old_handoff) != 1:
+              raise SystemExit('post-install handoff contract changed; refusing payload integration')
+          text = text.replace(old_handoff, new_handoff, 1)
+
+          old_summary = '''  echo "installer_execution=pass"
+            echo "post_install_uefi_userspace=pass"'''
+          new_summary = '''  echo "installer_execution=pass"
+            echo "installed_payload_on_disk=pass"
+            echo "installed_system_contract=pass"
+            echo "installed_boot_contract=pass"
+            echo "post_install_uefi_userspace=pass"'''
+          if text.count(old_summary) != 1:
+              raise SystemExit('destructive summary contract changed; refusing payload integration')
+          p.write_text(text.replace(old_summary, new_summary, 1))
+          PY
+
           python3 -m py_compile scripts/patch-installer-package-retries.py
           bash -n qa/installer-vm-destructive.sh
           grep -Fq "systemctl is-system-running || true" qa/installer-vm-destructive.sh
@@ -187,6 +235,10 @@ jobs:
           grep -Fq 'XODUS_CI_REBOOT_SUPPRESSED' qa/installer-vm-destructive.sh
           grep -Fq '__XODUS_INSTALLER_LOG__' qa/installer-vm-destructive.sh
           grep -Fq '__XODUS_PACKAGE_REPORT__' qa/installer-vm-destructive.sh
+          grep -Fq 'installed-payload-on-disk.sh' qa/installer-vm-destructive.sh
+          grep -Fq 'installed_payload_on_disk=pass' qa/installer-vm-destructive.sh
+          grep -Fq 'installed_system_contract=pass' qa/installer-vm-destructive.sh
+          grep -Fq 'installed_boot_contract=pass' qa/installer-vm-destructive.sh
 
           set +e
           sudo -E bash qa/installer-vm-destructive.sh \
@@ -200,6 +252,14 @@ jobs:
           fi
           grep -Fqx 'destructive_vm_install_gate=pass' \
             destructive-evidence/destructive-gate-summary.txt
+          grep -Fqx 'installed_payload_on_disk=pass' \
+            destructive-evidence/destructive-gate-summary.txt
+          grep -Fqx 'installed_system_contract=pass' \
+            destructive-evidence/destructive-gate-summary.txt
+          grep -Fqx 'installed_boot_contract=pass' \
+            destructive-evidence/destructive-gate-summary.txt
+          grep -Fqx 'installed_payload_on_disk=pass' \
+            destructive-evidence/installed-payload/installed-payload-summary.txt
 
       - name: Normalize destructive-install evidence permissions
         if: always()
