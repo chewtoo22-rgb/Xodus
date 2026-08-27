@@ -157,8 +157,13 @@ fi
 printf 'qemu_accel=%s\nwatchdog_seconds=%s\ninstaller_iso_attached=no\n' \
   "$qemu_accel" "$watchdog" | tee "$outdir/post-install-runtime.txt"
 
+# Run QEMU in the background and watch serial output directly. The sentinel may
+# contain a carriage return from ttyS0, so normalize CR before exact-line
+# comparison. Stop QEMU immediately after proof instead of waiting for timeout.
+: >"$serial"
+: >"$qemu_log"
 set +e
-timeout "$watchdog" qemu-system-x86_64 \
+qemu-system-x86_64 \
   -machine "$qemu_machine" \
   -cpu "$qemu_cpu" \
   -m 4096 \
@@ -171,11 +176,32 @@ timeout "$watchdog" qemu-system-x86_64 \
   -drive "if=pflash,format=raw,readonly=on,file=${ovmf[0]}" \
   -drive "if=pflash,format=raw,file=$outdir/OVMF_VARS.fd" \
   -drive "if=virtio,format=$format,file=$image" \
-  >"$qemu_log" 2>&1
+  >"$qemu_log" 2>&1 &
+qemu_pid=$!
+set -e
+
+deadline=$((SECONDS + watchdog))
+sentinel_seen=no
+while (( SECONDS < deadline )); do
+  if awk -v s="$sentinel" '{ sub(/\r$/, ""); if ($0 == s) found=1 } END { exit(found ? 0 : 1) }' "$serial" 2>/dev/null; then
+    sentinel_seen=yes
+    break
+  fi
+  if ! kill -0 "$qemu_pid" 2>/dev/null; then
+    break
+  fi
+  sleep 1
+done
+
+set +e
+if kill -0 "$qemu_pid" 2>/dev/null; then
+  kill "$qemu_pid" 2>/dev/null || true
+fi
+wait "$qemu_pid"
 rc=$?
 set -e
 
-if ! grep -Fqx "$sentinel" "$serial" 2>/dev/null; then
+if [[ "$sentinel_seen" != yes ]]; then
   echo "ERROR: installed userspace never emitted the boot sentinel (qemu rc=$rc, accel=$qemu_accel)" >&2
   tail -n 160 "$serial" >&2 2>/dev/null || true
   tail -n 120 "$qemu_log" >&2 2>/dev/null || true
