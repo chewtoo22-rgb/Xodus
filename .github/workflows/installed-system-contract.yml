@@ -1,0 +1,71 @@
+name: Installed System Contract
+
+on:
+  pull_request:
+    paths:
+      - 'qa/installed-system-contract.sh'
+      - '.github/workflows/installed-system-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Syntax check
+        run: bash -n qa/installed-system-contract.sh
+
+      - name: Reject incomplete installed root
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/fake-root"
+          out="$RUNNER_TEMP/evidence"
+          mkdir -p "$root/etc" "$root/usr/lib/systemd" "$root/boot"
+          printf 'NAME=Xodus\n' > "$root/etc/os-release"
+          : > "$root/etc/fstab"
+          touch "$root/usr/lib/systemd/systemd"
+          chmod +x "$root/usr/lib/systemd/systemd"
+          touch "$root/boot/vmlinuz-test"
+          set +e
+          bash qa/installed-system-contract.sh "$root" "$out"
+          rc=$?
+          set -e
+          test "$rc" -ne 0
+          test ! -f "$out/installed-system-contract.txt"
+
+      - name: Accept complete synthetic contract root
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/good-root"
+          out="$RUNNER_TEMP/good-evidence"
+          mkdir -p \
+            "$root/etc/systemd/system/multi-user.target.wants" \
+            "$root/usr/lib/systemd/system" \
+            "$root/usr/bin" \
+            "$root/boot" \
+            "$root/etc"
+          printf 'NAME=Xodus\n' > "$root/etc/os-release"
+          : > "$root/etc/fstab"
+          touch "$root/usr/lib/systemd/systemd" "$root/usr/bin/pipewire" "$root/usr/bin/wireplumber"
+          chmod +x "$root/usr/lib/systemd/systemd" "$root/usr/bin/pipewire" "$root/usr/bin/wireplumber"
+          touch "$root/boot/vmlinuz-test"
+          printf '[Unit]\nDescription=SDDM\n' > "$root/usr/lib/systemd/system/sddm.service"
+          printf '[Unit]\nDescription=NetworkManager\n' > "$root/usr/lib/systemd/system/NetworkManager.service"
+          ln -s /usr/lib/systemd/system/sddm.service "$root/etc/systemd/system/display-manager.service"
+          ln -s /usr/lib/systemd/system/NetworkManager.service "$root/etc/systemd/system/multi-user.target.wants/NetworkManager.service"
+          bash qa/installed-system-contract.sh "$root" "$out"
+          grep -Fxq 'installed_system_contract=pass' "$out/installed-system-contract.txt"
+          grep -Fxq 'hardware_runtime_claim=not_automatic' "$out/installed-system-contract.txt"
+
+      - name: Read-only policy
+        run: |
+          set -euo pipefail
+          forbidden='(^|[[:space:]])(dd|wipefs|mkfs(\.|[[:space:]])|parted|sgdisk|fdisk|cfdisk|mount|umount|pacman[[:space:]].*-S|systemctl[[:space:]]+(enable|disable|start|stop|restart))([[:space:]]|$)'
+          if grep -En "$forbidden" qa/installed-system-contract.sh; then
+            echo 'installed-system contract contains a forbidden mutating command' >&2
+            exit 1
+          fi
