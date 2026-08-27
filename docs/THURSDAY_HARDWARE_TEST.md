@@ -14,9 +14,11 @@ Do not substitute an older ISO, a locally modified image, or an artifact from a 
 
 ## Installer safety boundary
 
-The current pearOS Electron installer is explicitly work-in-progress and documents whole-disk destructive behavior. Until Xodus has passed an automated destructive-install test against an expendable virtual disk, **Thursday M0 hardware testing is live-boot-only**.
+The pearOS Electron installer is whole-disk destructive. Xodus now has a green automated destructive-install proof on an expendable virtual disk: the exact audited installer completed, installer media was detached, the installed GPT/ESP/root layout was verified, OVMF booted the installed disk independently, and installed userspace emitted the exact `XODUS_POSTINSTALL_BOOT_OK` sentinel.
 
-Do not press the installer's destructive Continue/erase path on a disk containing wanted data. Do not use the 1 TB target SATA disk for installation until the VM installer gate is green.
+That automated proof does **not** count as physical NUC/SATA validation. Thursday begins with the live-boot checklist below. Do not attempt physical installation unless the live-boot checklist is acceptable, the target is a dedicated disk containing no wanted data, and `scripts/installer-target-guard.sh` approves the exact whole-disk device after explicit human opt-in.
+
+Never use an ambiguous device name, a mounted disk, the disk backing the running system, or a disk containing wanted data.
 
 ## USB preparation
 
@@ -95,6 +97,37 @@ Record PASS/FAIL for each item:
 - [ ] Reboot/shutdown completes cleanly.
 - [ ] Existing installed OS remains bootable after USB removal.
 
+## Optional physical install gate
+
+Do not enter this section merely because the VM gate is green. First complete the live-boot sequence and capture its evidence.
+
+If physical installation is intentionally being tested, use only a dedicated target disk with **no wanted data**. Identify the whole-disk device and record its model, serial, and size:
+
+```bash
+lsblk -d -o NAME,MODEL,SERIAL,SIZE,TYPE
+```
+
+Then run the read-only target guard with both explicit confirmations:
+
+```bash
+export XODUS_ALLOW_PHYSICAL_INSTALL=YES-I-UNDERSTAND
+export XODUS_INSTALL_CONFIRM=/dev/sdX
+bash scripts/installer-target-guard.sh /dev/sdX
+```
+
+Replace `/dev/sdX` with the exact dedicated installation disk. A guard refusal is a **STOP**, not an invitation to bypass the check.
+
+Before pressing any destructive installer confirmation, re-read the device model/serial/size and confirm that the target contains no wanted data. Disconnect unrelated removable storage when practical. Do not install to the current OS disk as part of the first physical Xodus install test.
+
+After installation:
+
+- remove the installer USB before the first installed-disk boot,
+- boot the installed target through UEFI,
+- verify the Xodus/Arch bootloader reaches the installed system,
+- verify keyboard, display, network, audio, and clean reboot/shutdown again from the installed system,
+- record the installed target model/serial and all failures,
+- do not call the hardware install path PASS until the installed disk has booted independently without installer media.
+
 ## Evidence to capture
 
 As soon as the live system reaches a terminal, run the read-only collector from the Xodus checkout:
@@ -132,13 +165,15 @@ journalctl -b -p warning..alert --no-pager
 Stop physical testing and return to VM/CI if any of these occur:
 
 - storage device names look ambiguous,
-- the installer presents only whole-disk erase for a disk with wanted data,
+- the target guard refuses the proposed installation disk,
+- the installer presents a different target than the exact disk that was preflighted,
+- the proposed target contains wanted data,
 - kernel panic repeats,
 - the boot process writes unexpectedly to an internal disk,
 - firmware settings cannot be restored confidently.
 
 ## M0 hardware pass
 
-M0 is hardware-validated when the candidate completes live boot, input, display, network, audio, one suspend/resume cycle, and clean shutdown/reboot without modifying an internal disk.
+M0 live hardware validation passes when the candidate completes live boot, input, display, network, audio, one suspend/resume cycle, and clean shutdown/reboot without modifying an internal disk.
 
-Installation becomes a separate gate after destructive installer behavior is proven against an expendable QEMU disk and post-install boot is automated.
+Physical installation is a separate result. It passes only after the live-boot gate is acceptable, the exact dedicated target passes `installer-target-guard.sh`, installation completes, installer media is removed, and that physical installed disk boots independently under UEFI. Until those steps are performed on real hardware, no NUC or SATA installation success is claimed.
