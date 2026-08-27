@@ -11,6 +11,10 @@ on:
       - 'upstream/installer.lock'
       - 'qa/post-install-uefi-smoke.sh'
       - 'qa/post-install-verifier-contract.sh'
+      - 'qa/installed-disk-acceptance.sh'
+      - 'qa/installed-payload-on-disk.sh'
+      - 'qa/installed-system-contract.sh'
+      - 'qa/installed-boot-contract.sh'
       - 'docs/INSTALLER_SAFETY.md'
   workflow_dispatch:
     inputs:
@@ -118,26 +122,9 @@ jobs:
           INSTALL_SECONDS: 1800
           XODUS_POSTINSTALL_WATCHDOG_SECONDS: 150
         run: |
-          # `systemctl is-system-running --wait` is a diagnostic only. A live
-          # ArchISO may remain in a transitional/degraded state indefinitely,
-          # so do not let that nonessential status probe block target discovery
-          # after qemu-guest-agent has already passed its synchronization gate.
           sed -i 's/systemctl is-system-running --wait/systemctl is-system-running/' \
             qa/installer-vm-destructive.sh
 
-          # Start from the exact audited upstream setup, then apply one
-          # deterministic Xodus transform to its package-install phase. The
-          # transform retries only packages that failed the first pacstrap,
-          # refreshes package databases once, and fails closed if any required
-          # package remains unavailable. This prevents a missing Plasma/SDDM
-          # payload from surfacing later as a misleading service-enable error.
-          #
-          # The upstream installer reboots the live guest immediately after
-          # writing "Installation finished". That is correct for interactive
-          # use but destroys QGA before CI can receive the installer exit code
-          # and deliberately detach the installer environment. Suppress only
-          # that final reboot in the already-audited runtime copy; the harness
-          # still requires a detached-disk UEFI/userspace boot afterwards.
           python3 - <<'PY'
           from pathlib import Path
           p = Path('qa/installer-vm-destructive.sh')
@@ -165,10 +152,6 @@ jobs:
           p.write_text(text.replace(old, new, 1))
           PY
 
-          # The pinned installer writes its detailed failure reason to the live
-          # guest's Desktop log and /tmp/progress instead of stdout/stderr. Keep
-          # the audited-base/runtime-patch evidence, and extend the outer QGA
-          # wrapper so any nonzero exit preserves guest-only diagnostics.
           python3 - <<'PY'
           from pathlib import Path
           p = Path('qa/installer-vm-destructive.sh')
@@ -180,6 +163,42 @@ jobs:
           p.write_text(text.replace(old, new, 1))
           PY
 
+          # Consume the single installed-disk acceptance entrypoint merged in
+          # PR #38. That entrypoint already composes on-disk payload checks with
+          # detached-media UEFI/userspace boot proof. The destructive gate must
+          # call it on the exact raw disk produced by the audited installer.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('qa/installer-vm-destructive.sh')
+          text = p.read_text()
+          old_dep = '''POST="$repo_root/qa/post-install-uefi-smoke.sh"
+          LOCK="$repo_root/upstream/installer.lock"
+          [[ -f "$GUARD" && -f "$AUDIT" && -f "$POST" && -f "$LOCK" ]] || {'''
+          new_dep = '''POST="$repo_root/qa/post-install-uefi-smoke.sh"
+          ACCEPT="$repo_root/qa/installed-disk-acceptance.sh"
+          LOCK="$repo_root/upstream/installer.lock"
+          [[ -f "$GUARD" && -f "$AUDIT" && -f "$POST" && -f "$ACCEPT" && -f "$LOCK" ]] || {'''
+          if text.count(old_dep) != 1:
+              raise SystemExit('destructive dependency contract changed; refusing acceptance integration')
+          text = text.replace(old_dep, new_dep, 1)
+
+          old_handoff = '''bash "$POST" "$DISK_PATH" "$OUTDIR/post-install"'''
+          new_handoff = '''bash "$ACCEPT" "$DISK_PATH" "$OUTDIR/installed-disk-acceptance"'''
+          if text.count(old_handoff) != 1:
+              raise SystemExit('post-install handoff contract changed; refusing acceptance integration')
+          text = text.replace(old_handoff, new_handoff, 1)
+
+          old_summary = '''  echo "installer_execution=pass"
+            echo "post_install_uefi_userspace=pass"'''
+          new_summary = '''  echo "installer_execution=pass"
+            echo "installed_disk_acceptance=pass"
+            echo "installed_payload_on_disk=pass"
+            echo "post_install_uefi_userspace=pass"'''
+          if text.count(old_summary) != 1:
+              raise SystemExit('destructive summary contract changed; refusing acceptance integration')
+          p.write_text(text.replace(old_summary, new_summary, 1))
+          PY
+
           python3 -m py_compile scripts/patch-installer-package-retries.py
           bash -n qa/installer-vm-destructive.sh
           grep -Fq "systemctl is-system-running || true" qa/installer-vm-destructive.sh
@@ -187,6 +206,8 @@ jobs:
           grep -Fq 'XODUS_CI_REBOOT_SUPPRESSED' qa/installer-vm-destructive.sh
           grep -Fq '__XODUS_INSTALLER_LOG__' qa/installer-vm-destructive.sh
           grep -Fq '__XODUS_PACKAGE_REPORT__' qa/installer-vm-destructive.sh
+          grep -Fq 'installed-disk-acceptance.sh' qa/installer-vm-destructive.sh
+          grep -Fq 'installed_disk_acceptance=pass' qa/installer-vm-destructive.sh
 
           set +e
           sudo -E bash qa/installer-vm-destructive.sh \
@@ -200,6 +221,18 @@ jobs:
           fi
           grep -Fqx 'destructive_vm_install_gate=pass' \
             destructive-evidence/destructive-gate-summary.txt
+          grep -Fqx 'installed_disk_acceptance=pass' \
+            destructive-evidence/destructive-gate-summary.txt
+          grep -Fqx 'installed_payload_on_disk=pass' \
+            destructive-evidence/destructive-gate-summary.txt
+          grep -Fqx 'post_install_uefi_userspace=pass' \
+            destructive-evidence/destructive-gate-summary.txt
+          grep -Fqx 'installed_disk_acceptance=pass' \
+            destructive-evidence/installed-disk-acceptance/installed-disk-acceptance-summary.txt
+          grep -Fqx 'installed_system_contract=pass' \
+            destructive-evidence/installed-disk-acceptance/payload/installed-payload-summary.txt
+          grep -Fqx 'installed_boot_contract=pass' \
+            destructive-evidence/installed-disk-acceptance/payload/installed-payload-summary.txt
 
       - name: Normalize destructive-install evidence permissions
         if: always()
@@ -211,7 +244,7 @@ jobs:
             sudo find destructive-evidence -type f -exec chmod a+r {} + || true
           fi
           ls -la destructive-evidence 2>/dev/null || true
-          find destructive-evidence -maxdepth 2 -type f -printf '%m %u:%g %p\n' 2>/dev/null | sort || true
+          find destructive-evidence -maxdepth 3 -type f -printf '%m %u:%g %p\n' 2>/dev/null | sort || true
 
       - name: Upload destructive-install evidence
         if: always()
