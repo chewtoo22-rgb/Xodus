@@ -3,8 +3,9 @@ set -euo pipefail
 
 root=${1:-}
 outdir=${2:-}
+boot_root=${3:-}
 [[ -n "$root" && -n "$outdir" ]] || {
-  echo "Usage: qa/installed-system-contract.sh <installed-root> <output-dir>" >&2
+  echo "Usage: qa/installed-system-contract.sh <installed-root> <output-dir> [boot-root]" >&2
   exit 64
 }
 [[ -d "$root" ]] || { echo "ERROR: installed root not found: $root" >&2; exit 66; }
@@ -19,8 +20,15 @@ fail() {
 [[ -f "$root/etc/fstab" ]] || fail "missing /etc/fstab"
 [[ -x "$root/usr/lib/systemd/systemd" || -x "$root/sbin/init" ]] || fail "missing usable init"
 
-kernel_count=$(find "$root/boot" -maxdepth 1 -type f \( -name 'vmlinuz-*' -o -name 'linux-*' \) 2>/dev/null | wc -l | tr -d ' ')
-(( kernel_count > 0 )) || fail "no installed kernel image found under /boot"
+# UEFI pearOS/Xodus installs mount the ESP directly at /boot. Keep the
+# two-argument contract compatible with synthetic roots, but allow callers that
+# mounted a real partitioned disk to supply the actual /boot filesystem.
+if [[ -z "$boot_root" ]]; then
+  boot_root="$root/boot"
+fi
+[[ -d "$boot_root" ]] || fail "installed boot root not found: $boot_root"
+kernel_count=$(find "$boot_root" -maxdepth 1 -type f \( -name 'vmlinuz-*' -o -name 'linux-*' \) 2>/dev/null | wc -l | tr -d ' ')
+(( kernel_count > 0 )) || fail "no installed kernel image found under installed /boot"
 
 # Xodus currently installs SDDM as its graphical display-manager contract.
 sddm_unit=''
@@ -49,7 +57,7 @@ done
 nm_enabled=no
 for wants in "$root/etc/systemd/system/multi-user.target.wants/NetworkManager.service" "$root/etc/systemd/system/network-online.target.wants/NetworkManager-wait-online.service"; do
   [[ -e "$wants" || -L "$wants" ]] && nm_enabled=yes
- done
+done
 [[ "$nm_enabled" == yes ]] || fail "NetworkManager is not enabled"
 
 # Audio readiness is an installed-payload contract here. Runtime device proof is
@@ -72,5 +80,6 @@ done
   echo "network_manager=installed_enabled"
   echo "audio_stack=pipewire+wireplumber"
   echo "kernel_images=$kernel_count"
+  echo "boot_root=${boot_root#$root}"
   echo "hardware_runtime_claim=not_automatic"
 } | tee "$outdir/installed-system-contract.txt"
