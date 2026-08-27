@@ -53,7 +53,10 @@ cleanup() {
 trap cleanup EXIT
 
 sudo modprobe nbd max_part=16
-sudo qemu-nbd --connect="$nbd" "$image"
+# qemu-img already established the exact image format above. Pass it through
+# to qemu-nbd instead of allowing format probing; probing raw media can impose
+# write restrictions on sector 0 and abort this verifier before partition proof.
+sudo qemu-nbd --format="$format" --connect="$nbd" "$image"
 sudo udevadm settle
 
 sudo sgdisk -p "$nbd" | tee "$outdir/partition-table.txt"
