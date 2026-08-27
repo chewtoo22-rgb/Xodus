@@ -62,7 +62,11 @@ root_dev=$(lsblk -nrpo PATH,PARTTYPE "$nbd" | awk -v guid="$linux_guid" 'tolower
 sudo mount -o ro "$root_dev" "$root_mnt"
 sudo mount -o ro "$efi_dev" "$esp_mnt"
 
-bash "$system_contract" "$root_mnt" "$outdir/system"
+# The pinned pearOS installer mounts the ESP directly at /boot for UEFI installs.
+# Pass the mounted ESP explicitly to the system contract so kernel presence is
+# checked against the real installed boot filesystem, while the boot contract
+# independently derives the same layout from the installed fstab.
+bash "$system_contract" "$root_mnt" "$outdir/system" "$esp_mnt"
 bash "$boot_contract" "$root_mnt" "$esp_mnt" "$outdir/boot"
 
 {
@@ -72,5 +76,6 @@ bash "$boot_contract" "$root_mnt" "$esp_mnt" "$outdir/boot"
   echo "image_format=$format"
   echo "efi_partition=$efi_dev"
   echo "root_partition=$root_dev"
+  echo "boot_partition=$efi_dev"
   echo "physical_hardware_claim=not_automatic"
 } | tee "$outdir/installed-payload-summary.txt"
