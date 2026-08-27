@@ -1,0 +1,53 @@
+name: Hardware Installed Evidence Contract
+
+on:
+  pull_request:
+    paths:
+      - 'qa/hardware-installed-evidence.sh'
+      - '.github/workflows/hardware-installed-evidence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Syntax check collector
+        run: bash -n qa/hardware-installed-evidence.sh
+
+      - name: Refuse live or overlay root contract
+        run: |
+          set -euo pipefail
+          rm -rf contract-evidence
+          set +e
+          XODUS_CONTRACT_ROOT_SOURCE=overlay \
+          XODUS_CONTRACT_ROOT_FSTYPE=overlay \
+          XODUS_CONTRACT_ALLOW_NO_EFI=1 \
+            bash qa/hardware-installed-evidence.sh contract-evidence
+          rc=$?
+          set -e
+          test "$rc" -eq 40
+          test ! -f contract-evidence/summary.txt
+
+      - name: Static read-only policy check
+        run: |
+          set -euo pipefail
+          forbidden='(^|[[:space:]])(dd|wipefs|mkfs(\.|[[:space:]])|parted|sgdisk|fdisk|cfdisk|mount|umount|pacman[[:space:]].*-S|systemctl[[:space:]]+(enable|disable|start|stop|restart)|efibootmgr[[:space:]].*-[cBb])([[:space:]]|$)'
+          if grep -En "$forbidden" qa/hardware-installed-evidence.sh; then
+            echo 'collector contains a forbidden mutating command' >&2
+            exit 1
+          fi
+
+      - name: Require installed-system proof fields
+        run: |
+          set -euo pipefail
+          grep -Fq 'root_source=' qa/hardware-installed-evidence.sh
+          grep -Fq 'root_fstype=' qa/hardware-installed-evidence.sh
+          grep -Fq 'root_backing_disk=' qa/hardware-installed-evidence.sh
+          grep -Fq 'boot_mode=uefi' qa/hardware-installed-evidence.sh
+          grep -Fq 'physical_install_claim=not_automatic' qa/hardware-installed-evidence.sh
+          grep -Fq 'efibootmgr -v' qa/hardware-installed-evidence.sh
