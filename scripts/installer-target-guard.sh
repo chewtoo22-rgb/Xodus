@@ -17,8 +17,10 @@ Physical-disk approval is intentionally harder and requires BOTH:
   XODUS_ALLOW_PHYSICAL_INSTALL=YES-I-UNDERSTAND
   XODUS_INSTALL_CONFIRM=<exact device path>
 
-Physical installation remains project-policy locked until the automated
-post-install UEFI boot gate is implemented and green.
+The automated destructive VM + detached UEFI/userspace boot gate is green.
+Physical installation is nevertheless a separate human hardware gate: perform
+the Thursday live-boot checklist first, use only a dedicated target with no
+wanted data, and opt in explicitly only after confirming the exact disk.
 EOF
 }
 
@@ -98,10 +100,10 @@ if [[ "$type" == "loop" ]]; then
   exit 0
 fi
 
-# Physical disks remain locked unless a human deliberately opts in. This is a
-# second boundary in addition to the project-level live-boot-only policy.
+# Physical disks remain locked unless a human deliberately opts in after the
+# live-boot hardware checklist. This is separate from the now-green VM gate.
 [[ "${XODUS_ALLOW_PHYSICAL_INSTALL:-}" == "YES-I-UNDERSTAND" ]] || {
-  echo "REFUSE: physical installation is locked; Thursday validation is live-boot-only" >&2
+  echo "REFUSE: physical installation requires explicit opt-in after live-boot validation" >&2
   exit 11
 }
 
