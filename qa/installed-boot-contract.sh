@@ -20,7 +20,7 @@ fail() {
 [[ -f "$root/etc/os-release" ]] || fail "missing installed /etc/os-release"
 [[ -f "$root/etc/fstab" ]] || fail "missing installed /etc/fstab"
 
-# pearOS/Xodus UEFI installs mount the ESP directly at /boot. Synthetic roots
+# pearOS/Xodus UEFI installs place the ESP directly at /boot. Synthetic roots
 # used by the standalone contract historically keep boot files under root/boot,
 # so select the actual boot filesystem from fstab and retain that fallback.
 boot_root="$root/boot"
@@ -67,7 +67,7 @@ printf '%s\n' "${efi_bins[@]}" | sed "s#^$esp##" | sort | tee "$outdir/efi-execu
 {
   echo "installed_boot_contract=pass"
   if [[ "$boot_root" == "$esp" ]]; then
-    echo "boot_filesystem=esp-mounted-at-/boot"
+    echo "boot_filesystem=esp-at-/boot"
     echo "grub_config=${grub_cfg#$esp}"
   else
     echo "boot_filesystem=root-/boot"
