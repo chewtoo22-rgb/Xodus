@@ -185,7 +185,11 @@ set -e
 deadline=$((SECONDS + watchdog))
 sentinel_seen=no
 while (( SECONDS < deadline )); do
-  if awk -v s="$sentinel" '{ sub(/\r$/, ""); if ($0 == s) found=1 } END { exit(found ? 0 : 1) }' "$serial" 2>/dev/null; then
+  # ttyS0 commonly emits CRLF and, on this installed image, may leave a
+  # carriage return at both the end of the previous terminal line and the
+  # beginning of the sentinel line. Strip CR bytes only, then require the
+  # remaining line to equal the exact sentinel. No substring match is allowed.
+  if awk -v s="$sentinel" '{ gsub(/\r/, ""); if ($0 == s) found=1 } END { exit(found ? 0 : 1) }' "$serial" 2>/dev/null; then
     sentinel_seen=yes
     break
   fi
