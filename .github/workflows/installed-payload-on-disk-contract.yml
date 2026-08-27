@@ -1,0 +1,101 @@
+name: Installed Payload On-Disk Contract
+
+on:
+  pull_request:
+    paths:
+      - 'qa/installed-payload-on-disk.sh'
+      - 'qa/installed-system-contract.sh'
+      - 'qa/installed-boot-contract.sh'
+      - '.github/workflows/installed-payload-on-disk-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  installed-payload-on-disk:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install image tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-utils gdisk dosfstools e2fsprogs util-linux
+
+      - name: Build synthetic installed disk
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="$RUNNER_TEMP/xodus-installed-contract.raw"
+          truncate -s 2G "$image"
+          loop=$(sudo losetup --find --show --partscan "$image")
+          cleanup() {
+            set +e
+            mountpoint -q "$RUNNER_TEMP/root" && sudo umount "$RUNNER_TEMP/root"
+            mountpoint -q "$RUNNER_TEMP/esp" && sudo umount "$RUNNER_TEMP/esp"
+            sudo losetup -d "$loop" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          sudo sgdisk --zap-all "$loop"
+          sudo sgdisk -n 1:0:+128M -t 1:ef00 -c 1:EFI "$loop"
+          sudo sgdisk -n 2:0:0 -t 2:8300 -c 2:XodusRoot "$loop"
+          sudo partprobe "$loop"
+          sudo udevadm settle
+          sudo mkfs.fat -F32 "${loop}p1"
+          sudo mkfs.ext4 -F "${loop}p2"
+
+          mkdir -p "$RUNNER_TEMP/root" "$RUNNER_TEMP/esp"
+          sudo mount "${loop}p2" "$RUNNER_TEMP/root"
+          sudo mount "${loop}p1" "$RUNNER_TEMP/esp"
+          root="$RUNNER_TEMP/root"
+          esp="$RUNNER_TEMP/esp"
+
+          sudo mkdir -p \
+            "$root/etc/systemd/system" \
+            "$root/etc/systemd/system/multi-user.target.wants" \
+            "$root/usr/lib/systemd/system" \
+            "$root/usr/lib/systemd" \
+            "$root/usr/bin" \
+            "$root/boot/grub" \
+            "$esp/EFI/Xodus"
+
+          printf 'NAME=Xodus\nID=xodus\n' | sudo tee "$root/etc/os-release" >/dev/null
+          printf 'UUID=fake / ext4 defaults 0 1\n' | sudo tee "$root/etc/fstab" >/dev/null
+          sudo touch "$root/usr/lib/systemd/systemd" "$root/usr/bin/pipewire" "$root/usr/bin/wireplumber"
+          sudo chmod +x "$root/usr/lib/systemd/systemd" "$root/usr/bin/pipewire" "$root/usr/bin/wireplumber"
+          sudo touch "$root/usr/lib/systemd/system/sddm.service" "$root/usr/lib/systemd/system/NetworkManager.service"
+          sudo ln -s /usr/lib/systemd/system/sddm.service "$root/etc/systemd/system/display-manager.service"
+          sudo ln -s /usr/lib/systemd/system/NetworkManager.service "$root/etc/systemd/system/multi-user.target.wants/NetworkManager.service"
+          sudo touch "$root/boot/vmlinuz-linux" "$root/boot/initramfs-linux.img"
+          sudo tee "$root/boot/grub/grub.cfg" >/dev/null <<'EOF'
+          menuentry 'Xodus' {
+            linux /boot/vmlinuz-linux root=UUID=fake rw
+            initrd /boot/initramfs-linux.img
+          }
+          EOF
+          sudo touch "$esp/EFI/Xodus/grubx64.efi"
+          sync
+          cleanup
+          trap - EXIT
+          echo "image=$image" >> "$GITHUB_ENV"
+
+      - name: Run mounted-disk payload contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n qa/installed-payload-on-disk.sh
+          sudo bash qa/installed-payload-on-disk.sh "$image" installed-payload-evidence
+          grep -Fqx 'installed_payload_on_disk=pass' installed-payload-evidence/installed-payload-summary.txt
+          grep -Fqx 'installed_system_contract=pass' installed-payload-evidence/system/installed-system-contract.txt
+          grep -Fqx 'installed_boot_contract=pass' installed-payload-evidence/boot/installed-boot-contract.txt
+
+      - name: Upload contract evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: installed-payload-on-disk-evidence
+          path: installed-payload-evidence/
+          if-no-files-found: warn
+          retention-days: 7
