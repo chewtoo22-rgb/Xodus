@@ -154,12 +154,14 @@ else
     watchdog=240
   fi
 fi
-printf 'qemu_accel=%s\nwatchdog_seconds=%s\ninstaller_iso_attached=no\n' \
+printf 'qemu_accel=%s\nwatchdog_seconds=%s\ninstaller_iso_attached=no\nserial_transport=stdio-live\n' \
   "$qemu_accel" "$watchdog" | tee "$outdir/post-install-runtime.txt"
 
-# Run QEMU in the background and watch serial output directly. The sentinel may
-# contain a carriage return from ttyS0, so normalize CR before exact-line
-# comparison. Stop QEMU immediately after proof instead of waiting for timeout.
+# Stream the serial console through QEMU stdout rather than `-serial file:`.
+# The file chardev can buffer bytes until QEMU exits; run #26 demonstrated that
+# behavior by revealing the exact sentinel only after the watchdog killed QEMU.
+# stdout redirection is observable while QEMU is alive, so the verifier can
+# prove the exact sentinel in real time and terminate immediately after proof.
 : >"$serial"
 : >"$qemu_log"
 set +e
@@ -171,12 +173,12 @@ qemu-system-x86_64 \
   -nodefaults \
   -no-reboot \
   -display none \
-  -serial "file:$serial" \
+  -serial stdio \
   -monitor none \
   -drive "if=pflash,format=raw,readonly=on,file=${ovmf[0]}" \
   -drive "if=pflash,format=raw,file=$outdir/OVMF_VARS.fd" \
   -drive "if=virtio,format=$format,file=$image" \
-  >"$qemu_log" 2>&1 &
+  >"$serial" 2>"$qemu_log" &
 qemu_pid=$!
 set -e
 
@@ -214,6 +216,7 @@ fi
   echo "installer_iso_attached=no"
   echo "watchdog_seconds=$watchdog"
   echo "qemu_accel=$qemu_accel"
+  echo "serial_transport=stdio-live"
   echo "image_format=$format"
   echo "efi_partition=$efi_dev"
   echo "root_partition=$root_dev"
