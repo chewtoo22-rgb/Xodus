@@ -1,0 +1,19 @@
+[Unit]
+Description=Xodus hardware-aware local AI selection
+Documentation=https://github.com/chewtoo22-rgb/Xodus
+After=xodus-first-boot.service
+ConditionPathExists=/var/lib/xodus/first-boot/complete
+ConditionPathExists=/usr/lib/xodus/xodus-ai-select.py
+ConditionPathExists=!/var/lib/xodus/ai/hardware-selection.json
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/xodus/xodus-ai-first-boot
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=full
+ReadWritePaths=/var/lib/xodus/ai
+
+[Install]
+WantedBy=multi-user.target
