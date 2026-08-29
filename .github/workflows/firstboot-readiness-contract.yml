@@ -1,0 +1,32 @@
+name: Firstboot Readiness Contract
+
+on:
+  pull_request:
+    paths:
+      - 'overlay/apply-xodus-firstboot.sh'
+      - 'overlay/apply-xodus-identity.sh'
+      - 'qa/firstboot-readiness-contract.sh'
+      - '.github/workflows/firstboot-readiness-contract.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'overlay/apply-xodus-firstboot.sh'
+      - 'overlay/apply-xodus-identity.sh'
+      - 'qa/firstboot-readiness-contract.sh'
+      - '.github/workflows/firstboot-readiness-contract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate shell syntax
+        run: |
+          bash -n overlay/apply-xodus-firstboot.sh
+          bash -n overlay/apply-xodus-identity.sh
+          bash -n qa/firstboot-readiness-contract.sh
+      - name: Exercise installed/live root contract
+        run: bash qa/firstboot-readiness-contract.sh
