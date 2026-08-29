@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root_prefix=${XODUS_FIRST_BOOT_ROOT:-/}
+if [[ ! -d "$root_prefix" ]]; then
+  echo "xodus-first-boot: root prefix does not exist: $root_prefix" >&2
+  exit 64
+fi
+root_prefix=$(cd "$root_prefix" && pwd -P)
+
+state_dir="$root_prefix/var/lib/xodus/first-boot"
+complete_file="$state_dir/complete"
+snapshot_file="$state_dir/system.env"
+machine_id_file="$root_prefix/etc/machine-id"
+build_info_file="$root_prefix/usr/lib/xodus/build-info"
+
+# Idempotence comes first. Once a successful installed-system snapshot exists,
+# later boots must not rewrite provenance or silently reinterpret hardware.
+if [[ -f "$complete_file" ]]; then
+  exit 0
+fi
+
+findmnt_target=$root_prefix
+[[ "$root_prefix" == "/" ]] && findmnt_target=/
+root_source=$(findmnt -n -o SOURCE --target "$findmnt_target" 2>/dev/null || true)
+root_fstype=$(findmnt -n -o FSTYPE --target "$findmnt_target" 2>/dev/null || true)
+
+# The service is present in both live media and installed payloads. Never mark
+# first boot complete from a live/ephemeral root; the installed boot must own
+# the durable state transition.
+case "${root_fstype,,}" in
+  overlay|squashfs|erofs|tmpfs|rootfs)
+    echo "xodus-first-boot: live root detected (${root_fstype:-unknown}); leaving state pending"
+    exit 0
+    ;;
+esac
+case "${root_source,,}" in
+  *airootfs*|/dev/loop*|/dev/mapper/ventoy*)
+    echo "xodus-first-boot: live root source detected (${root_source:-unknown}); leaving state pending"
+    exit 0
+    ;;
+esac
+
+if [[ -z "$root_source" || -z "$root_fstype" ]]; then
+  echo "xodus-first-boot: unable to identify installed root" >&2
+  exit 1
+fi
+if [[ ! -s "$machine_id_file" ]]; then
+  echo "xodus-first-boot: machine-id is missing or empty" >&2
+  exit 1
+fi
+
+firmware=bios
+[[ -d "$root_prefix/sys/firmware/efi" ]] && firmware=uefi
+
+upstream_commit=unknown
+if [[ -f "$build_info_file" ]]; then
+  candidate=$(sed -n 's/^XODUS_UPSTREAM_COMMIT=//p' "$build_info_file" | head -n1)
+  if [[ "$candidate" =~ ^[0-9a-f]{40}$ ]]; then
+    upstream_commit=$candidate
+  fi
+fi
+
+install -d -m 0755 "$state_dir"
+tmp_snapshot=$(mktemp "$state_dir/.system.env.XXXXXX")
+tmp_complete=$(mktemp "$state_dir/.complete.XXXXXX")
+cleanup() {
+  rm -f "$tmp_snapshot" "$tmp_complete"
+}
+trap cleanup EXIT
+
+completed_utc=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+cat > "$tmp_snapshot" <<EOF_STATE
+XODUS_FIRST_BOOT_SCHEMA=1
+XODUS_FIRST_BOOT_COMPLETED_UTC=$completed_utc
+XODUS_ROOT_SOURCE=$root_source
+XODUS_ROOT_FSTYPE=$root_fstype
+XODUS_FIRMWARE=$firmware
+XODUS_UPSTREAM_COMMIT=$upstream_commit
+EOF_STATE
+chmod 0644 "$tmp_snapshot"
+printf 'schema=1\ncompleted_utc=%s\n' "$completed_utc" > "$tmp_complete"
+chmod 0644 "$tmp_complete"
+
+mv -f "$tmp_snapshot" "$snapshot_file"
+mv -f "$tmp_complete" "$complete_file"
+trap - EXIT
+
+echo "xodus-first-boot: installed-system snapshot recorded"

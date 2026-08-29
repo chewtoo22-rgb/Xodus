@@ -1,0 +1,18 @@
+[Unit]
+Description=Xodus first-boot installed-system foundation
+Documentation=https://github.com/chewtoo22-rgb/Xodus
+After=local-fs.target systemd-machine-id-commit.service
+Before=graphical.target
+ConditionPathExists=!/var/lib/xodus/first-boot/complete
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/xodus/xodus-first-boot
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=full
+ReadWritePaths=/var/lib/xodus/first-boot
+
+[Install]
+WantedBy=multi-user.target
