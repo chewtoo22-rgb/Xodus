@@ -1,0 +1,21 @@
+name: X1 NUC Preflight Contract
+
+on:
+  pull_request:
+    paths:
+      - 'qa/x1-nuc-preflight.sh'
+      - 'qa/x1-nuc-preflight-contract.sh'
+      - '.github/workflows/x1-nuc-preflight-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate shell syntax and read-only boundary
+        run: bash qa/x1-nuc-preflight-contract.sh
