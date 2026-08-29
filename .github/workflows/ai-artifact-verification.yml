@@ -1,0 +1,42 @@
+name: AI Artifact Verification Contract
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/xodus-ai-verify-artifact.py'
+      - 'qa/test-ai-artifact-verification.py'
+      - '.github/workflows/ai-artifact-verification.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile verifier
+        run: python -m py_compile scripts/xodus-ai-verify-artifact.py qa/test-ai-artifact-verification.py
+      - name: Run artifact boundary tests
+        run: python -m unittest qa/test-ai-artifact-verification.py -v
+      - name: Reject network/download primitives in verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -En '(requests\.|urllib\.|urlopen|curl|wget|http://|https://)' scripts/xodus-ai-verify-artifact.py; then
+            echo 'Verifier must remain offline-only.' >&2
+            exit 1
+          fi
+      - name: Require fail-closed trust checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F 'artifact symlinks are not allowed' scripts/xodus-ai-verify-artifact.py
+          grep -F 'artifact size does not match reviewed manifest' scripts/xodus-ai-verify-artifact.py
+          grep -F 'artifact sha256 does not match reviewed manifest' scripts/xodus-ai-verify-artifact.py
+          grep -F 'ready_for_local_install' scripts/xodus-ai-verify-artifact.py
