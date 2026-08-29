@@ -3,14 +3,16 @@ import importlib.util
 import os
 import tempfile
 import unittest
+from importlib.machinery import SourceFileLoader
 from pathlib import Path
 from unittest import mock
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "xodus-arena-capabilities"
-spec = importlib.util.spec_from_file_location("arena_capabilities", SCRIPT)
+loader = SourceFileLoader("arena_capabilities", str(SCRIPT))
+spec = importlib.util.spec_from_loader(loader.name, loader)
+assert spec is not None
 module = importlib.util.module_from_spec(spec)
-assert spec and spec.loader
-spec.loader.exec_module(module)
+loader.exec_module(module)
 
 
 class ArenaCapabilitiesTest(unittest.TestCase):
