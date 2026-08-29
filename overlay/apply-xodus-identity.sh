@@ -7,6 +7,7 @@ if [[ -z "$root" || ! -d "$root/pear/airootfs" || ! -f "$root/pear/profiledef.sh
   exit 64
 fi
 
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 profile="$root/pear/profiledef.sh"
 hostname_file="$root/pear/airootfs/etc/hostname"
 motd_file="$root/pear/airootfs/etc/motd"
@@ -45,11 +46,26 @@ XODUS_FOUNDATION=pearOS-NiceC0re
 XODUS_UPSTREAM_COMMIT=${XODUS_UPSTREAM_COMMIT:-unknown}
 EOF
 
+# Install the first-boot foundation into the live payload. It is intentionally
+# present on live media but refuses to complete until booted from an installed
+# non-ephemeral root, so the installer can copy one identical payload to disk.
+first_boot_runner="$script_dir/first-boot/xodus-first-boot"
+first_boot_unit="$script_dir/first-boot/xodus-first-boot.service"
+test -f "$first_boot_runner"
+test -f "$first_boot_unit"
+install -Dm0755 "$first_boot_runner" "$root/pear/airootfs/usr/lib/xodus/xodus-first-boot"
+install -Dm0644 "$first_boot_unit" "$root/pear/airootfs/usr/lib/systemd/system/xodus-first-boot.service"
+install -d "$root/pear/airootfs/etc/systemd/system/multi-user.target.wants"
+ln -sfn /usr/lib/systemd/system/xodus-first-boot.service \
+  "$root/pear/airootfs/etc/systemd/system/multi-user.target.wants/xodus-first-boot.service"
+
 # Assertions are part of the contract: a successful overlay must leave no
 # upstream pearOS ISO identity in the profile metadata.
 grep -Fq 'iso_name="Xodus"' "$profile"
 grep -Fq 'iso_application="Xodus Live Session"' "$profile"
 grep -Fq 'xodus-live' "$hostname_file"
 ! grep -Fq 'iso_name="pearOS-NiceC0re"' "$profile"
+test -x "$root/pear/airootfs/usr/lib/xodus/xodus-first-boot"
+test -L "$root/pear/airootfs/etc/systemd/system/multi-user.target.wants/xodus-first-boot.service"
 
 echo "Applied Xodus M0 identity overlay to $root"
