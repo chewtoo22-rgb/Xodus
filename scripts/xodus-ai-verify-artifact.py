@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import hmac
 import json
 import os
 import stat
@@ -105,7 +106,7 @@ def verify(selection: dict[str, Any], manifest: dict[str, Any], artifact: Path) 
         raise ValueError("artifact size does not match reviewed manifest")
 
     actual_sha256 = sha256_file(artifact)
-    if not hashlib.compare_digest(actual_sha256.lower(), expected["sha256"].lower()):
+    if not hmac.compare_digest(actual_sha256.lower(), expected["sha256"].lower()):
         raise ValueError("artifact sha256 does not match reviewed manifest")
 
     return {
