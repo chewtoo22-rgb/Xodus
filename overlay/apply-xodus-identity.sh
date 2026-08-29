@@ -8,6 +8,7 @@ if [[ -z "$root" || ! -d "$root/pear/airootfs" || ! -f "$root/pear/profiledef.sh
 fi
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+repo_root=$(cd "$script_dir/.." && pwd -P)
 profile="$root/pear/profiledef.sh"
 hostname_file="$root/pear/airootfs/etc/hostname"
 motd_file="$root/pear/airootfs/etc/motd"
@@ -55,12 +56,29 @@ test -f "$first_boot_runner"
 test -f "$first_boot_unit"
 install -Dm0755 "$first_boot_runner" "$root/pear/airootfs/usr/lib/xodus/xodus-first-boot"
 install -Dm0644 "$first_boot_unit" "$root/pear/airootfs/usr/lib/systemd/system/xodus-first-boot.service"
-# The hardened unit exposes only this state directory as writable, so it must
-# already exist before systemd constructs the service mount namespace.
 install -d -m0755 "$root/pear/airootfs/var/lib/xodus/first-boot"
 install -d "$root/pear/airootfs/etc/systemd/system/multi-user.target.wants"
 ln -sfn /usr/lib/systemd/system/xodus-first-boot.service \
   "$root/pear/airootfs/etc/systemd/system/multi-user.target.wants/xodus-first-boot.service"
+
+# Install the independent AI first-boot state recorder. The service is safe to
+# ship before the hardware selector promotion lands because systemd gates it on
+# the selector path. Once scripts/xodus-ai-select.py is present, the exact same
+# overlay installs it and records one immutable hardware recommendation after
+# the installed-system first-boot foundation succeeds. No model is downloaded.
+ai_runner="$script_dir/first-boot/xodus-ai-first-boot"
+ai_unit="$script_dir/first-boot/xodus-ai-first-boot.service"
+test -f "$ai_runner"
+test -f "$ai_unit"
+install -Dm0755 "$ai_runner" "$root/pear/airootfs/usr/lib/xodus/xodus-ai-first-boot"
+install -Dm0644 "$ai_unit" "$root/pear/airootfs/usr/lib/systemd/system/xodus-ai-first-boot.service"
+install -d -m0755 "$root/pear/airootfs/var/lib/xodus/ai"
+ln -sfn /usr/lib/systemd/system/xodus-ai-first-boot.service \
+  "$root/pear/airootfs/etc/systemd/system/multi-user.target.wants/xodus-ai-first-boot.service"
+selector_source="$repo_root/scripts/xodus-ai-select.py"
+if [[ -f "$selector_source" ]]; then
+  install -Dm0755 "$selector_source" "$root/pear/airootfs/usr/lib/xodus/xodus-ai-select.py"
+fi
 
 # Assertions are part of the contract: a successful overlay must leave no
 # upstream pearOS ISO identity in the profile metadata.
@@ -71,5 +89,8 @@ grep -Fq 'xodus-live' "$hostname_file"
 test -x "$root/pear/airootfs/usr/lib/xodus/xodus-first-boot"
 test -d "$root/pear/airootfs/var/lib/xodus/first-boot"
 test -L "$root/pear/airootfs/etc/systemd/system/multi-user.target.wants/xodus-first-boot.service"
+test -x "$root/pear/airootfs/usr/lib/xodus/xodus-ai-first-boot"
+test -d "$root/pear/airootfs/var/lib/xodus/ai"
+test -L "$root/pear/airootfs/etc/systemd/system/multi-user.target.wants/xodus-ai-first-boot.service"
 
 echo "Applied Xodus M0 identity overlay to $root"

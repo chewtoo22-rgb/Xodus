@@ -1,0 +1,23 @@
+name: AI First Boot Contract
+
+on:
+  pull_request:
+    paths:
+      - 'overlay/first-boot/xodus-ai-first-boot'
+      - 'overlay/first-boot/xodus-ai-first-boot.service'
+      - 'qa/ai-first-boot-contract.sh'
+      - '.github/workflows/ai-first-boot-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate shell syntax
+        run: bash -n overlay/first-boot/xodus-ai-first-boot qa/ai-first-boot-contract.sh
+      - name: Validate AI first-boot contract
+        run: bash qa/ai-first-boot-contract.sh
