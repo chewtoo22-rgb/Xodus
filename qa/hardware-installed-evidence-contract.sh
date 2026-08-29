@@ -6,7 +6,10 @@ collector="$repo_root/qa/hardware-installed-evidence.sh"
 
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 
-[[ -x "$collector" ]] || fail "collector is not executable: $collector"
+# Invoke through bash instead of relying on the executable bit. The collector is
+# also called this way by the contract so a checkout-mode mismatch cannot hide
+# the actual installed-system safety behavior we need to validate.
+[[ -f "$collector" ]] || fail "collector is missing: $collector"
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -18,7 +21,7 @@ run_expect_rc() {
   XODUS_CONTRACT_ROOT_SOURCE="$source" \
   XODUS_CONTRACT_ROOT_FSTYPE="$fstype" \
   XODUS_CONTRACT_ALLOW_NO_EFI=1 \
-    "$collector" "$out" >"$tmp/$name.stdout" 2>"$tmp/$name.stderr"
+    bash "$collector" "$out" >"$tmp/$name.stdout" 2>"$tmp/$name.stderr"
   local rc=$?
   set -e
   [[ "$rc" -eq "$expected" ]] || {
@@ -40,7 +43,7 @@ installed="$tmp/installed"
 XODUS_CONTRACT_ROOT_SOURCE=/dev/sda2 \
 XODUS_CONTRACT_ROOT_FSTYPE=ext4 \
 XODUS_CONTRACT_ALLOW_NO_EFI=1 \
-  "$collector" "$installed" >/dev/null
+  bash "$collector" "$installed" >/dev/null
 
 grep -qx 'root_source=/dev/sda2' "$installed/summary.txt" || fail 'root source missing from summary'
 grep -qx 'root_fstype=ext4' "$installed/summary.txt" || fail 'root fstype missing from summary'
