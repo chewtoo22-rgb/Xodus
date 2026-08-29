@@ -1,0 +1,37 @@
+name: AI Hardware Selector
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/xodus-ai-select.py'
+      - 'qa/test-ai-hardware-selector.py'
+      - '.github/workflows/ai-hardware-selector.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/xodus-ai-select.py'
+      - 'qa/test-ai-hardware-selector.py'
+
+permissions:
+  contents: read
+
+jobs:
+  selector-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile selector
+        run: python3 -m py_compile scripts/xodus-ai-select.py qa/test-ai-hardware-selector.py
+      - name: Unit tests
+        run: python3 qa/test-ai-hardware-selector.py
+      - name: Smoke test JSON contract
+        run: |
+          python3 scripts/xodus-ai-select.py --ram-gib 32 --vram-gib 8 --gpu-vendor nvidia > /tmp/recommendation.json
+          python3 - <<'PY'
+          import json
+          with open('/tmp/recommendation.json', encoding='utf-8') as f:
+              result = json.load(f)
+          assert result['recommendation']['tier'] == 'performance', result
+          assert result['recommendation']['backend'] == 'cuda', result
+          PY
