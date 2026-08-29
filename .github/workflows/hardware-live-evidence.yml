@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'qa/hardware-live-evidence.sh'
+      - 'qa/hardware-live-evidence-contract.sh'
       - '.github/workflows/hardware-live-evidence.yml'
       - 'docs/THURSDAY_HARDWARE_TEST.md'
   workflow_dispatch:
@@ -18,19 +19,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Syntax-check collector
-        run: bash -n qa/hardware-live-evidence.sh
+      - name: Syntax-check evidence scripts
+        run: |
+          bash -n qa/hardware-live-evidence.sh
+          bash -n qa/hardware-live-evidence-contract.sh
 
-      - name: Run collector read-only
+      - name: Verify candidate provenance contract
+        run: bash qa/hardware-live-evidence-contract.sh
+
+      - name: Run collector read-only on exact workflow SHA
+        env:
+          XODUS_CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           bash qa/hardware-live-evidence.sh hardware-live-evidence
           grep -Fqx 'collector=pass' hardware-live-evidence/summary.txt
+          grep -Eq '^candidate_sha=[0-9a-f]{40}$' hardware-live-evidence/summary.txt
+          grep -Fqx 'candidate_sha_source=environment' hardware-live-evidence/summary.txt
           test -s hardware-live-evidence/lsblk.txt
           test -s hardware-live-evidence/uname.txt
 
       - name: Assert no destructive storage commands
         run: |
-          ! grep -En '(^|[[:space:]])(dd|wipefs|mkfs(\.|[[:space:]])|sgdisk|parted|fdisk|losetup[[:space:]]+-d)([[:space:]]|$)' qa/hardware-live-evidence.sh
+          ! grep -En '(^|[[:space:]])(dd|wipefs|mkfs(\.|[[:space:]])|sgdisk|parted|fdisk|losetup[[:space:]]+-d)([[:space:]]|$)' qa/hardware-live-evidence.sh qa/hardware-live-evidence-contract.sh
 
       - name: Upload sample evidence
         uses: actions/upload-artifact@v4
