@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root_prefix=${XODUS_AI_FIRST_BOOT_ROOT:-/}
+selector=${XODUS_AI_SELECTOR:-/usr/lib/xodus/xodus-ai-select.py}
+state_dir="$root_prefix/var/lib/xodus/ai"
+selection_file="$state_dir/hardware-selection.json"
+first_boot_complete="$root_prefix/var/lib/xodus/first-boot/complete"
+
+if [[ ! -d "$root_prefix" ]]; then
+  echo "xodus-ai-first-boot: root prefix does not exist" >&2
+  exit 64
+fi
+
+# AI selection belongs to the installed system only. The first-boot foundation
+# is the durable proof that the live-media guard already passed.
+if [[ ! -f "$first_boot_complete" ]]; then
+  echo "xodus-ai-first-boot: installed first boot not complete; leaving AI selection pending"
+  exit 0
+fi
+
+# Never reinterpret hardware after a successful selection. Model upgrades are a
+# separate lifecycle and must not silently change because firmware/drivers moved.
+if [[ -s "$selection_file" ]]; then
+  exit 0
+fi
+
+if [[ ! -f "$selector" || ! -x "$selector" ]]; then
+  echo "xodus-ai-first-boot: hardware selector unavailable; leaving selection pending" >&2
+  exit 0
+fi
+
+install -d -m 0755 "$state_dir"
+tmp_raw=$(mktemp "$state_dir/.selection.raw.XXXXXX")
+tmp_out=$(mktemp "$state_dir/.selection.json.XXXXXX")
+cleanup() { rm -f "$tmp_raw" "$tmp_out"; }
+trap cleanup EXIT
+
+"$selector" > "$tmp_raw"
+python3 - "$tmp_raw" "$tmp_out" <<'PY'
+import json, pathlib, sys
+src, dst = map(pathlib.Path, sys.argv[1:])
+data = json.loads(src.read_text(encoding="utf-8"))
+if set(data) != {"hardware", "recommendation"}:
+    raise SystemExit("unexpected selector envelope")
+hw = data["hardware"]
+rec = data["recommendation"]
+required_hw = {"ram_gib", "vram_gib", "gpu_vendor", "cpu_threads"}
+required_rec = {"tier", "max_model_class", "preferred_quant", "backend", "reason"}
+if set(hw) != required_hw or set(rec) != required_rec:
+    raise SystemExit("unexpected selector schema")
+if rec["tier"] not in {"disabled", "lite", "standard", "performance", "workstation"}:
+    raise SystemExit("invalid tier")
+if rec["backend"] not in {"none", "cpu", "cuda", "vulkan"}:
+    raise SystemExit("invalid backend")
+if not isinstance(hw["cpu_threads"], int) or hw["cpu_threads"] < 1:
+    raise SystemExit("invalid cpu_threads")
+if not isinstance(hw["ram_gib"], (int, float)) or hw["ram_gib"] < 0:
+    raise SystemExit("invalid ram_gib")
+if not isinstance(hw["vram_gib"], (int, float)) or hw["vram_gib"] < 0:
+    raise SystemExit("invalid vram_gib")
+# Canonical deterministic JSON makes later catalog resolution and support
+# evidence reviewable without invoking detection again.
+dst.write_text(json.dumps(data, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
+PY
+chmod 0644 "$tmp_out"
+mv -f "$tmp_out" "$selection_file"
+rm -f "$tmp_raw"
+trap - EXIT
+
+echo "xodus-ai-first-boot: hardware selection recorded"
