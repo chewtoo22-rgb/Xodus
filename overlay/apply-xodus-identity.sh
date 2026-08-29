@@ -45,11 +45,17 @@ XODUS_FOUNDATION=pearOS-NiceC0re
 XODUS_UPSTREAM_COMMIT=${XODUS_UPSTREAM_COMMIT:-unknown}
 EOF
 
+# Install the system integration payload through a separate, independently
+# testable overlay so first-boot behavior does not get hidden in branding code.
+bash "$(dirname "$0")/apply-xodus-firstboot.sh" "$root"
+
 # Assertions are part of the contract: a successful overlay must leave no
 # upstream pearOS ISO identity in the profile metadata.
 grep -Fq 'iso_name="Xodus"' "$profile"
 grep -Fq 'iso_application="Xodus Live Session"' "$profile"
 grep -Fq 'xodus-live' "$hostname_file"
+test -x "$root/pear/airootfs/usr/lib/xodus/xodus-firstboot-readiness"
+test -L "$root/pear/airootfs/etc/systemd/system/multi-user.target.wants/xodus-firstboot-readiness.service"
 ! grep -Fq 'iso_name="pearOS-NiceC0re"' "$profile"
 
 echo "Applied Xodus M0 identity overlay to $root"
