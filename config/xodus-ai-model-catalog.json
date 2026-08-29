@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "policy": {
+    "selection_basis": "hardware_only",
+    "network_downloads_allowed": false,
+    "automatic_model_switching_after_first_boot": false
+  },
+  "tiers": {
+    "disabled": {
+      "model_id": null,
+      "family": null,
+      "parameter_class": "none",
+      "quant": "none",
+      "context_tokens": 0,
+      "engine": "none"
+    },
+    "lite": {
+      "model_id": "xodus-lite-1b-q4",
+      "family": "small-instruct",
+      "parameter_class": "1B-3B",
+      "quant": "Q4_K_M",
+      "context_tokens": 4096,
+      "engine": "llama.cpp"
+    },
+    "standard": {
+      "model_id": "xodus-nemotron-nano-4b-q4",
+      "family": "nemotron-nano",
+      "parameter_class": "3B-4B",
+      "quant": "Q4_K_M",
+      "context_tokens": 8192,
+      "engine": "llama.cpp"
+    },
+    "performance": {
+      "model_id": "xodus-performance-8b-q4",
+      "family": "general-instruct",
+      "parameter_class": "7B-14B",
+      "quant": "Q4_K_M",
+      "context_tokens": 8192,
+      "engine": "llama.cpp"
+    },
+    "workstation": {
+      "model_id": "xodus-workstation-24b-q4",
+      "family": "general-instruct",
+      "parameter_class": "20B-30B",
+      "quant": "Q4_K_M",
+      "context_tokens": 16384,
+      "engine": "llama.cpp"
+    }
+  }
+}
