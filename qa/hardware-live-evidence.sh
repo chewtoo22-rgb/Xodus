@@ -14,6 +14,10 @@ if [[ -z "$candidate_sha" && -n "$manifest" ]]; then
   fi
   candidate_sha="$(sed -nE 's/^[[:space:]]*"candidate_sha"[[:space:]]*:[[:space:]]*"([0-9a-fA-F]{40})"[,]?[[:space:]]*$/\1/p' "$manifest" | head -n1)"
   candidate_sha_source="manifest"
+  if [[ ! "$candidate_sha" =~ ^[0-9a-fA-F]{40}$ ]]; then
+    printf 'candidate manifest does not contain a valid 40-character candidate_sha: %s\n' "$manifest" >&2
+    exit 3
+  fi
 fi
 
 if [[ -z "$candidate_sha" ]] && command -v git >/dev/null 2>&1; then
