@@ -35,7 +35,7 @@ XODUS_CANDIDATE_SHA= XODUS_CANDIDATE_MANIFEST="$tmp/bad-candidate.json" \
 rc=$?
 set -e
 [[ "$rc" -eq 3 ]]
-grep -Fq 'unable to resolve a valid 40-character Xodus candidate SHA' "$tmp/bad.err"
+grep -Fq 'candidate manifest does not contain a valid 40-character candidate_sha' "$tmp/bad.err"
 [[ ! -e "$tmp/bad-evidence/summary.txt" ]]
 
 printf 'hardware-live-evidence provenance contract: PASS\n'
