@@ -1,0 +1,61 @@
+name: First Boot Contract
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'overlay/first-boot/**'
+      - 'overlay/apply-xodus-identity.sh'
+      - 'qa/first-boot-contract.sh'
+      - '.github/workflows/first-boot-contract.yml'
+  pull_request:
+    paths:
+      - 'overlay/first-boot/**'
+      - 'overlay/apply-xodus-identity.sh'
+      - 'qa/first-boot-contract.sh'
+      - '.github/workflows/first-boot-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  first-boot-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Shell syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n overlay/apply-xodus-identity.sh
+          bash -n overlay/first-boot/xodus-first-boot
+          bash -n qa/first-boot-contract.sh
+
+      - name: First-boot state contract
+        shell: bash
+        run: bash qa/first-boot-contract.sh
+
+      - name: Overlay installation contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmp=$(mktemp -d)
+          trap 'rm -rf "$tmp"' EXIT
+          mkdir -p "$tmp/pear/airootfs/etc"
+          cat > "$tmp/pear/profiledef.sh" <<'EOF_PROFILE'
+          iso_name="pearOS-NiceC0re"
+          iso_label="pearOS_NiceC0re_$(date +%Y%m)"
+          iso_publisher="The Pear Project <https://pearos.xyz>"
+          iso_application="pearOS Live Session"
+          EOF_PROFILE
+          printf 'pearOS-Live-System\n' > "$tmp/pear/airootfs/etc/hostname"
+          : > "$tmp/pear/airootfs/etc/motd"
+          XODUS_UPSTREAM_COMMIT=0123456789abcdef0123456789abcdef01234567 \
+            bash overlay/apply-xodus-identity.sh "$tmp"
+          test -x "$tmp/pear/airootfs/usr/lib/xodus/xodus-first-boot"
+          test -f "$tmp/pear/airootfs/usr/lib/systemd/system/xodus-first-boot.service"
+          test "$(readlink "$tmp/pear/airootfs/etc/systemd/system/multi-user.target.wants/xodus-first-boot.service")" = \
+            /usr/lib/systemd/system/xodus-first-boot.service
