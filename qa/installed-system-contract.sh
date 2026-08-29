@@ -60,6 +60,23 @@ for wants in "$root/etc/systemd/system/multi-user.target.wants/NetworkManager.se
 done
 [[ "$nm_enabled" == yes ]] || fail "NetworkManager is not enabled"
 
+# The installed payload must retain the Xodus first-boot foundation. The live
+# ISO carries the same service, but only an installed non-ephemeral root may
+# complete it. Catch installer-copy regressions before a NUC boot discovers
+# that first-boot state was silently omitted.
+first_boot_runner="$root/usr/lib/xodus/xodus-first-boot"
+first_boot_unit="$root/usr/lib/systemd/system/xodus-first-boot.service"
+first_boot_link="$root/etc/systemd/system/multi-user.target.wants/xodus-first-boot.service"
+first_boot_state="$root/var/lib/xodus/first-boot"
+[[ -x "$first_boot_runner" ]] || fail "xodus-first-boot runner is not installed"
+[[ -f "$first_boot_unit" ]] || fail "xodus-first-boot.service is not installed"
+[[ -L "$first_boot_link" ]] || fail "xodus-first-boot.service is not enabled"
+first_boot_target=$(readlink "$first_boot_link")
+[[ "$first_boot_target" == /usr/lib/systemd/system/xodus-first-boot.service ]] || \
+  fail "xodus-first-boot.service enablement target is unexpected: $first_boot_target"
+[[ -d "$first_boot_state" ]] || fail "xodus first-boot state directory is missing"
+[[ ! -e "$first_boot_state/complete" ]] || fail "installed image is incorrectly pre-marked first-boot complete"
+
 # Audio readiness is an installed-payload contract here. Runtime device proof is
 # intentionally left to Thursday hardware evidence, because CI has no NUC audio hardware.
 pipewire_bin=''
@@ -78,6 +95,7 @@ done
   echo "display_manager=sddm"
   echo "display_manager_alias=$dm_target"
   echo "network_manager=installed_enabled"
+  echo "first_boot_service=installed_enabled_pending"
   echo "audio_stack=pipewire+wireplumber"
   echo "kernel_images=$kernel_count"
   echo "boot_root=${boot_root#$root}"
