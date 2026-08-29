@@ -55,6 +55,9 @@ test -f "$first_boot_runner"
 test -f "$first_boot_unit"
 install -Dm0755 "$first_boot_runner" "$root/pear/airootfs/usr/lib/xodus/xodus-first-boot"
 install -Dm0644 "$first_boot_unit" "$root/pear/airootfs/usr/lib/systemd/system/xodus-first-boot.service"
+# The hardened unit exposes only this state directory as writable, so it must
+# already exist before systemd constructs the service mount namespace.
+install -d -m0755 "$root/pear/airootfs/var/lib/xodus/first-boot"
 install -d "$root/pear/airootfs/etc/systemd/system/multi-user.target.wants"
 ln -sfn /usr/lib/systemd/system/xodus-first-boot.service \
   "$root/pear/airootfs/etc/systemd/system/multi-user.target.wants/xodus-first-boot.service"
@@ -66,6 +69,7 @@ grep -Fq 'iso_application="Xodus Live Session"' "$profile"
 grep -Fq 'xodus-live' "$hostname_file"
 ! grep -Fq 'iso_name="pearOS-NiceC0re"' "$profile"
 test -x "$root/pear/airootfs/usr/lib/xodus/xodus-first-boot"
+test -d "$root/pear/airootfs/var/lib/xodus/first-boot"
 test -L "$root/pear/airootfs/etc/systemd/system/multi-user.target.wants/xodus-first-boot.service"
 
 echo "Applied Xodus M0 identity overlay to $root"
