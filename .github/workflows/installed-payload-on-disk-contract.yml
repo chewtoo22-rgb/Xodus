@@ -58,21 +58,22 @@ jobs:
             "$root/usr/lib/systemd/system" \
             "$root/usr/lib/systemd" \
             "$root/usr/bin" \
-            "$root/boot/grub" \
+            "$esp/grub" \
             "$esp/EFI/Xodus"
 
           printf 'NAME=Xodus\nID=xodus\n' | sudo tee "$root/etc/os-release" >/dev/null
-          printf 'UUID=fake / ext4 defaults 0 1\n' | sudo tee "$root/etc/fstab" >/dev/null
+          # Match the pinned pearOS/Xodus UEFI installer: the ESP is mounted directly at /boot.
+          printf 'UUID=fake-root / ext4 defaults 0 1\nUUID=fake-esp /boot vfat umask=0077 0 2\n' | sudo tee "$root/etc/fstab" >/dev/null
           sudo touch "$root/usr/lib/systemd/systemd" "$root/usr/bin/pipewire" "$root/usr/bin/wireplumber"
           sudo chmod +x "$root/usr/lib/systemd/systemd" "$root/usr/bin/pipewire" "$root/usr/bin/wireplumber"
           sudo touch "$root/usr/lib/systemd/system/sddm.service" "$root/usr/lib/systemd/system/NetworkManager.service"
           sudo ln -s /usr/lib/systemd/system/sddm.service "$root/etc/systemd/system/display-manager.service"
           sudo ln -s /usr/lib/systemd/system/NetworkManager.service "$root/etc/systemd/system/multi-user.target.wants/NetworkManager.service"
-          sudo touch "$root/boot/vmlinuz-linux" "$root/boot/initramfs-linux.img"
-          sudo tee "$root/boot/grub/grub.cfg" >/dev/null <<'EOF'
+          sudo touch "$esp/vmlinuz-linux" "$esp/initramfs-linux.img"
+          sudo tee "$esp/grub/grub.cfg" >/dev/null <<'EOF'
           menuentry 'Xodus' {
-            linux /boot/vmlinuz-linux root=UUID=fake rw
-            initrd /boot/initramfs-linux.img
+            linux /vmlinuz-linux root=UUID=fake-root rw
+            initrd /initramfs-linux.img
           }
           EOF
           sudo touch "$esp/EFI/Xodus/grubx64.efi"
@@ -90,6 +91,7 @@ jobs:
           grep -Fqx 'installed_payload_on_disk=pass' installed-payload-evidence/installed-payload-summary.txt
           grep -Fqx 'installed_system_contract=pass' installed-payload-evidence/system/installed-system-contract.txt
           grep -Fqx 'installed_boot_contract=pass' installed-payload-evidence/boot/installed-boot-contract.txt
+          grep -Fqx 'boot_filesystem=esp-at-/boot' installed-payload-evidence/boot/installed-boot-contract.txt
 
       - name: Upload contract evidence
         if: always()

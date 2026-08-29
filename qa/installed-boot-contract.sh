@@ -20,10 +20,19 @@ fail() {
 [[ -f "$root/etc/os-release" ]] || fail "missing installed /etc/os-release"
 [[ -f "$root/etc/fstab" ]] || fail "missing installed /etc/fstab"
 
+# pearOS/Xodus UEFI installs place the ESP directly at /boot. Synthetic roots
+# used by the standalone contract historically keep boot files under root/boot,
+# so select the actual boot filesystem from fstab and retain that fallback.
+boot_root="$root/boot"
+if awk '!/^[[:space:]]*#/ && NF >= 2 && $2 == "/boot" { found=1 } END { exit(found ? 0 : 1) }' "$root/etc/fstab"; then
+  boot_root="$esp"
+fi
+[[ -d "$boot_root" ]] || fail "installed boot root not found"
+
 grub_cfg=''
 for candidate in \
-  "$root/boot/grub/grub.cfg" \
-  "$root/boot/grub2/grub.cfg"; do
+  "$boot_root/grub/grub.cfg" \
+  "$boot_root/grub2/grub.cfg"; do
   if [[ -f "$candidate" ]]; then
     grub_cfg=$candidate
     break
@@ -31,10 +40,10 @@ for candidate in \
 done
 [[ -n "$grub_cfg" ]] || fail "installed GRUB configuration not found"
 
-kernel_count=$(find "$root/boot" -maxdepth 1 -type f -name 'vmlinuz-*' 2>/dev/null | wc -l | tr -d ' ')
-initramfs_count=$(find "$root/boot" -maxdepth 1 -type f \( -name 'initramfs-*.img' -o -name 'initrd-*' \) 2>/dev/null | wc -l | tr -d ' ')
-(( kernel_count > 0 )) || fail "no installed kernel image found under /boot"
-(( initramfs_count > 0 )) || fail "no installed initramfs found under /boot"
+kernel_count=$(find "$boot_root" -maxdepth 1 -type f -name 'vmlinuz-*' 2>/dev/null | wc -l | tr -d ' ')
+initramfs_count=$(find "$boot_root" -maxdepth 1 -type f \( -name 'initramfs-*.img' -o -name 'initrd-*' \) 2>/dev/null | wc -l | tr -d ' ')
+(( kernel_count > 0 )) || fail "no installed kernel image found under installed /boot"
+(( initramfs_count > 0 )) || fail "no installed initramfs found under installed /boot"
 
 # A real installed GRUB config must contain both kernel and initramfs loading.
 grep -Eq '^[[:space:]]*(linux|linuxefi)[[:space:]]+' "$grub_cfg" \
@@ -57,7 +66,13 @@ printf '%s\n' "${efi_bins[@]}" | sed "s#^$esp##" | sort | tee "$outdir/efi-execu
 
 {
   echo "installed_boot_contract=pass"
-  echo "grub_config=${grub_cfg#$root}"
+  if [[ "$boot_root" == "$esp" ]]; then
+    echo "boot_filesystem=esp-at-/boot"
+    echo "grub_config=${grub_cfg#$esp}"
+  else
+    echo "boot_filesystem=root-/boot"
+    echo "grub_config=${grub_cfg#$root}"
+  fi
   echo "kernel_images=$kernel_count"
   echo "initramfs_images=$initramfs_count"
   echo "efi_executables=${#efi_bins[@]}"
