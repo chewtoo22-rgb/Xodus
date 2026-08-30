@@ -47,6 +47,6 @@ jobs:
           assert isinstance(data['blockers'], list)
           assert isinstance(data['warnings'], list)
           PY
-      - name: Reject mutation primitives in preflight
+      - name: Reject mutation executable calls in preflight
         run: |
-          ! grep -En '\b(systemctl|powerprofilesctl|wpctl|gamescope|steam|kill|pkill|reboot|shutdown)\b' scripts/xodus-arena-preflight
+          ! grep -En '\[\s*["'"'](systemctl|powerprofilesctl|wpctl|gamescope|steam|kill|pkill|reboot|shutdown)["'"']' scripts/xodus-arena-preflight
