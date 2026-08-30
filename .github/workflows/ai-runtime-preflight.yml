@@ -1,0 +1,27 @@
+name: AI Runtime Preflight
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/xodus-ai-runtime-preflight.py'
+      - 'overlay/first-boot/xodus-ai-runtime-preflight.service'
+      - 'qa/test-ai-runtime-preflight.py'
+      - '.github/workflows/ai-runtime-preflight.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile preflight
+        run: python3 -m py_compile scripts/xodus-ai-runtime-preflight.py qa/test-ai-runtime-preflight.py
+      - name: Run contract
+        run: python3 qa/test-ai-runtime-preflight.py
+      - name: Enforce read-only/network-free boundary
+        run: |
+          ! grep -Eqi '\b(curl|wget|git clone|pip install|npm install)\b|https?://' scripts/xodus-ai-runtime-preflight.py
+          ! grep -Eqi '\b(systemctl|reboot|shutdown|mkfs|parted|fdisk)\b' scripts/xodus-ai-runtime-preflight.py
