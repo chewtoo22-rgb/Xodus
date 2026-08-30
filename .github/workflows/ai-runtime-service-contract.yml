@@ -1,0 +1,30 @@
+name: AI Runtime Service Contract
+
+on:
+  pull_request:
+    paths:
+      - 'overlay/first-boot/xodus-ai-runtime-preflight.service'
+      - 'qa/test-ai-runtime-service-contract.sh'
+      - '.github/workflows/ai-runtime-service-contract.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'overlay/first-boot/xodus-ai-runtime-preflight.service'
+      - 'qa/test-ai-runtime-service-contract.sh'
+      - '.github/workflows/ai-runtime-service-contract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate runtime preflight systemd contract
+        run: bash qa/test-ai-runtime-service-contract.sh
+      - name: Verify unit syntax when systemd-analyze is available
+        run: |
+          if command -v systemd-analyze >/dev/null 2>&1; then
+            systemd-analyze verify overlay/first-boot/xodus-ai-runtime-preflight.service
+          fi
