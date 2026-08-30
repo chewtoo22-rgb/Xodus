@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import re
+import sys
+from pathlib import Path
+
+SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+LIVE_ROOT_TOKENS = ("overlay", "airootfs", "squashfs", "tmpfs", "rootfs")
+
+
+def read_summary(path: Path) -> dict[str, str]:
+    if path.is_symlink() or not path.is_file():
+        raise ValueError(f"summary is not a regular file: {path}")
+    data: dict[str, str] = {}
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        if not raw or raw.lstrip().startswith("#"):
+            continue
+        if "=" not in raw:
+            raise ValueError(f"malformed summary line in {path}: {raw!r}")
+        key, value = raw.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if not key or key in data:
+            raise ValueError(f"invalid or duplicate key in {path}: {key!r}")
+        data[key] = value
+    return data
+
+
+def check_candidate(summary: dict[str, str], expected: str, label: str, blockers: list[str]) -> None:
+    recorded = summary.get("candidate_sha")
+    if recorded is not None and recorded != expected:
+        blockers.append(f"{label}_candidate_sha_mismatch")
+
+
+def evaluate(candidate_sha: str, live: dict[str, str], installed: dict[str, str]) -> dict[str, object]:
+    blockers: list[str] = []
+    if not SHA_RE.fullmatch(candidate_sha):
+        blockers.append("candidate_sha_invalid")
+
+    if live.get("collector") != "pass":
+        blockers.append("live_collector_not_pass")
+    if installed.get("collector") != "pass":
+        blockers.append("installed_collector_not_pass")
+    if installed.get("boot_mode") != "uefi":
+        blockers.append("installed_boot_not_uefi")
+    if installed.get("physical_install_claim") != "not_automatic":
+        blockers.append("unsafe_physical_install_claim")
+
+    root_source = installed.get("root_source", "")
+    root_fstype = installed.get("root_fstype", "")
+    root_identity = f"{root_source}:{root_fstype}".lower()
+    if not root_source or not root_fstype:
+        blockers.append("installed_root_identity_missing")
+    elif any(token in root_identity for token in LIVE_ROOT_TOKENS):
+        blockers.append("installed_root_looks_live")
+
+    if installed.get("root_backing_disk", "").lower() in ("", "unknown"):
+        blockers.append("installed_backing_disk_missing")
+
+    if SHA_RE.fullmatch(candidate_sha):
+        check_candidate(live, candidate_sha, "live", blockers)
+        check_candidate(installed, candidate_sha, "installed", blockers)
+
+    blockers = sorted(set(blockers))
+    return {
+        "schema": 1,
+        "candidate_sha": candidate_sha,
+        "evidence_ready_for_operator_review": not blockers,
+        "hardware_validation_claim": False,
+        "blockers": blockers,
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Fail-closed acceptance gate for X1 NUC evidence summaries")
+    parser.add_argument("--candidate-sha", required=True)
+    parser.add_argument("--live-summary", required=True, type=Path)
+    parser.add_argument("--installed-summary", required=True, type=Path)
+    parser.add_argument("--output", type=Path)
+    args = parser.parse_args()
+
+    try:
+        result = evaluate(args.candidate_sha, read_summary(args.live_summary), read_summary(args.installed_summary))
+    except (OSError, UnicodeError, ValueError) as exc:
+        result = {
+            "schema": 1,
+            "candidate_sha": args.candidate_sha,
+            "evidence_ready_for_operator_review": False,
+            "hardware_validation_claim": False,
+            "blockers": [f"input_error:{type(exc).__name__}"],
+        }
+
+    payload = json.dumps(result, sort_keys=True, separators=(",", ":")) + "\n"
+    if args.output:
+        if args.output.exists() and args.output.is_symlink():
+            print("refusing symlink output", file=sys.stderr)
+            return 3
+        args.output.write_text(payload, encoding="utf-8")
+    sys.stdout.write(payload)
+    return 0 if result["evidence_ready_for_operator_review"] else 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
