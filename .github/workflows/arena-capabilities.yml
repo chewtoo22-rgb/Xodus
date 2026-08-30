@@ -1,0 +1,42 @@
+name: Arena Capability Contract
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/xodus-arena-capabilities'
+      - 'qa/test-arena-capabilities.py'
+      - '.github/workflows/arena-capabilities.yml'
+  push:
+    paths:
+      - 'scripts/xodus-arena-capabilities'
+      - 'qa/test-arena-capabilities.py'
+      - '.github/workflows/arena-capabilities.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile
+        run: python -m py_compile scripts/xodus-arena-capabilities qa/test-arena-capabilities.py
+      - name: Unit tests
+        run: python qa/test-arena-capabilities.py
+      - name: Validate JSON contract
+        run: |
+          python scripts/xodus-arena-capabilities > /tmp/arena.json
+          python - <<'PY'
+          import json
+          data=json.load(open('/tmp/arena.json'))
+          assert data['schema'] == 1
+          assert data['policy']['read_only_probe'] is True
+          assert data['policy']['hardware_validation_claim'] is False
+          assert isinstance(data['gpu_vendors'], list)
+          assert isinstance(data['tools'], dict)
+          PY

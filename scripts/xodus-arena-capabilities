@@ -1,0 +1,111 @@
+#!/usr/bin/env python3
+"""Emit a stable, read-only Xodus Arena capability snapshot.
+
+This probe never changes power, display, audio, driver, or process state. It is
+safe to call from first boot and Arena settings to decide which controls may be
+shown. Unknown capability is reported as false/unknown rather than guessed.
+"""
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import subprocess
+from pathlib import Path
+
+SCHEMA = 1
+
+
+def command(name: str) -> bool:
+    return shutil.which(name) is not None
+
+
+def read_text(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8", errors="replace").strip()
+    except (OSError, PermissionError):
+        return ""
+
+
+def gpu_vendors() -> list[str]:
+    vendors: set[str] = set()
+    mapping = {"0x10de": "nvidia", "0x1002": "amd", "0x8086": "intel"}
+    drm = Path(os.environ.get("XODUS_ARENA_DRM_ROOT", "/sys/class/drm"))
+    try:
+        cards = list(drm.glob("card[0-9]*"))
+    except OSError:
+        cards = []
+    for card in cards:
+        value = read_text(card / "device/vendor").lower()
+        vendors.add(mapping.get(value, "unknown"))
+    return sorted(vendors) or ["unknown"]
+
+
+def session_type() -> str:
+    value = os.environ.get("XDG_SESSION_TYPE", "").strip().lower()
+    return value if value in {"wayland", "x11", "tty"} else "unknown"
+
+
+def service_available(unit: str) -> bool:
+    if not command("systemctl"):
+        return False
+    try:
+        result = subprocess.run(
+            ["systemctl", "--user", "show", unit, "--property=LoadState", "--value"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+        return result.returncode == 0 and result.stdout.strip() == "loaded"
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def snapshot() -> dict:
+    vendors = gpu_vendors()
+    tools = {
+        name: command(name)
+        for name in (
+            "gamescope", "steam", "gamemoderun", "mangohud", "pw-cli",
+            "wpctl", "powerprofilesctl", "flatpak"
+        )
+    }
+    return {
+        "schema": SCHEMA,
+        "session": session_type(),
+        "gpu_vendors": vendors,
+        "tools": tools,
+        "services": {"pipewire": service_available("pipewire.service")},
+        "arena": {
+            "session_ready": tools["gamescope"],
+            "steam_ready": tools["steam"],
+            "performance_profile_ready": tools["powerprofilesctl"],
+            "audio_policy_ready": tools["wpctl"] or tools["pw-cli"],
+            "telemetry_ready": tools["mangohud"],
+        },
+        "graphics": {
+            "nvidia_present": "nvidia" in vendors,
+            "amd_present": "amd" in vendors,
+            "intel_present": "intel" in vendors,
+            "dlss_may_be_available": "nvidia" in vendors,
+            "system_fsr_requires_gamescope": tools["gamescope"],
+            "nis_requires_gamescope_and_nvidia": tools["gamescope"] and "nvidia" in vendors,
+        },
+        "policy": {
+            "read_only_probe": True,
+            "unsupported_features_hidden": True,
+            "hardware_validation_claim": False,
+        },
+    }
+
+
+def main() -> int:
+    print(json.dumps(snapshot(), sort_keys=True, separators=(",", ":")))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

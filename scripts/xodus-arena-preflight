@@ -1,0 +1,140 @@
+#!/usr/bin/env python3
+"""Evaluate whether Xodus Arena can safely enter a gaming session.
+
+Consumes the read-only capability snapshot and emits a deterministic decision.
+This program does not launch games, alter power profiles, touch services, or
+change display/audio state. Unknown or structurally invalid capability data
+fails closed.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+SCHEMA = 1
+PREFLIGHT_SCHEMA = 1
+KNOWN_GPUS = {"intel", "amd", "nvidia"}
+
+
+def load_snapshot(path: str | None) -> dict:
+    if path:
+        with open(path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    else:
+        probe = Path(__file__).with_name("xodus-arena-capabilities")
+        result = subprocess.run(
+            [str(probe)],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise ValueError("capability probe failed")
+        data = json.loads(result.stdout)
+    if not isinstance(data, dict):
+        raise ValueError("capability snapshot must be an object")
+    return data
+
+
+def bool_field(mapping: dict, key: str) -> bool:
+    value = mapping.get(key)
+    if not isinstance(value, bool):
+        raise ValueError(f"{key} must be boolean")
+    return value
+
+
+def evaluate(snapshot: dict, require_steam: bool = False) -> dict:
+    blockers: list[str] = []
+    warnings: list[str] = []
+
+    if snapshot.get("schema") != SCHEMA:
+        raise ValueError("unsupported capability schema")
+
+    policy = snapshot.get("policy")
+    arena = snapshot.get("arena")
+    vendors = snapshot.get("gpu_vendors")
+    if not isinstance(policy, dict) or not isinstance(arena, dict):
+        raise ValueError("missing policy or arena capability section")
+    if not isinstance(vendors, list) or not vendors or not all(isinstance(v, str) for v in vendors):
+        raise ValueError("gpu_vendors must be a non-empty string list")
+
+    if not bool_field(policy, "read_only_probe"):
+        raise ValueError("snapshot was not produced by a read-only probe")
+    if bool_field(policy, "hardware_validation_claim"):
+        raise ValueError("capability snapshot cannot claim hardware validation")
+
+    known = sorted(set(vendors) & KNOWN_GPUS)
+    unknown_present = any(v not in KNOWN_GPUS for v in vendors)
+    if not known:
+        blockers.append("gpu_not_identified")
+    elif unknown_present:
+        warnings.append("additional_unknown_gpu_present")
+
+    if not bool_field(arena, "session_ready"):
+        blockers.append("gamescope_unavailable")
+    if require_steam and not bool_field(arena, "steam_ready"):
+        blockers.append("steam_unavailable")
+    elif not bool_field(arena, "steam_ready"):
+        warnings.append("steam_unavailable")
+
+    if not bool_field(arena, "audio_policy_ready"):
+        warnings.append("audio_policy_unavailable")
+    if not bool_field(arena, "performance_profile_ready"):
+        warnings.append("performance_profile_unavailable")
+    if not bool_field(arena, "telemetry_ready"):
+        warnings.append("telemetry_unavailable")
+
+    ready = not blockers
+    return {
+        "schema": PREFLIGHT_SCHEMA,
+        "ready": ready,
+        "blockers": sorted(blockers),
+        "warnings": sorted(warnings),
+        "gpu_vendors": known,
+        "require_steam": require_steam,
+        "policy": {
+            "read_only_preflight": True,
+            "state_changes_performed": False,
+            "hardware_validation_claim": False,
+            "launch_authorized": ready,
+        },
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--snapshot", help="capability snapshot JSON; default runs the sibling read-only probe")
+    parser.add_argument("--require-steam", action="store_true", help="treat missing Steam as a launch blocker")
+    args = parser.parse_args()
+    try:
+        result = evaluate(load_snapshot(args.snapshot), args.require_steam)
+    except (OSError, json.JSONDecodeError, subprocess.TimeoutExpired, ValueError) as exc:
+        result = {
+            "schema": PREFLIGHT_SCHEMA,
+            "ready": False,
+            "blockers": ["invalid_capability_snapshot"],
+            "warnings": [],
+            "gpu_vendors": [],
+            "require_steam": args.require_steam,
+            "policy": {
+                "read_only_preflight": True,
+                "state_changes_performed": False,
+                "hardware_validation_claim": False,
+                "launch_authorized": False,
+            },
+            "error": str(exc),
+        }
+        print(json.dumps(result, sort_keys=True, separators=(",", ":")))
+        return 2
+    print(json.dumps(result, sort_keys=True, separators=(",", ":")))
+    return 0 if result["ready"] else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
