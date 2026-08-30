@@ -1,0 +1,42 @@
+name: AI Labs Isolation Contract
+
+on:
+  pull_request:
+    paths:
+      - 'labs/**'
+      - 'scripts/xodus-labs-validate.py'
+      - 'qa/test-labs-isolation.py'
+      - '.github/workflows/ai-labs-isolation.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'labs/**'
+      - 'scripts/xodus-labs-validate.py'
+      - 'qa/test-labs-isolation.py'
+
+permissions:
+  contents: read
+
+jobs:
+  labs-isolation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile validator and tests
+        run: python3 -m py_compile scripts/xodus-labs-validate.py qa/test-labs-isolation.py
+      - name: Run isolation regression tests
+        run: python3 qa/test-labs-isolation.py
+      - name: Validate repository Labs manifests
+        run: python3 scripts/xodus-labs-validate.py --root labs
+      - name: Guard release-critical dependency boundary
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          for manifest in sorted(Path('labs').glob('[0-9][0-9][0-9]-*/lab.json')):
+              data = json.loads(manifest.read_text(encoding='utf-8'))
+              assert data['enabled_by_default'] is False
+              for key in ('boot_dependency', 'login_dependency', 'installer_dependency', 'recovery_dependency'):
+                  assert data[key] is False, f'{manifest}: {key} escaped isolation'
+          PY
