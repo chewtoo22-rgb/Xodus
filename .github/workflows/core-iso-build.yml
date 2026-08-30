@@ -73,7 +73,7 @@ jobs:
       - name: Apply Xodus identity overlay
         shell: bash
         env:
-          XODUS_SOURCE_COMMIT: ${{ github.sha }}
+          XODUS_SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
           XODUS_UPSTREAM_COMMIT: ${{ steps.lock.outputs.commit }}
         run: |
           set -euo pipefail
@@ -138,7 +138,7 @@ jobs:
         id: artifact
         shell: bash
         env:
-          XODUS_SOURCE_COMMIT: ${{ github.sha }}
+          XODUS_SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
           XODUS_UPSTREAM_COMMIT: ${{ steps.lock.outputs.commit }}
         run: |
           set -euo pipefail
