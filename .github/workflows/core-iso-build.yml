@@ -73,13 +73,16 @@ jobs:
       - name: Apply Xodus identity overlay
         shell: bash
         env:
+          XODUS_SOURCE_COMMIT: ${{ github.sha }}
           XODUS_UPSTREAM_COMMIT: ${{ steps.lock.outputs.commit }}
         run: |
           set -euo pipefail
+          [[ "$XODUS_SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
           bash -n overlay/apply-xodus-identity.sh
           bash overlay/apply-xodus-identity.sh "$GITHUB_WORKSPACE/pearos-iso"
           grep -F 'iso_name="Xodus"' pearos-iso/pear/profiledef.sh
-          grep -F 'XODUS_UPSTREAM_COMMIT=${{ steps.lock.outputs.commit }}' pearos-iso/pear/airootfs/usr/lib/xodus/build-info
+          grep -Fx "XODUS_SOURCE_COMMIT=$XODUS_SOURCE_COMMIT" pearos-iso/pear/airootfs/usr/lib/xodus/build-info
+          grep -Fx 'XODUS_UPSTREAM_COMMIT=${{ steps.lock.outputs.commit }}' pearos-iso/pear/airootfs/usr/lib/xodus/build-info
 
       - name: Require build headroom
         shell: bash
@@ -131,17 +134,34 @@ jobs:
               ./build-binary --build --filename Xodus-reference --compression fastest --clean --sha256
             '
 
-      - name: Verify produced image
+      - name: Verify produced image and write provenance manifest
         id: artifact
         shell: bash
+        env:
+          XODUS_SOURCE_COMMIT: ${{ github.sha }}
+          XODUS_UPSTREAM_COMMIT: ${{ steps.lock.outputs.commit }}
         run: |
           set -euo pipefail
+          [[ "$XODUS_SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$XODUS_UPSTREAM_COMMIT" =~ ^[0-9a-f]{40}$ ]]
           iso=$(find pearos-iso -maxdepth 1 -type f -name 'Xodus-reference-*.iso' -print -quit)
           test -n "$iso"
           test -s "$iso"
           sha256sum "$iso" | tee pearos-iso/xodus-reference.sha256
+          iso_sha=$(sha256sum "$iso" | awk '{print $1}')
+          iso_name=$(basename "$iso")
+          cat > pearos-iso/xodus-reference.manifest <<EOF
+          schema=1
+          xodus_source_commit=$XODUS_SOURCE_COMMIT
+          upstream_commit=$XODUS_UPSTREAM_COMMIT
+          iso_filename=$iso_name
+          iso_sha256=$iso_sha
+          EOF
+          grep -Fx "xodus_source_commit=$XODUS_SOURCE_COMMIT" pearos-iso/xodus-reference.manifest
+          grep -Fx "upstream_commit=$XODUS_UPSTREAM_COMMIT" pearos-iso/xodus-reference.manifest
+          grep -Eq '^iso_sha256=[0-9a-f]{64}$' pearos-iso/xodus-reference.manifest
           printf 'iso=%s\n' "$iso" >> "$GITHUB_OUTPUT"
-          ls -lh "$iso" pearos-iso/xodus-reference.sha256
+          ls -lh "$iso" pearos-iso/xodus-reference.sha256 pearos-iso/xodus-reference.manifest
 
       - name: Upload reference ISO
         uses: actions/upload-artifact@v4
@@ -150,6 +170,7 @@ jobs:
           path: |
             ${{ steps.artifact.outputs.iso }}
             pearos-iso/xodus-reference.sha256
+            pearos-iso/xodus-reference.manifest
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
