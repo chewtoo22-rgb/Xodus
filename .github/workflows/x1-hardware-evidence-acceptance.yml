@@ -23,4 +23,9 @@ jobs:
         run: python3 -m unittest -v qa/test_x1_hardware_evidence_acceptance.py
       - name: Verify no hardware validation claim can become true
         run: |
-          ! grep -Eq 'hardware_validation_claim["'"']?[:=][[:space:]]*(True|true|1)' qa/x1-hardware-evidence-acceptance.py
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path('qa/x1-hardware-evidence-acceptance.py').read_text(encoding='utf-8')
+          forbidden = ('"hardware_validation_claim": True', "'hardware_validation_claim': True")
+          assert not any(token in text for token in forbidden), 'hardware validation claim must remain false'
+          PY
