@@ -47,6 +47,11 @@ jobs:
           assert isinstance(data['blockers'], list)
           assert isinstance(data['warnings'], list)
           PY
-      - name: Reject mutation executable calls in preflight
+      - name: Reject direct mutation executable calls in preflight
         run: |
-          ! grep -En '\[\s*["'"'](systemctl|powerprofilesctl|wpctl|gamescope|steam|kill|pkill|reboot|shutdown)["'"']' scripts/xodus-arena-preflight
+          for cmd in systemctl powerprofilesctl wpctl gamescope steam kill pkill reboot shutdown; do
+            if grep -Fq "[\"$cmd\"" scripts/xodus-arena-preflight || grep -Fq "['$cmd'" scripts/xodus-arena-preflight; then
+              echo "forbidden direct executable call: $cmd"
+              exit 1
+            fi
+          done
