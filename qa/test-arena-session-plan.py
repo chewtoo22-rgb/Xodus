@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
-import importlib.util
+import json
 import pathlib
+import subprocess
 import tempfile
 import unittest
 
-MODULE_PATH = pathlib.Path(__file__).parents[1] / "scripts" / "xodus-arena-session-plan"
-spec = importlib.util.spec_from_file_location("xodus_arena_session_plan", MODULE_PATH)
-mod = importlib.util.module_from_spec(spec)
-assert spec.loader is not None
-spec.loader.exec_module(mod)
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+SCRIPT = ROOT / "scripts" / "xodus-arena-session-plan"
 
 
 def preflight(**overrides):
@@ -30,10 +28,31 @@ def preflight(**overrides):
     return value
 
 
+def run(data, *args, symlink=False):
+    with tempfile.TemporaryDirectory() as td:
+        root = pathlib.Path(td)
+        real = root / "preflight-real.json"
+        real.write_text(json.dumps(data), encoding="utf-8")
+        path = real
+        if symlink:
+            path = root / "preflight.json"
+            path.symlink_to(real)
+        proc = subprocess.run(
+            ["python3", str(SCRIPT), "--preflight", str(path), *args],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+            timeout=5,
+        )
+        return proc.returncode, json.loads(proc.stdout)
+
+
 class ArenaSessionPlanTests(unittest.TestCase):
     def test_builds_fixed_gamescope_steam_plan(self):
-        plan = mod.build_plan(preflight(), 1920, 1080, 60, True)
-        self.assertEqual(plan["status"], "planned")
+        code, plan = run(preflight(), "--steam")
+        self.assertEqual(code, 0)
         self.assertEqual(plan["target"], "steam_gamepadui")
         self.assertEqual(plan["argv"], [
             "/usr/bin/gamescope", "-f", "-W", "1920", "-H", "1080", "-r", "60", "--",
@@ -43,51 +62,59 @@ class ArenaSessionPlanTests(unittest.TestCase):
         self.assertFalse(plan["policy"]["hardware_validation_claim"])
 
     def test_default_shell_plan_is_fixed(self):
-        plan = mod.build_plan(preflight(), 2560, 1440, 120, False)
+        code, plan = run(preflight(), "--width", "2560", "--height", "1440", "--refresh", "120")
+        self.assertEqual(code, 0)
         self.assertEqual(plan["target"], "xodus_arena_shell")
         self.assertEqual(plan["argv"][-1], "/usr/bin/xodus-arena-shell")
+        self.assertEqual(plan["display"], {"width": 2560, "height": 1440, "refresh_hz": 120})
 
     def test_rejects_not_ready_or_unauthorized_preflight(self):
-        with self.assertRaisesRegex(ValueError, "not ready"):
-            mod.build_plan(preflight(ready=False), 1920, 1080, 60, True)
+        code, result = run(preflight(ready=False), "--steam")
+        self.assertEqual(code, 2)
+        self.assertIn("not ready", result["error"])
         denied = preflight()
         denied["policy"] = dict(denied["policy"], launch_authorized=False)
-        with self.assertRaisesRegex(ValueError, "did not authorize"):
-            mod.build_plan(denied, 1920, 1080, 60, True)
+        code, result = run(denied, "--steam")
+        self.assertEqual(code, 2)
+        self.assertIn("did not authorize", result["error"])
 
     def test_rejects_ready_with_blockers_or_false_claims(self):
-        with self.assertRaisesRegex(ValueError, "cannot contain blockers"):
-            mod.build_plan(preflight(blockers=["gamescope_unavailable"]), 1920, 1080, 60, True)
+        code, result = run(preflight(blockers=["gamescope_unavailable"]), "--steam")
+        self.assertEqual(code, 2)
+        self.assertIn("cannot contain blockers", result["error"])
         claimed = preflight()
         claimed["policy"] = dict(claimed["policy"], hardware_validation_claim=True)
-        with self.assertRaisesRegex(ValueError, "must not claim"):
-            mod.build_plan(claimed, 1920, 1080, 60, True)
+        code, result = run(claimed, "--steam")
+        self.assertEqual(code, 2)
+        self.assertIn("must not claim", result["error"])
 
     def test_rejects_display_bounds(self):
-        for width, height, refresh in [(639, 1080, 60), (1920, 9000, 60), (1920, 1080, 241)]:
-            with self.assertRaises(ValueError):
-                mod.build_plan(preflight(), width, height, refresh, True)
+        for args in [
+            ("--width", "639"),
+            ("--height", "9000"),
+            ("--refresh", "241"),
+        ]:
+            code, result = run(preflight(), "--steam", *args)
+            self.assertEqual(code, 2)
+            self.assertEqual(result["status"], "blocked")
 
     def test_preflight_can_require_steam(self):
-        with self.assertRaisesRegex(ValueError, "requires Steam"):
-            mod.build_plan(preflight(require_steam=True), 1920, 1080, 60, False)
+        code, result = run(preflight(require_steam=True))
+        self.assertEqual(code, 2)
+        self.assertIn("requires Steam", result["error"])
 
     def test_rejects_schema_drift_and_unknown_gpu(self):
-        drift = preflight(extra=True)
-        with self.assertRaisesRegex(ValueError, "unexpected preflight schema"):
-            mod.build_plan(drift, 1920, 1080, 60, True)
-        with self.assertRaisesRegex(ValueError, "known GPU"):
-            mod.build_plan(preflight(gpu_vendors=["mystery"]), 1920, 1080, 60, True)
+        code, result = run(preflight(extra=True), "--steam")
+        self.assertEqual(code, 2)
+        self.assertIn("unexpected preflight schema", result["error"])
+        code, result = run(preflight(gpu_vendors=["mystery"]), "--steam")
+        self.assertEqual(code, 2)
+        self.assertIn("known GPU", result["error"])
 
-    def test_loader_rejects_symlink_evidence(self):
-        with tempfile.TemporaryDirectory() as td:
-            root = pathlib.Path(td)
-            target = root / "real.json"
-            target.write_text("{}", encoding="utf-8")
-            link = root / "preflight.json"
-            link.symlink_to(target)
-            with self.assertRaisesRegex(ValueError, "non-symlink"):
-                mod.load_preflight(str(link))
+    def test_rejects_symlink_evidence(self):
+        code, result = run(preflight(), "--steam", symlink=True)
+        self.assertEqual(code, 2)
+        self.assertIn("non-symlink", result["error"])
 
 
 if __name__ == "__main__":
