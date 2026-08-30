@@ -7,6 +7,8 @@ on:
       - '.github/workflows/installer-vm-destructive.yml'
       - 'scripts/installer-target-guard.sh'
       - 'scripts/audit-installer-driver.sh'
+      - 'scripts/prepare-qualified-installer.sh'
+      - 'scripts/patch-installer-xodus-payload.py'
       - 'scripts/patch-installer-package-retries.py'
       - 'upstream/installer.lock'
       - 'qa/post-install-uefi-smoke.sh'
@@ -132,11 +134,25 @@ jobs:
           old = '''SETUP_FILE="$AUDIT_DIR/$SETUP_PATH"
           [[ -s "$SETUP_FILE" ]] || { echo "ERROR: audited installer setup missing" >&2; exit 1; }
           SETUP_B64="$(base64 -w0 "$SETUP_FILE")"'''
-          new = '''SETUP_FILE="$AUDIT_DIR/$SETUP_PATH"
-          [[ -s "$SETUP_FILE" ]] || { echo "ERROR: audited installer setup missing" >&2; exit 1; }
+          new = '''QUALIFIED_DIR="$OUTDIR/qualified-installer"
+          bash "$repo_root/scripts/prepare-qualified-installer.sh" "$LOCK" "$QUALIFIED_DIR" \
+            | tee "$OUTDIR/qualified-installer-preparation.txt"
+          SETUP_FILE="$QUALIFIED_DIR/setup.xodus-qualified"
+          [[ -s "$SETUP_FILE" && -x "$SETUP_FILE" ]] \
+            || { echo "ERROR: qualified Xodus installer setup missing" >&2; exit 1; }
+          grep -Fq '/usr/lib/xodus/xodus-first-boot' "$SETUP_FILE" \
+            || { echo "ERROR: qualified installer lost first-boot payload handoff" >&2; exit 1; }
+          grep -Fq 'multi-user.target.wants/xodus-first-boot.service' "$SETUP_FILE" \
+            || { echo "ERROR: qualified installer lost first-boot enablement" >&2; exit 1; }
+          grep -Fq '/usr/lib/xodus/xodus-ai-first-boot' "$SETUP_FILE" \
+            || { echo "ERROR: qualified installer lost AI first-boot payload handoff" >&2; exit 1; }
           PATCHED_SETUP_FILE="$OUTDIR/xodus-setup-runtime.sh"
           python3 "$repo_root/scripts/patch-installer-package-retries.py" "$SETUP_FILE" "$PATCHED_SETUP_FILE" \
             | tee "$OUTDIR/installer-runtime-patch.txt"
+          grep -Fq '/usr/lib/xodus/xodus-first-boot' "$PATCHED_SETUP_FILE" \
+            || { echo "ERROR: runtime hardening stripped first-boot payload handoff" >&2; exit 1; }
+          grep -Fq '/usr/lib/xodus/xodus-ai-first-boot' "$PATCHED_SETUP_FILE" \
+            || { echo "ERROR: runtime hardening stripped AI first-boot payload handoff" >&2; exit 1; }
           grep -Fqx '  shutdown -r now' "$PATCHED_SETUP_FILE" \
             || { echo "ERROR: upstream installer reboot contract changed" >&2; exit 1; }
           sed -i 's|^  shutdown -r now$|  echo "XODUS_CI_REBOOT_SUPPRESSED" >> /home/liveuser/Desktop/install.log; sync; exit 0|' \
@@ -144,11 +160,15 @@ jobs:
           grep -Fqx '  echo "XODUS_CI_REBOOT_SUPPRESSED" >> /home/liveuser/Desktop/install.log; sync; exit 0' \
             "$PATCHED_SETUP_FILE" \
             || { echo "ERROR: CI reboot suppression transform failed" >&2; exit 1; }
+          echo 'installer_source=audited-xodus-qualified-payload-handoff' \
+            | tee -a "$OUTDIR/installer-runtime-patch.txt"
           echo 'ci_reboot_policy=suppress-upstream-reboot-after-installation-finished' \
             | tee -a "$OUTDIR/installer-runtime-patch.txt"
+          sha256sum "$SETUP_FILE" "$PATCHED_SETUP_FILE" \
+            | tee "$OUTDIR/runtime-installer.sha256"
           SETUP_B64="$(base64 -w0 "$PATCHED_SETUP_FILE")"'''
           if text.count(old) != 1:
-              raise SystemExit('audited setup handoff contract changed; refusing runtime hardening')
+              raise SystemExit('audited setup handoff contract changed; refusing qualified installer integration')
           p.write_text(text.replace(old, new, 1))
           PY
 
@@ -166,7 +186,7 @@ jobs:
           # Consume the single installed-disk acceptance entrypoint merged in
           # PR #38. That entrypoint already composes on-disk payload checks with
           # detached-media UEFI/userspace boot proof. The destructive gate must
-          # call it on the exact raw disk produced by the audited installer.
+          # call it on the exact raw disk produced by the qualified installer.
           python3 - <<'PY'
           from pathlib import Path
           p = Path('qa/installer-vm-destructive.sh')
@@ -199,9 +219,15 @@ jobs:
           p.write_text(text.replace(old_summary, new_summary, 1))
           PY
 
-          python3 -m py_compile scripts/patch-installer-package-retries.py
+          python3 -m py_compile scripts/patch-installer-package-retries.py scripts/patch-installer-xodus-payload.py
+          bash -n scripts/prepare-qualified-installer.sh
           bash -n qa/installer-vm-destructive.sh
           grep -Fq "systemctl is-system-running || true" qa/installer-vm-destructive.sh
+          grep -Fq 'prepare-qualified-installer.sh' qa/installer-vm-destructive.sh
+          grep -Fq 'setup.xodus-qualified' qa/installer-vm-destructive.sh
+          grep -Fq 'installer_source=audited-xodus-qualified-payload-handoff' qa/installer-vm-destructive.sh
+          grep -Fq '/usr/lib/xodus/xodus-first-boot' qa/installer-vm-destructive.sh
+          grep -Fq '/usr/lib/xodus/xodus-ai-first-boot' qa/installer-vm-destructive.sh
           grep -Fq 'patch-installer-package-retries.py' qa/installer-vm-destructive.sh
           grep -Fq 'XODUS_CI_REBOOT_SUPPRESSED' qa/installer-vm-destructive.sh
           grep -Fq '__XODUS_INSTALLER_LOG__' qa/installer-vm-destructive.sh
