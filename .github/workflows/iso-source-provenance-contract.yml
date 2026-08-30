@@ -1,0 +1,85 @@
+name: ISO Source Provenance Contract
+
+on:
+  pull_request:
+    paths:
+      - 'overlay/apply-xodus-identity.sh'
+      - '.github/workflows/core-iso-build.yml'
+      - '.github/workflows/iso-source-provenance-contract.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'overlay/apply-xodus-identity.sh'
+      - '.github/workflows/core-iso-build.yml'
+      - '.github/workflows/iso-source-provenance-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  provenance-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate overlay syntax
+        run: bash -n overlay/apply-xodus-identity.sh
+
+      - name: Embed exact source provenance in fixture payload
+        shell: bash
+        env:
+          SOURCE_SHA: 0123456789abcdef0123456789abcdef01234567
+          UPSTREAM_SHA: 89abcdef0123456789abcdef0123456789abcdef
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/upstream"
+          mkdir -p "$root/pear/airootfs/etc"
+          cat > "$root/pear/profiledef.sh" <<'EOF'
+          iso_name="pearOS-NiceC0re"
+          iso_label="pearOS_NiceC0re_$(date +%Y%m)"
+          iso_publisher="The Pear Project <https://pearos.xyz>"
+          iso_application="pearOS Live Session"
+          EOF
+          printf '%s\n' 'pearOS-Live-System' > "$root/pear/airootfs/etc/hostname"
+
+          XODUS_SOURCE_COMMIT="$SOURCE_SHA" \
+          XODUS_UPSTREAM_COMMIT="$UPSTREAM_SHA" \
+            bash overlay/apply-xodus-identity.sh "$root"
+
+          info="$root/pear/airootfs/usr/lib/xodus/build-info"
+          test -f "$info"
+          grep -Fx "XODUS_SOURCE_COMMIT=$SOURCE_SHA" "$info"
+          grep -Fx "XODUS_UPSTREAM_COMMIT=$UPSTREAM_SHA" "$info"
+          test "$(grep -c '^XODUS_SOURCE_COMMIT=' "$info")" -eq 1
+          test "$(grep -c '^XODUS_UPSTREAM_COMMIT=' "$info")" -eq 1
+
+      - name: Reject malformed explicit source provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/bad-upstream"
+          mkdir -p "$root/pear/airootfs/etc"
+          cat > "$root/pear/profiledef.sh" <<'EOF'
+          iso_name="pearOS-NiceC0re"
+          iso_label="pearOS_NiceC0re_$(date +%Y%m)"
+          iso_publisher="The Pear Project <https://pearos.xyz>"
+          iso_application="pearOS Live Session"
+          EOF
+          printf '%s\n' 'pearOS-Live-System' > "$root/pear/airootfs/etc/hostname"
+
+          if XODUS_SOURCE_COMMIT=not-a-sha \
+             XODUS_UPSTREAM_COMMIT=89abcdef0123456789abcdef0123456789abcdef \
+             bash overlay/apply-xodus-identity.sh "$root"; then
+            echo 'malformed XODUS_SOURCE_COMMIT was accepted' >&2
+            exit 1
+          fi
+
+      - name: Require exact-head selection in ISO workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          workflow=.github/workflows/core-iso-build.yml
+          grep -Fq 'XODUS_SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}' "$workflow"
+          grep -Fq 'xodus_source_commit=$XODUS_SOURCE_COMMIT' "$workflow"
+          grep -Fq 'xodus-reference.manifest' "$workflow"
