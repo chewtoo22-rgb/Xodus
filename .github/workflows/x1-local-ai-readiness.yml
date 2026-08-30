@@ -1,0 +1,28 @@
+name: X1 Local AI Readiness
+
+on:
+  pull_request:
+    paths:
+      - 'qa/x1-local-ai-readiness.py'
+      - 'qa/test_x1_local_ai_readiness.py'
+      - '.github/workflows/x1-local-ai-readiness.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile readiness validator
+        run: python3 -m py_compile qa/x1-local-ai-readiness.py qa/test_x1_local_ai_readiness.py
+      - name: Run readiness contract tests
+        run: python3 -m unittest -v qa/test_x1_local_ai_readiness.py
+      - name: Enforce evidence-only boundary
+        run: |
+          if grep -En '\b(systemctl|mount|umount|mkfs|parted|sgdisk|dd|curl|wget|requests|urllib)\b' qa/x1-local-ai-readiness.py; then
+            echo 'X1 local AI readiness validator must remain read-only and offline' >&2
+            exit 1
+          fi
