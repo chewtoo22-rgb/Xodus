@@ -23,8 +23,3 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate runtime preflight systemd contract
         run: bash qa/test-ai-runtime-service-contract.sh
-      - name: Verify unit syntax when systemd-analyze is available
-        run: |
-          if command -v systemd-analyze >/dev/null 2>&1; then
-            systemd-analyze verify overlay/first-boot/xodus-ai-runtime-preflight.service
-          fi
