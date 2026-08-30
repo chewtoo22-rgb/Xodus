@@ -13,6 +13,17 @@ profile="$root/pear/profiledef.sh"
 hostname_file="$root/pear/airootfs/etc/hostname"
 motd_file="$root/pear/airootfs/etc/motd"
 
+xodus_source_commit=${XODUS_SOURCE_COMMIT:-unknown}
+if [[ "$xodus_source_commit" != "unknown" && ! "$xodus_source_commit" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "XODUS_SOURCE_COMMIT must be a lowercase 40-character git SHA or 'unknown'" >&2
+  exit 65
+fi
+upstream_commit=${XODUS_UPSTREAM_COMMIT:-unknown}
+if [[ "$upstream_commit" != "unknown" && ! "$upstream_commit" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "XODUS_UPSTREAM_COMMIT must be a lowercase 40-character git SHA or 'unknown'" >&2
+  exit 65
+fi
+
 # Fail closed if the pinned upstream shape drifts. This prevents a partially
 # branded image from silently shipping after an upstream layout change.
 grep -Fq 'iso_name="pearOS-NiceC0re"' "$profile"
@@ -37,14 +48,17 @@ Xodus // NiceC0re Foundation
 Development preview — pearOS-derived Arch Linux build.
 EOF
 
-# Build provenance inside the live filesystem. Keep upstream attribution
-# explicit while making the Xodus layer and source pin machine-readable.
+# Build provenance inside the live filesystem. Keep both sides of the source
+# boundary explicit: the exact Xodus overlay commit and the pinned upstream
+# pearOS commit. Hardware evidence can then be tied back to the exact sources
+# that produced the tested ISO instead of only to the upstream foundation.
 install -d "$root/pear/airootfs/usr/lib/xodus"
 cat > "$root/pear/airootfs/usr/lib/xodus/build-info" <<EOF
 XODUS_NAME=Xodus
 XODUS_CHANNEL=M0-First-Blood
 XODUS_FOUNDATION=pearOS-NiceC0re
-XODUS_UPSTREAM_COMMIT=${XODUS_UPSTREAM_COMMIT:-unknown}
+XODUS_SOURCE_COMMIT=${xodus_source_commit}
+XODUS_UPSTREAM_COMMIT=${upstream_commit}
 EOF
 
 # Install the first-boot foundation into the live payload. It is intentionally
@@ -86,6 +100,8 @@ grep -Fq 'iso_name="Xodus"' "$profile"
 grep -Fq 'iso_application="Xodus Live Session"' "$profile"
 grep -Fq 'xodus-live' "$hostname_file"
 ! grep -Fq 'iso_name="pearOS-NiceC0re"' "$profile"
+grep -Fxq "XODUS_SOURCE_COMMIT=${xodus_source_commit}" "$root/pear/airootfs/usr/lib/xodus/build-info"
+grep -Fxq "XODUS_UPSTREAM_COMMIT=${upstream_commit}" "$root/pear/airootfs/usr/lib/xodus/build-info"
 test -x "$root/pear/airootfs/usr/lib/xodus/xodus-first-boot"
 test -d "$root/pear/airootfs/var/lib/xodus/first-boot"
 test -L "$root/pear/airootfs/etc/systemd/system/multi-user.target.wants/xodus-first-boot.service"
