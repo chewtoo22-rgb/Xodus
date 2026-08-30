@@ -1,0 +1,52 @@
+name: Arena Session Preflight
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/xodus-arena-preflight'
+      - 'qa/test-arena-preflight.py'
+      - '.github/workflows/arena-preflight.yml'
+  push:
+    paths:
+      - 'scripts/xodus-arena-preflight'
+      - 'qa/test-arena-preflight.py'
+      - '.github/workflows/arena-preflight.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile
+        run: python -m py_compile scripts/xodus-arena-preflight qa/test-arena-preflight.py
+      - name: Unit tests
+        run: python qa/test-arena-preflight.py
+      - name: End-to-end read-only probe and preflight
+        run: |
+          python scripts/xodus-arena-capabilities > /tmp/arena-capabilities.json
+          set +e
+          python scripts/xodus-arena-preflight --snapshot /tmp/arena-capabilities.json > /tmp/arena-preflight.json
+          rc=$?
+          set -e
+          test "$rc" -eq 0 -o "$rc" -eq 1
+          python - <<'PY'
+          import json
+          data=json.load(open('/tmp/arena-preflight.json'))
+          assert data['schema'] == 1
+          assert data['policy']['read_only_preflight'] is True
+          assert data['policy']['state_changes_performed'] is False
+          assert data['policy']['hardware_validation_claim'] is False
+          assert data['policy']['launch_authorized'] is data['ready']
+          assert isinstance(data['blockers'], list)
+          assert isinstance(data['warnings'], list)
+          PY
+      - name: Reject mutation primitives in preflight
+        run: |
+          ! grep -En '\b(systemctl|powerprofilesctl|wpctl|gamescope|steam|kill|pkill|reboot|shutdown)\b' scripts/xodus-arena-preflight
