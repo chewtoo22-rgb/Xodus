@@ -1,0 +1,26 @@
+name: X1 Hardware Evidence Acceptance
+
+on:
+  pull_request:
+    paths:
+      - 'qa/x1-hardware-evidence-acceptance.py'
+      - 'qa/test_x1_hardware_evidence_acceptance.py'
+      - '.github/workflows/x1-hardware-evidence-acceptance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile acceptance gate
+        run: python3 -m py_compile qa/x1-hardware-evidence-acceptance.py qa/test_x1_hardware_evidence_acceptance.py
+      - name: Run fail-closed contract tests
+        run: python3 -m unittest -v qa/test_x1_hardware_evidence_acceptance.py
+      - name: Verify no hardware validation claim can become true
+        run: |
+          ! grep -Eq 'hardware_validation_claim["'"']?[:=][[:space:]]*(True|true|1)' qa/x1-hardware-evidence-acceptance.py
