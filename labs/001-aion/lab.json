@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "001-aion",
+  "name": "Aion",
+  "stage": "incubator",
+  "enabled_by_default": false,
+  "boot_dependency": false,
+  "login_dependency": false,
+  "installer_dependency": false,
+  "recovery_dependency": false,
+  "network_required": false,
+  "permissions": []
+}
