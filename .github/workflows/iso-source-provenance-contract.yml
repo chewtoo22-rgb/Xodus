@@ -80,6 +80,7 @@ jobs:
         run: |
           set -euo pipefail
           workflow=.github/workflows/core-iso-build.yml
-          grep -Fq 'XODUS_SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}' "$workflow"
+          test "$(grep -Fc 'XODUS_SOURCE_COMMIT:' "$workflow")" -eq 2
+          test "$(grep -Fc 'github.event.pull_request.head.sha || github.sha' "$workflow")" -eq 2
           grep -Fq 'xodus_source_commit=$XODUS_SOURCE_COMMIT' "$workflow"
           grep -Fq 'xodus-reference.manifest' "$workflow"
