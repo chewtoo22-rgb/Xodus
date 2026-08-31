@@ -1,0 +1,32 @@
+name: First Boot Service Chain Contract
+
+on:
+  pull_request:
+    paths:
+      - 'overlay/first-boot/*.service'
+      - 'qa/first_boot_service_chain_contract.py'
+      - 'qa/test_first_boot_service_chain_contract.py'
+      - '.github/workflows/first-boot-service-chain-contract.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'overlay/first-boot/*.service'
+      - 'qa/first_boot_service_chain_contract.py'
+      - 'qa/test_first_boot_service_chain_contract.py'
+      - '.github/workflows/first-boot-service-chain-contract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate service chain
+        run: python3 qa/first_boot_service_chain_contract.py
+      - name: Run regression suite
+        run: python3 -m unittest -v qa/test_first_boot_service_chain_contract.py
+      - name: Compile validators
+        run: python3 -m py_compile qa/first_boot_service_chain_contract.py qa/test_first_boot_service_chain_contract.py
