@@ -10,8 +10,16 @@ Type=oneshot
 ExecStart=/usr/lib/xodus/xodus-first-boot
 NoNewPrivileges=yes
 PrivateTmp=yes
+PrivateDevices=yes
 ProtectHome=yes
-ProtectSystem=full
+ProtectSystem=strict
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+SystemCallArchitectures=native
 ReadWritePaths=/var/lib/xodus/first-boot
 
 [Install]
