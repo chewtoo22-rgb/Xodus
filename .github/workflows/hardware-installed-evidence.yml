@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'qa/hardware-installed-evidence.sh'
+      - 'qa/hardware-installed-evidence-contract.sh'
       - '.github/workflows/hardware-installed-evidence.yml'
   workflow_dispatch:
 
@@ -16,22 +17,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Syntax check collector
-        run: bash -n qa/hardware-installed-evidence.sh
-
-      - name: Refuse live or overlay root contract
+      - name: Syntax check collector and contract
         run: |
-          set -euo pipefail
-          rm -rf contract-evidence
-          set +e
-          XODUS_CONTRACT_ROOT_SOURCE=overlay \
-          XODUS_CONTRACT_ROOT_FSTYPE=overlay \
-          XODUS_CONTRACT_ALLOW_NO_EFI=1 \
-            bash qa/hardware-installed-evidence.sh contract-evidence
-          rc=$?
-          set -e
-          test "$rc" -eq 40
-          test ! -f contract-evidence/summary.txt
+          bash -n qa/hardware-installed-evidence.sh
+          bash -n qa/hardware-installed-evidence-contract.sh
+
+      - name: Run installed evidence contract suite
+        run: bash qa/hardware-installed-evidence-contract.sh
 
       - name: Static read-only policy check
         run: |
