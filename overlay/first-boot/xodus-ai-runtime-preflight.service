@@ -10,8 +10,16 @@ ExecStart=/usr/bin/python3 /usr/lib/xodus/xodus-ai-runtime-preflight.py --output
 UMask=0022
 NoNewPrivileges=yes
 PrivateTmp=yes
+PrivateDevices=yes
 ProtectSystem=strict
 ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+SystemCallArchitectures=native
 ReadWritePaths=/var/lib/xodus/ai
 
 [Install]
