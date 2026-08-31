@@ -28,14 +28,19 @@ def read_summary(path: Path) -> dict[str, str]:
 
 
 def check_candidate(summary: dict[str, str], expected: str, label: str, blockers: list[str]) -> None:
-    recorded = summary.get("candidate_sha")
-    if recorded is not None and recorded != expected:
+    recorded = summary.get("candidate_sha", "")
+    if not recorded:
+        blockers.append(f"{label}_candidate_sha_missing")
+    elif not SHA_RE.fullmatch(recorded):
+        blockers.append(f"{label}_candidate_sha_invalid")
+    elif recorded != expected:
         blockers.append(f"{label}_candidate_sha_mismatch")
 
 
 def evaluate(candidate_sha: str, live: dict[str, str], installed: dict[str, str]) -> dict[str, object]:
     blockers: list[str] = []
-    if not SHA_RE.fullmatch(candidate_sha):
+    candidate_valid = bool(SHA_RE.fullmatch(candidate_sha))
+    if not candidate_valid:
         blockers.append("candidate_sha_invalid")
 
     if live.get("collector") != "pass":
@@ -58,7 +63,7 @@ def evaluate(candidate_sha: str, live: dict[str, str], installed: dict[str, str]
     if installed.get("root_backing_disk", "").lower() in ("", "unknown"):
         blockers.append("installed_backing_disk_missing")
 
-    if SHA_RE.fullmatch(candidate_sha):
+    if candidate_valid:
         check_candidate(live, candidate_sha, "live", blockers)
         check_candidate(installed, candidate_sha, "installed", blockers)
 
