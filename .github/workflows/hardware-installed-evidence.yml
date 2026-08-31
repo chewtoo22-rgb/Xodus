@@ -52,6 +52,7 @@ jobs:
           grep -Fq 'boot_mode=uefi' qa/hardware-installed-evidence.sh
           grep -Fq 'physical_install_claim=not_automatic' qa/hardware-installed-evidence.sh
           grep -Fq 'candidate_sha=' qa/hardware-installed-evidence.sh
+          grep -Fq 'upstream_sha=' qa/hardware-installed-evidence.sh
           grep -Fq 'XODUS_CANDIDATE_SHA' qa/hardware-installed-evidence.sh
           grep -Fq 'x1-build-info-contract.sh' qa/hardware-installed-evidence.sh
           grep -Fq 'efibootmgr -v' qa/hardware-installed-evidence.sh
