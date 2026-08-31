@@ -119,16 +119,15 @@ def validate(local_ai_path: pathlib.Path, desktop_path: pathlib.Path) -> dict:
 
 
 def ensure_safe_output_path(out: pathlib.Path) -> None:
-    if out.exists():
-        if out.is_symlink():
-            fail("output symlink not allowed")
-        if not out.is_file():
-            fail("output must be a regular file when it already exists")
+    if out.is_symlink():
+        fail("output symlink not allowed")
+    if out.exists() and not out.is_file():
+        fail("output must be a regular file when it already exists")
 
     parent = out.parent
+    if parent.is_symlink():
+        fail("output parent symlink not allowed")
     if parent.exists():
-        if parent.is_symlink():
-            fail("output parent symlink not allowed")
         if not parent.is_dir():
             fail("output parent must be a directory")
     else:
