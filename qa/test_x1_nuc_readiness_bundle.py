@@ -11,14 +11,16 @@ assert SPEC.loader is not None
 SPEC.loader.exec_module(MODULE)
 
 SHA = "a" * 40
+UPSTREAM = "b" * 40
 
 
-def write_bundle(root: pathlib.Path, *, source="/dev/nvme0n1p2", fstype="ext4", boot="uefi", claim="not_automatic"):
+def write_bundle(root: pathlib.Path, *, source="/dev/nvme0n1p2", fstype="ext4", boot="uefi", claim="not_automatic", upstream=UPSTREAM):
     summary = root / "summary.txt"
     summary.write_text(
         "\n".join([
             "captured_at_utc=2026-08-30T12:00:00Z",
             f"candidate_sha={SHA}",
+            f"upstream_sha={upstream}",
             "hostname=xodus-nuc",
             "kernel=6.12.0-xodus",
             f"root_source={source}",
@@ -60,6 +62,7 @@ def test_pass():
         result = MODULE.validate(summary, first_boot, SHA)
         assert result["status"] == "ready_for_nuc_hardware_test"
         assert result["candidate_sha"] == SHA
+        assert result["upstream_sha"] == UPSTREAM
         assert result["hardware_validation_claim"] is False
 
 
@@ -128,8 +131,23 @@ def test_evidence_candidate_mismatch_rejected():
     with tempfile.TemporaryDirectory() as td:
         root = pathlib.Path(td)
         summary, first_boot = write_bundle(root)
-        text = summary.read_text(encoding="utf-8").replace(f"candidate_sha={SHA}", f"candidate_sha={'b' * 40}")
+        text = summary.read_text(encoding="utf-8").replace(f"candidate_sha={SHA}", f"candidate_sha={'c' * 40}")
         summary.write_text(text, encoding="utf-8")
+        expect_fail(summary, first_boot)
+
+
+def test_missing_upstream_sha_rejected():
+    with tempfile.TemporaryDirectory() as td:
+        root = pathlib.Path(td)
+        summary, first_boot = write_bundle(root)
+        lines = [line for line in summary.read_text(encoding="utf-8").splitlines() if not line.startswith("upstream_sha=")]
+        summary.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        expect_fail(summary, first_boot)
+
+
+def test_malformed_upstream_sha_rejected():
+    with tempfile.TemporaryDirectory() as td:
+        summary, first_boot = write_bundle(pathlib.Path(td), upstream="deadbeef")
         expect_fail(summary, first_boot)
 
 

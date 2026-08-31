@@ -63,6 +63,7 @@ def validate(hardware_summary: pathlib.Path, first_boot_json: pathlib.Path, cand
     required_hw = {
         "captured_at_utc",
         "candidate_sha",
+        "upstream_sha",
         "hostname",
         "kernel",
         "root_source",
@@ -79,6 +80,8 @@ def validate(hardware_summary: pathlib.Path, first_boot_json: pathlib.Path, cand
         fail("installed-hardware candidate SHA is malformed")
     if hw["candidate_sha"] != candidate_sha:
         fail("installed-hardware evidence does not match requested candidate")
+    if not HEX40.fullmatch(hw["upstream_sha"]):
+        fail("installed-hardware upstream SHA is malformed")
     if hw["collector"] != "pass":
         fail("installed-hardware collector did not pass")
     if hw["boot_mode"].lower() != "uefi":
@@ -123,6 +126,7 @@ def validate(hardware_summary: pathlib.Path, first_boot_json: pathlib.Path, cand
         "schema": 1,
         "status": "ready_for_nuc_hardware_test",
         "candidate_sha": candidate_sha,
+        "upstream_sha": hw["upstream_sha"],
         "boot_mode": "uefi",
         "root_source": root_source,
         "root_fstype": root_fstype,
