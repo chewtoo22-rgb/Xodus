@@ -123,6 +123,80 @@ def test_symlink_input_rejected():
         expect_fail(linked, first_boot)
 
 
+def test_atomic_output_replaces_regular_file():
+    with tempfile.TemporaryDirectory() as td:
+        root = pathlib.Path(td)
+        output = root / "bundle.json"
+        output.write_text("stale", encoding="utf-8")
+        MODULE.atomic_write(output, "fresh\n")
+        assert output.read_text(encoding="utf-8") == "fresh\n"
+        assert not list(root.glob(".bundle.json.*.tmp"))
+
+
+def test_output_symlink_rejected_without_touching_target():
+    with tempfile.TemporaryDirectory() as td:
+        root = pathlib.Path(td)
+        victim = root / "victim.txt"
+        victim.write_text("keep", encoding="utf-8")
+        output = root / "bundle.json"
+        output.symlink_to(victim.name)
+        try:
+            MODULE.atomic_write(output, "replace\n")
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("expected output symlink rejection")
+        assert victim.read_text(encoding="utf-8") == "keep"
+
+
+def test_broken_output_symlink_rejected():
+    with tempfile.TemporaryDirectory() as td:
+        root = pathlib.Path(td)
+        output = root / "bundle.json"
+        output.symlink_to("missing-target")
+        try:
+            MODULE.atomic_write(output, "replace\n")
+        except ValueError:
+            return
+        raise AssertionError("expected broken output symlink rejection")
+
+
+def test_output_directory_rejected():
+    with tempfile.TemporaryDirectory() as td:
+        output = pathlib.Path(td) / "bundle.json"
+        output.mkdir()
+        try:
+            MODULE.atomic_write(output, "replace\n")
+        except ValueError:
+            return
+        raise AssertionError("expected non-regular output rejection")
+
+
+def test_symlinked_output_parent_rejected():
+    with tempfile.TemporaryDirectory() as td:
+        root = pathlib.Path(td)
+        real_parent = root / "real"
+        real_parent.mkdir()
+        linked_parent = root / "linked"
+        linked_parent.symlink_to(real_parent, target_is_directory=True)
+        try:
+            MODULE.atomic_write(linked_parent / "bundle.json", "replace\n")
+        except ValueError:
+            return
+        raise AssertionError("expected symlinked output parent rejection")
+
+
+def test_predictable_stale_temp_is_ignored():
+    with tempfile.TemporaryDirectory() as td:
+        root = pathlib.Path(td)
+        stale = root / ".bundle.json.tmp"
+        stale.write_text("attacker", encoding="utf-8")
+        output = root / "bundle.json"
+        MODULE.atomic_write(output, "fresh\n")
+        assert output.read_text(encoding="utf-8") == "fresh\n"
+        assert stale.read_text(encoding="utf-8") == "attacker"
+
+
 def main():
     tests = [value for name, value in sorted(globals().items()) if name.startswith("test_") and callable(value)]
     for test in tests:
