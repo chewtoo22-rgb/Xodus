@@ -41,6 +41,26 @@ class AcceptanceTests(unittest.TestCase):
         self.assertFalse(result["evidence_ready_for_operator_review"])
         self.assertIn("live_candidate_sha_mismatch", result["blockers"])
 
+    def test_rejects_missing_candidate_provenance(self):
+        live = self.valid_live()
+        installed = self.valid_installed()
+        del live["candidate_sha"]
+        del installed["candidate_sha"]
+        result = module.evaluate(SHA, live, installed)
+        self.assertFalse(result["evidence_ready_for_operator_review"])
+        self.assertIn("live_candidate_sha_missing", result["blockers"])
+        self.assertIn("installed_candidate_sha_missing", result["blockers"])
+
+    def test_rejects_malformed_recorded_candidate_provenance(self):
+        live = self.valid_live()
+        installed = self.valid_installed()
+        live["candidate_sha"] = "main"
+        installed["candidate_sha"] = "A" * 40
+        result = module.evaluate(SHA, live, installed)
+        self.assertFalse(result["evidence_ready_for_operator_review"])
+        self.assertIn("live_candidate_sha_invalid", result["blockers"])
+        self.assertIn("installed_candidate_sha_invalid", result["blockers"])
+
     def test_rejects_live_or_overlay_installed_root(self):
         installed = self.valid_installed()
         installed["root_fstype"] = "squashfs"
