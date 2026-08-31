@@ -1,0 +1,34 @@
+name: Installed Build Provenance Contract
+
+on:
+  pull_request:
+    paths:
+      - 'qa/installed-build-provenance.sh'
+      - 'qa/test-installed-build-provenance.sh'
+      - 'qa/installed-payload-on-disk.sh'
+      - '.github/workflows/installed-build-provenance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate scripts
+        run: |
+          set -euo pipefail
+          bash -n qa/installed-build-provenance.sh
+          bash -n qa/test-installed-build-provenance.sh
+          bash -n qa/installed-payload-on-disk.sh
+      - name: Run provenance regressions
+        run: bash qa/test-installed-build-provenance.sh
+      - name: Guard installed-disk integration
+        run: |
+          set -euo pipefail
+          grep -Fq 'installed-build-provenance.sh' qa/installed-payload-on-disk.sh
+          grep -Fq 'installed_build_provenance=pass' qa/installed-payload-on-disk.sh
+          grep -Fq 'candidate_sha=' qa/installed-payload-on-disk.sh
+          grep -Fq 'upstream_sha=' qa/installed-payload-on-disk.sh
