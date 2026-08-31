@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 import importlib.util
 import pathlib
+import sys
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("arena_state_plan", ROOT / "scripts" / "arena-state-plan.py")
 mod = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader
+sys.modules["arena_state_plan"] = mod
 SPEC.loader.exec_module(mod)
 
 
