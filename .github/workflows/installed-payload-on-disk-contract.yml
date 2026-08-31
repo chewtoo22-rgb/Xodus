@@ -57,18 +57,23 @@ jobs:
             "$root/etc/systemd/system/multi-user.target.wants" \
             "$root/usr/lib/systemd/system" \
             "$root/usr/lib/systemd" \
+            "$root/usr/lib/xodus" \
             "$root/usr/bin" \
+            "$root/var/lib/xodus/first-boot" \
             "$esp/grub" \
             "$esp/EFI/Xodus"
 
           printf 'NAME=Xodus\nID=xodus\n' | sudo tee "$root/etc/os-release" >/dev/null
-          # Match the pinned pearOS/Xodus UEFI installer: the ESP is mounted directly at /boot.
           printf 'UUID=fake-root / ext4 defaults 0 1\nUUID=fake-esp /boot vfat umask=0077 0 2\n' | sudo tee "$root/etc/fstab" >/dev/null
           sudo touch "$root/usr/lib/systemd/systemd" "$root/usr/bin/pipewire" "$root/usr/bin/wireplumber"
           sudo chmod +x "$root/usr/lib/systemd/systemd" "$root/usr/bin/pipewire" "$root/usr/bin/wireplumber"
           sudo touch "$root/usr/lib/systemd/system/sddm.service" "$root/usr/lib/systemd/system/NetworkManager.service"
+          printf '#!/usr/bin/env bash\nexit 0\n' | sudo tee "$root/usr/lib/xodus/xodus-first-boot" >/dev/null
+          sudo chmod +x "$root/usr/lib/xodus/xodus-first-boot"
+          printf '[Unit]\nDescription=Xodus first boot\n' | sudo tee "$root/usr/lib/systemd/system/xodus-first-boot.service" >/dev/null
           sudo ln -s /usr/lib/systemd/system/sddm.service "$root/etc/systemd/system/display-manager.service"
           sudo ln -s /usr/lib/systemd/system/NetworkManager.service "$root/etc/systemd/system/multi-user.target.wants/NetworkManager.service"
+          sudo ln -s /usr/lib/systemd/system/xodus-first-boot.service "$root/etc/systemd/system/multi-user.target.wants/xodus-first-boot.service"
           sudo touch "$esp/vmlinuz-linux" "$esp/initramfs-linux.img"
           sudo tee "$esp/grub/grub.cfg" >/dev/null <<'EOF'
           menuentry 'Xodus' {
@@ -90,6 +95,7 @@ jobs:
           sudo bash qa/installed-payload-on-disk.sh "$image" installed-payload-evidence
           grep -Fqx 'installed_payload_on_disk=pass' installed-payload-evidence/installed-payload-summary.txt
           grep -Fqx 'installed_system_contract=pass' installed-payload-evidence/system/installed-system-contract.txt
+          grep -Fqx 'first_boot_service=installed_enabled_pending' installed-payload-evidence/system/installed-system-contract.txt
           grep -Fqx 'installed_boot_contract=pass' installed-payload-evidence/boot/installed-boot-contract.txt
           grep -Fqx 'boot_filesystem=esp-at-/boot' installed-payload-evidence/boot/installed-boot-contract.txt
 
