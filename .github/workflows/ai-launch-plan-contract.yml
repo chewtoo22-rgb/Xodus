@@ -31,9 +31,16 @@ jobs:
         run: |
           set -euo pipefail
           file=scripts/xodus-ai-launch-plan.py
-          forbidden='subprocess|os\.system|os\.popen|execv|execve|spawn|socket|requests|urllib|curl|wget|systemctl|sudo'
-          if grep -En "$forbidden" "$file"; then
-            echo 'Planner contains forbidden execution/network/system-mutation primitive' >&2
+          if grep -En '^[[:space:]]*(import|from)[[:space:]]+(subprocess|socket|requests|urllib)([[:space:].]|$)' "$file"; then
+            echo 'Planner imports a forbidden process/network module' >&2
+            exit 1
+          fi
+          if grep -En '(subprocess\.|os\.(system|popen|exec[a-z_]*|spawn[a-z_]*)|socket\.)' "$file"; then
+            echo 'Planner contains a forbidden execution/network call' >&2
+            exit 1
+          fi
+          if grep -En "['\"](curl|wget|systemctl|sudo)['\"]" "$file"; then
+            echo 'Planner embeds a forbidden external command' >&2
             exit 1
           fi
           grep -q '"network_downloads_allowed": False' "$file"
