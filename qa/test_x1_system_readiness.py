@@ -134,6 +134,39 @@ class X1SystemReadinessTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "symlink not allowed"):
             self.validate()
 
+    def test_output_symlink_fails_without_touching_target(self):
+        target = self.root / "target.json"
+        target.write_text("preserve-me\n", encoding="utf-8")
+        out = self.root / "system-readiness.json"
+        out.symlink_to(target)
+        with self.assertRaisesRegex(ValueError, "output symlink not allowed"):
+            mod.write_output(out, "replacement\n")
+        self.assertEqual(target.read_text(encoding="utf-8"), "preserve-me\n")
+
+    def test_output_parent_symlink_fails(self):
+        real_parent = self.root / "real-parent"
+        real_parent.mkdir()
+        linked_parent = self.root / "linked-parent"
+        linked_parent.symlink_to(real_parent, target_is_directory=True)
+        out = linked_parent / "system-readiness.json"
+        with self.assertRaisesRegex(ValueError, "output parent symlink not allowed"):
+            mod.write_output(out, "payload\n")
+        self.assertFalse((real_parent / "system-readiness.json").exists())
+
+    def test_output_directory_fails_closed(self):
+        out = self.root / "system-readiness.json"
+        out.mkdir()
+        with self.assertRaisesRegex(ValueError, "output must be a regular file"):
+            mod.write_output(out, "payload\n")
+
+    def test_output_atomic_replace_leaves_no_predictable_temp(self):
+        out = self.root / "system-readiness.json"
+        out.write_text("old\n", encoding="utf-8")
+        mod.write_output(out, "new\n")
+        self.assertEqual(out.read_text(encoding="utf-8"), "new\n")
+        leftovers = list(self.root.glob(".system-readiness.json.*.tmp"))
+        self.assertEqual(leftovers, [])
+
 
 if __name__ == "__main__":
     unittest.main()
