@@ -18,6 +18,7 @@ def write_bundle(root: pathlib.Path, *, source="/dev/nvme0n1p2", fstype="ext4", 
     summary.write_text(
         "\n".join([
             "captured_at_utc=2026-08-30T12:00:00Z",
+            f"candidate_sha={SHA}",
             "hostname=xodus-nuc",
             "kernel=6.12.0-xodus",
             f"root_source={source}",
@@ -112,6 +113,24 @@ def test_bad_candidate_sha_rejected():
     with tempfile.TemporaryDirectory() as td:
         summary, first_boot = write_bundle(pathlib.Path(td))
         expect_fail(summary, first_boot, "abc123")
+
+
+def test_missing_evidence_candidate_sha_rejected():
+    with tempfile.TemporaryDirectory() as td:
+        root = pathlib.Path(td)
+        summary, first_boot = write_bundle(root)
+        lines = [line for line in summary.read_text(encoding="utf-8").splitlines() if not line.startswith("candidate_sha=")]
+        summary.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        expect_fail(summary, first_boot)
+
+
+def test_evidence_candidate_mismatch_rejected():
+    with tempfile.TemporaryDirectory() as td:
+        root = pathlib.Path(td)
+        summary, first_boot = write_bundle(root)
+        text = summary.read_text(encoding="utf-8").replace(f"candidate_sha={SHA}", f"candidate_sha={'b' * 40}")
+        summary.write_text(text, encoding="utf-8")
+        expect_fail(summary, first_boot)
 
 
 def test_symlink_input_rejected():
