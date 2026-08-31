@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'qa/installed-payload-on-disk.sh'
+      - 'qa/installed-build-provenance.sh'
       - 'qa/installed-system-contract.sh'
       - 'qa/installed-boot-contract.sh'
       - '.github/workflows/installed-payload-on-disk-contract.yml'
@@ -57,12 +58,14 @@ jobs:
             "$root/etc/systemd/system/multi-user.target.wants" \
             "$root/usr/lib/systemd/system" \
             "$root/usr/lib/systemd" \
+            "$root/usr/lib/xodus" \
             "$root/usr/bin" \
             "$esp/grub" \
             "$esp/EFI/Xodus"
 
           printf 'NAME=Xodus\nID=xodus\n' | sudo tee "$root/etc/os-release" >/dev/null
-          # Match the pinned pearOS/Xodus UEFI installer: the ESP is mounted directly at /boot.
+          printf 'XODUS_SOURCE_COMMIT=0123456789abcdef0123456789abcdef01234567\nXODUS_UPSTREAM_COMMIT=89abcdef0123456789abcdef0123456789abcdef\n' \
+            | sudo tee "$root/usr/lib/xodus/build-info" >/dev/null
           printf 'UUID=fake-root / ext4 defaults 0 1\nUUID=fake-esp /boot vfat umask=0077 0 2\n' | sudo tee "$root/etc/fstab" >/dev/null
           sudo touch "$root/usr/lib/systemd/systemd" "$root/usr/bin/pipewire" "$root/usr/bin/wireplumber"
           sudo chmod +x "$root/usr/lib/systemd/systemd" "$root/usr/bin/pipewire" "$root/usr/bin/wireplumber"
@@ -87,8 +90,12 @@ jobs:
         run: |
           set -euo pipefail
           bash -n qa/installed-payload-on-disk.sh
+          bash -n qa/installed-build-provenance.sh
           sudo bash qa/installed-payload-on-disk.sh "$image" installed-payload-evidence
           grep -Fqx 'installed_payload_on_disk=pass' installed-payload-evidence/installed-payload-summary.txt
+          grep -Fqx 'installed_build_provenance=pass' installed-payload-evidence/installed-payload-summary.txt
+          grep -Fqx 'candidate_sha=0123456789abcdef0123456789abcdef01234567' installed-payload-evidence/installed-payload-summary.txt
+          grep -Fqx 'upstream_sha=89abcdef0123456789abcdef0123456789abcdef' installed-payload-evidence/installed-payload-summary.txt
           grep -Fqx 'installed_system_contract=pass' installed-payload-evidence/system/installed-system-contract.txt
           grep -Fqx 'installed_boot_contract=pass' installed-payload-evidence/boot/installed-boot-contract.txt
           grep -Fqx 'boot_filesystem=esp-at-/boot' installed-payload-evidence/boot/installed-boot-contract.txt
