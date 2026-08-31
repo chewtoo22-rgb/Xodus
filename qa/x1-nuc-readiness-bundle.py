@@ -62,6 +62,7 @@ def validate(hardware_summary: pathlib.Path, first_boot_json: pathlib.Path, cand
 
     required_hw = {
         "captured_at_utc",
+        "candidate_sha",
         "hostname",
         "kernel",
         "root_source",
@@ -74,6 +75,10 @@ def validate(hardware_summary: pathlib.Path, first_boot_json: pathlib.Path, cand
     missing_hw = sorted(required_hw - set(hw))
     if missing_hw:
         fail(f"installed-hardware summary missing keys: {missing_hw}")
+    if not HEX40.fullmatch(hw["candidate_sha"]):
+        fail("installed-hardware candidate SHA is malformed")
+    if hw["candidate_sha"] != candidate_sha:
+        fail("installed-hardware evidence does not match requested candidate")
     if hw["collector"] != "pass":
         fail("installed-hardware collector did not pass")
     if hw["boot_mode"].lower() != "uefi":
