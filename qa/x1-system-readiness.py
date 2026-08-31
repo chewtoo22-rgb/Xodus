@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import pathlib
 import re
 import sys
+import tempfile
 
 HEX40 = re.compile(r"^[0-9a-f]{40}$")
 LOCAL_AI_KEYS = {
@@ -116,6 +118,51 @@ def validate(local_ai_path: pathlib.Path, desktop_path: pathlib.Path) -> dict:
     }
 
 
+def ensure_safe_output_path(out: pathlib.Path) -> None:
+    if out.exists():
+        if out.is_symlink():
+            fail("output symlink not allowed")
+        if not out.is_file():
+            fail("output must be a regular file when it already exists")
+
+    parent = out.parent
+    if parent.exists():
+        if parent.is_symlink():
+            fail("output parent symlink not allowed")
+        if not parent.is_dir():
+            fail("output parent must be a directory")
+    else:
+        parent.mkdir(parents=True, exist_ok=True)
+        if parent.is_symlink() or not parent.is_dir():
+            fail("output parent must be a real directory")
+
+
+def write_output(out: pathlib.Path, encoded: str) -> None:
+    ensure_safe_output_path(out)
+    temp_name: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=out.parent,
+            prefix=f".{out.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temp_name = handle.name
+            handle.write(encoded)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_name, out)
+        temp_name = None
+    finally:
+        if temp_name is not None:
+            try:
+                pathlib.Path(temp_name).unlink()
+            except FileNotFoundError:
+                pass
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Bind X1 desktop and local-AI readiness into one NUC system-test gate"
@@ -130,20 +177,13 @@ def main() -> int:
             pathlib.Path(args.local_ai_readiness),
             pathlib.Path(args.desktop_preflight),
         )
+        encoded = json.dumps(result, sort_keys=True, separators=(",", ":")) + "\n"
+        if args.output:
+            write_output(pathlib.Path(args.output), encoded)
     except (OSError, ValueError) as exc:
         print(f"xodus-x1-system-readiness: FAIL: {exc}", file=sys.stderr)
         return 1
 
-    encoded = json.dumps(result, sort_keys=True, separators=(",", ":")) + "\n"
-    if args.output:
-        out = pathlib.Path(args.output)
-        if out.exists() and out.is_symlink():
-            print("xodus-x1-system-readiness: FAIL: output symlink not allowed", file=sys.stderr)
-            return 1
-        out.parent.mkdir(parents=True, exist_ok=True)
-        tmp = out.with_name(f".{out.name}.tmp")
-        tmp.write_text(encoded, encoding="utf-8")
-        tmp.replace(out)
     sys.stdout.write(encoded)
     return 0
 
