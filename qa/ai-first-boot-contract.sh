@@ -56,7 +56,37 @@ grep -Fxq 'After=xodus-first-boot.service' "$unit"
 grep -Fxq 'ConditionPathExists=/var/lib/xodus/first-boot/complete' "$unit"
 grep -Fxq 'ConditionPathExists=/usr/lib/xodus/xodus-ai-select.py' "$unit"
 grep -Fxq 'ConditionPathExists=!/var/lib/xodus/ai/hardware-selection.json' "$unit"
+grep -Fxq 'ExecStart=/usr/lib/xodus/xodus-ai-first-boot' "$unit"
+grep -Fxq 'NoNewPrivileges=yes' "$unit"
+grep -Fxq 'PrivateTmp=yes' "$unit"
+grep -Fxq 'PrivateDevices=yes' "$unit"
+grep -Fxq 'ProtectHome=yes' "$unit"
+grep -Fxq 'ProtectSystem=strict' "$unit"
+grep -Fxq 'ProtectKernelTunables=yes' "$unit"
+grep -Fxq 'ProtectKernelModules=yes' "$unit"
+grep -Fxq 'ProtectControlGroups=yes' "$unit"
+grep -Fxq 'RestrictSUIDSGID=yes' "$unit"
+grep -Fxq 'RestrictNamespaces=yes' "$unit"
+grep -Fxq 'LockPersonality=yes' "$unit"
+grep -Fxq 'SystemCallArchitectures=native' "$unit"
 grep -Fxq 'ReadWritePaths=/var/lib/xodus/ai' "$unit"
+grep -Fxq 'WantedBy=multi-user.target' "$unit"
+
+# This service must remain a tightly-confined one-shot hardware-selection stage.
+# Reject shell indirection, broad capability grants, and network-facing policy if
+# they ever appear in the unit without explicit review and corresponding tests.
+if grep -Eqi '^ExecStart=.*(/bin/(ba)?sh|sh -c|bash -c)' "$unit"; then
+  echo 'AI first-boot service uses shell indirection' >&2
+  exit 1
+fi
+if grep -Eqi '^CapabilityBoundingSet=.*CAP_(SYS_ADMIN|SYS_MODULE|SYS_RAWIO)' "$unit"; then
+  echo 'AI first-boot service grants a dangerous broad capability' >&2
+  exit 1
+fi
+if grep -Eqi '^(IP|Socket|RestrictAddressFamilies|BindToDevice|NetworkNamespacePath)=' "$unit"; then
+  echo 'AI first-boot service gained network-facing policy unexpectedly' >&2
+  exit 1
+fi
 
 # This stage may inspect hardware and write local state only. Model retrieval or
 # remote escalation belongs behind separately-reviewed catalog/artifact gates.
