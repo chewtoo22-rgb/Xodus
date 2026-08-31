@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import os
 import pathlib
 import re
 import sys
+import tempfile
 
 HEX40 = re.compile(r"^[0-9a-f]{40}$")
 LIVE_FSTYPES = {"overlay", "squashfs", "erofs", "tmpfs", "rootfs"}
@@ -128,6 +130,55 @@ def validate(hardware_summary: pathlib.Path, first_boot_json: pathlib.Path, cand
     }
 
 
+def atomic_write(path: pathlib.Path, content: str) -> None:
+    if path.is_symlink():
+        fail("output symlink not allowed")
+    if path.exists() and not path.is_file():
+        fail("output must be a regular file")
+
+    parent = path.parent
+    parent.mkdir(parents=True, exist_ok=True)
+    cursor = parent
+    while True:
+        if cursor.is_symlink():
+            fail(f"symlinked output parent not allowed: {cursor}")
+        if not cursor.is_dir():
+            fail(f"output parent is not a directory: {cursor}")
+        if cursor == cursor.parent:
+            break
+        cursor = cursor.parent
+
+    fd = -1
+    tmp_name = ""
+    try:
+        fd, tmp_name = tempfile.mkstemp(
+            dir=parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            text=True,
+        )
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            fd = -1
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_name, path)
+        tmp_name = ""
+        dir_fd = os.open(parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+    finally:
+        if fd >= 0:
+            os.close(fd)
+        if tmp_name:
+            try:
+                os.unlink(tmp_name)
+            except FileNotFoundError:
+                pass
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Validate a coherent Xodus X1 NUC readiness evidence bundle")
     parser.add_argument("--hardware-summary", required=True)
@@ -142,20 +193,13 @@ def main() -> int:
             pathlib.Path(args.first_boot_json),
             args.candidate_sha,
         )
+        encoded = json.dumps(result, sort_keys=True, separators=(",", ":")) + "\n"
+        if args.output:
+            atomic_write(pathlib.Path(args.output), encoded)
     except (OSError, ValueError) as exc:
         print(f"xodus-x1-nuc-readiness-bundle: FAIL: {exc}", file=sys.stderr)
         return 1
 
-    encoded = json.dumps(result, sort_keys=True, separators=(",", ":")) + "\n"
-    if args.output:
-        out = pathlib.Path(args.output)
-        if out.exists() and out.is_symlink():
-            print("xodus-x1-nuc-readiness-bundle: FAIL: output symlink not allowed", file=sys.stderr)
-            return 1
-        out.parent.mkdir(parents=True, exist_ok=True)
-        tmp = out.with_name(f".{out.name}.tmp")
-        tmp.write_text(encoded, encoding="utf-8")
-        tmp.replace(out)
     sys.stdout.write(encoded)
     return 0
 
