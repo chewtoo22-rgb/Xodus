@@ -143,6 +143,13 @@ class X1SystemReadinessTests(unittest.TestCase):
             mod.write_output(out, "replacement\n")
         self.assertEqual(target.read_text(encoding="utf-8"), "preserve-me\n")
 
+    def test_broken_output_symlink_fails_closed(self):
+        out = self.root / "system-readiness.json"
+        out.symlink_to(self.root / "missing-target.json")
+        with self.assertRaisesRegex(ValueError, "output symlink not allowed"):
+            mod.write_output(out, "replacement\n")
+        self.assertTrue(out.is_symlink())
+
     def test_output_parent_symlink_fails(self):
         real_parent = self.root / "real-parent"
         real_parent.mkdir()
