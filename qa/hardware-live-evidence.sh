@@ -2,6 +2,36 @@
 set -euo pipefail
 
 outdir="${1:-xodus-hardware-evidence}"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+manifest="${XODUS_CANDIDATE_MANIFEST:-}"
+candidate_sha="${XODUS_CANDIDATE_SHA:-}"
+candidate_sha_source="environment"
+
+if [[ -z "$candidate_sha" && -n "$manifest" ]]; then
+  if [[ ! -r "$manifest" ]]; then
+    printf 'candidate manifest is not readable: %s\n' "$manifest" >&2
+    exit 3
+  fi
+  candidate_sha="$(sed -nE 's/^[[:space:]]*"candidate_sha"[[:space:]]*:[[:space:]]*"([0-9a-fA-F]{40})"[,]?[[:space:]]*$/\1/p' "$manifest" | head -n1)"
+  candidate_sha_source="manifest"
+  if [[ ! "$candidate_sha" =~ ^[0-9a-fA-F]{40}$ ]]; then
+    printf 'candidate manifest does not contain a valid 40-character candidate_sha: %s\n' "$manifest" >&2
+    exit 3
+  fi
+fi
+
+if [[ -z "$candidate_sha" ]] && command -v git >/dev/null 2>&1; then
+  candidate_sha="$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || true)"
+  candidate_sha_source="git-checkout"
+fi
+
+if [[ ! "$candidate_sha" =~ ^[0-9a-fA-F]{40}$ ]]; then
+  printf 'unable to resolve a valid 40-character Xodus candidate SHA\n' >&2
+  printf 'set XODUS_CANDIDATE_SHA or XODUS_CANDIDATE_MANIFEST, or run from a Git checkout\n' >&2
+  exit 3
+fi
+candidate_sha="${candidate_sha,,}"
+
 mkdir -p "$outdir"
 outdir="$(realpath "$outdir")"
 
@@ -17,6 +47,8 @@ run_capture() {
 }
 
 printf 'captured_at_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$outdir/summary.txt"
+printf 'candidate_sha=%s\n' "$candidate_sha" >> "$outdir/summary.txt"
+printf 'candidate_sha_source=%s\n' "$candidate_sha_source" >> "$outdir/summary.txt"
 printf 'hostname=%s\n' "$(hostname 2>/dev/null || true)" >> "$outdir/summary.txt"
 printf 'kernel=%s\n' "$(uname -r)" >> "$outdir/summary.txt"
 
