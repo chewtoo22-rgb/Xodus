@@ -133,9 +133,11 @@ jobs:
               command -v pacstrap arch-chroot mksquashfs xorriso mkfs.ext4 tune2fs git pv
 
               # pearOS currently serves some profile packages from a single
-              # upstream mirror. Treat explicit rate limits/network failures as
-              # transient, but do not retry deterministic build/package errors.
-              max_attempts=3
+              # upstream mirror. Retain pacman CacheDir across attempts so each
+              # successful download shrinks the remaining mirror exposure.
+              # Retry only explicit transport/server failures; deterministic
+              # build/package errors still fail immediately.
+              max_attempts=6
               attempt=1
               while :; do
                 log="/build/xodus-build-attempt-${attempt}.log"
@@ -154,13 +156,14 @@ jobs:
                   exit "$status"
                 fi
 
-                if ! grep -Eqi "(HTTP[^[:digit:]]*(429|5[0-9]{2})|429 Too Many Requests|Too Many Requests|failed retrieving file|operation too slow|timed out|timeout was reached|temporary failure|connection reset|connection refused|could not resolve host)" "$log"; then
+                if ! grep -Eqi "(HTTP[^[:digit:]]*(429|5[0-9]{2})|429 Too Many Requests|Too Many Requests|failed retrieving file|Exceeded the maximum allowed file size|operation too slow|timed out|timeout was reached|temporary failure|connection reset|connection refused|could not resolve host)" "$log"; then
                   echo "ISO build failed with a non-transient error; refusing retry." >&2
                   exit "$status"
                 fi
 
                 delay=$((attempt * 30))
-                echo "Transient package/mirror failure detected; retrying in ${delay}s." >&2
+                if (( delay > 120 )); then delay=120; fi
+                echo "Transient package/mirror failure detected; cached packages retained; retrying in ${delay}s." >&2
                 sleep "$delay"
                 attempt=$((attempt + 1))
               done
