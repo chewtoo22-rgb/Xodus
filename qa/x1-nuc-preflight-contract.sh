@@ -14,5 +14,10 @@ fi
 grep -q '/sys/firmware/efi' "$script"
 grep -q 'findmnt' "$script"
 grep -q 'lsblk' "$script"
+grep -q 'XODUS_CANDIDATE_SHA' "$script"
+grep -q 'XODUS_EXPECTED_SOURCE_COMMIT' "$script"
+grep -q 'x1-build-info-contract.sh' "$script"
+grep -q 'live system provenance matches qualified candidate' "$script"
+grep -q 'SUMMARY candidate_sha=' "$script"
 grep -q 'destructive_actions=0' "$script"
 printf 'X1 NUC preflight contract: PASS\n'

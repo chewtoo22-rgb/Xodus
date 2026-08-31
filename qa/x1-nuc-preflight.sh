@@ -10,6 +10,21 @@ pass() { printf 'PASS  %s\n' "$*"; }
 warn() { printf 'WARN  %s\n' "$*"; warn=$((warn+1)); }
 fail() { printf 'FAIL  %s\n' "$*"; fail=$((fail+1)); }
 
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+candidate_sha="${XODUS_CANDIDATE_SHA:-}"
+if [[ ! "$candidate_sha" =~ ^[0-9a-f]{40}$ ]]; then
+  fail "XODUS_CANDIDATE_SHA must be the exact lowercase 40-character qualified candidate SHA"
+else
+  build_info_check="$repo_root/qa/x1-build-info-contract.sh"
+  if [[ ! -f "$build_info_check" || -L "$build_info_check" ]]; then
+    fail "X1 build-info verifier missing or unsafe"
+  elif XODUS_EXPECTED_SOURCE_COMMIT="$candidate_sha" bash "$build_info_check" / >/dev/null; then
+    pass "live system provenance matches qualified candidate $candidate_sha"
+  else
+    fail "live system build-info does not match qualified candidate $candidate_sha"
+  fi
+fi
+
 [[ $EUID -eq 0 ]] || warn "not running as root; some firmware/disk details may be incomplete"
 
 if [[ -d /sys/firmware/efi ]]; then
@@ -66,5 +81,5 @@ else
   warn "no non-loopback network interface detected"
 fi
 
-printf 'SUMMARY failures=%d warnings=%d destructive_actions=0\n' "$fail" "$warn"
+printf 'SUMMARY candidate_sha=%s failures=%d warnings=%d destructive_actions=0\n' "${candidate_sha:-missing}" "$fail" "$warn"
 (( fail == 0 ))
