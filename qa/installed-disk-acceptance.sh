@@ -7,20 +7,28 @@ outdir=${2:-}
   echo "Usage: qa/installed-disk-acceptance.sh <installed-disk> <output-dir>" >&2
   exit 64
 }
-[[ -f "$image" ]] || {
-  echo "ERROR: installed disk image not found: $image" >&2
+[[ -f "$image" && ! -L "$image" ]] || {
+  echo "ERROR: installed disk image missing or unsafe: $image" >&2
   exit 66
 }
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 payload="$repo_root/qa/installed-payload-on-disk.sh"
 postinstall="$repo_root/qa/post-install-uefi-smoke.sh"
-[[ -f "$payload" && -f "$postinstall" ]] || {
-  echo "ERROR: installed-disk acceptance dependency missing" >&2
+[[ -f "$payload" && ! -L "$payload" && -f "$postinstall" && ! -L "$postinstall" ]] || {
+  echo "ERROR: installed-disk acceptance dependency missing or unsafe" >&2
   exit 66
 }
 
+if [[ -L "$outdir" ]]; then
+  echo "ERROR: installed-disk acceptance output directory is a symlink" >&2
+  exit 68
+fi
 mkdir -p "$outdir"
+[[ -d "$outdir" && ! -L "$outdir" ]] || {
+  echo "ERROR: installed-disk acceptance output directory is unsafe" >&2
+  exit 68
+}
 outdir=$(readlink -f "$outdir")
 image=$(readlink -f "$image")
 
@@ -44,6 +52,14 @@ upstream_sha=$(sed -n 's/^upstream_sha=//p' "$payload_summary")
   exit 68
 }
 
+summary="$outdir/installed-disk-acceptance-summary.txt"
+[[ ! -e "$summary" && ! -L "$summary" ]] || {
+  echo "ERROR: installed-disk acceptance summary already exists or is unsafe" >&2
+  exit 68
+}
+tmp=$(mktemp "$outdir/.installed-disk-acceptance-summary.XXXXXX")
+cleanup() { rm -f -- "$tmp"; }
+trap cleanup EXIT HUP INT TERM
 {
   echo "installed_disk_acceptance=pass"
   echo "installed_payload_on_disk=pass"
@@ -51,4 +67,11 @@ upstream_sha=$(sed -n 's/^upstream_sha=//p' "$payload_summary")
   echo "candidate_sha=$candidate_sha"
   echo "upstream_sha=$upstream_sha"
   echo "physical_hardware_claim=not_automatic"
-} | tee "$outdir/installed-disk-acceptance-summary.txt"
+} > "$tmp"
+chmod 0644 "$tmp"
+sync -f "$tmp"
+mv -T -- "$tmp" "$summary"
+tmp=""
+sync -f "$outdir"
+trap - EXIT HUP INT TERM
+cat "$summary"
