@@ -5,6 +5,7 @@ import argparse
 from pathlib import Path
 
 DEPENDENCY_KEYS = {"After", "Before", "Requires", "Wants"}
+ORDERING_KEYS = {"After", "Before"}
 
 
 def parse_unit(path: Path) -> dict[str, list[str]]:
@@ -43,19 +44,19 @@ def validate(root: Path) -> None:
 
     units = {path.name: parse_unit(path) for path in paths}
     names = set(units)
-
     graph: dict[str, set[str]] = {name: set() for name in names}
+
     for name, values in units.items():
         for key in DEPENDENCY_KEYS:
             refs = split_units(values.get(f"Unit.{key}", []))
             for ref in refs:
                 if ref.startswith("xodus-") and ref not in names:
                     raise ValueError(f"{name} references missing Xodus unit {ref} via {key}")
-                if ref not in names:
+                if ref not in names or key not in ORDERING_KEYS:
                     continue
-                if key in {"After", "Requires", "Wants"}:
+                if key == "After":
                     graph[name].add(ref)
-                elif key == "Before":
+                else:  # Before=A means A is ordered after this unit.
                     graph[ref].add(name)
 
     state: dict[str, int] = {name: 0 for name in names}
@@ -67,7 +68,7 @@ def validate(root: Path) -> None:
         if state[node] == 1:
             cycle_start = stack.index(node)
             cycle = stack[cycle_start:] + [node]
-            raise ValueError("Xodus service dependency cycle: " + " -> ".join(cycle))
+            raise ValueError("Xodus service ordering cycle: " + " -> ".join(cycle))
         state[node] = 1
         stack.append(node)
         for dep in sorted(graph[node]):
