@@ -10,13 +10,25 @@ pass() { printf 'PASS  %s\n' "$*"; }
 warn() { printf 'WARN  %s\n' "$*"; warn=$((warn+1)); }
 fail() { printf 'FAIL  %s\n' "$*"; fail=$((fail+1)); }
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 candidate_sha="${XODUS_CANDIDATE_SHA:-}"
 if [[ ! "$candidate_sha" =~ ^[0-9a-f]{40}$ ]]; then
   fail "XODUS_CANDIDATE_SHA must be the exact lowercase 40-character qualified candidate SHA"
 else
-  build_info_check="$repo_root/qa/x1-build-info-contract.sh"
-  if [[ ! -f "$build_info_check" || -L "$build_info_check" ]]; then
+  # Production media carries the verifier beside this script in /usr/lib/xodus.
+  # Keep a repository fallback so the same preflight remains runnable from a
+  # source checkout during CI/development without weakening the ISO path.
+  installed_build_info_check="/usr/lib/xodus/xodus-build-info-verify"
+  repo_root="$(cd "$script_dir/.." && pwd -P)"
+  repo_build_info_check="$repo_root/qa/x1-build-info-contract.sh"
+  build_info_check=""
+  if [[ -f "$installed_build_info_check" && ! -L "$installed_build_info_check" ]]; then
+    build_info_check="$installed_build_info_check"
+  elif [[ -f "$repo_build_info_check" && ! -L "$repo_build_info_check" ]]; then
+    build_info_check="$repo_build_info_check"
+  fi
+
+  if [[ -z "$build_info_check" ]]; then
     fail "X1 build-info verifier missing or unsafe"
   elif XODUS_EXPECTED_SOURCE_COMMIT="$candidate_sha" bash "$build_info_check" / >/dev/null; then
     pass "live system provenance matches qualified candidate $candidate_sha"
