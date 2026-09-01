@@ -13,7 +13,7 @@ if [[ -z "$candidate_sha" && -n "$manifest" ]]; then
     printf 'candidate manifest must be a readable regular file, not a symlink: %s\n' "$manifest" >&2
     exit 3
   fi
-  matches="$(grep -oE '"'"'"candidate_sha"'"'"[[:space:]]*:[[:space:]]*"'"'"[0-9a-fA-F]{40}"'"'"' "$manifest" || true)"
+  matches="$(grep -oE '"candidate_sha"[[:space:]]*:[[:space:]]*"[0-9a-fA-F]{40}"' "$manifest" || true)"
   match_count="$(printf '%s\n' "$matches" | grep -c . || true)"
   if [[ "$match_count" -ne 1 ]]; then
     printf 'candidate manifest must contain exactly one valid 40-character candidate_sha: %s\n' "$manifest" >&2
