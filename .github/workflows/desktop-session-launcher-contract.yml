@@ -1,0 +1,40 @@
+name: Desktop Session Launcher Contract
+
+on:
+  pull_request:
+    paths:
+      - 'qa/desktop_session_launcher_contract.py'
+      - 'qa/test_desktop_session_launcher_contract.py'
+      - '.github/workflows/desktop-session-launcher-contract.yml'
+  push:
+    branches: [ main ]
+    paths:
+      - 'qa/desktop_session_launcher_contract.py'
+      - 'qa/test_desktop_session_launcher_contract.py'
+      - '.github/workflows/desktop-session-launcher-contract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  desktop-session-launcher-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile contract
+        run: python -m py_compile qa/desktop_session_launcher_contract.py qa/test_desktop_session_launcher_contract.py
+      - name: Run focused hostile-session regressions
+        run: python qa/test_desktop_session_launcher_contract.py -v
+      - name: Enforce read-only non-executing boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          file='qa/desktop_session_launcher_contract.py'
+          ! grep -Eq 'subprocess|os\.system|Popen|run\(|check_call|check_output|requests|urllib|socket|shutil\.(copy|move|rmtree)|Path\([^)]*\)\.write|chmod\(|chown\(' "$file"
+          grep -F 'hardware_validation_claim=false' "$file"
+          grep -F 'mutates_system=false' "$file"
+          grep -F 'executes_process=false' "$file"
