@@ -20,6 +20,12 @@ grep -q 'x1-build-info-contract.sh' "$script"
 grep -q 'live system provenance matches qualified candidate' "$script"
 grep -q 'systemd-detect-virt' "$script"
 grep -q 'physical X1 NUC evidence is required' "$script"
+grep -q 'systemd-detect-virt unavailable; physical X1 NUC evidence cannot be verified' "$script"
+grep -q 'systemd-detect-virt returned no trustworthy result; physical X1 NUC evidence cannot be verified' "$script"
+if grep -q 'systemd-detect-virt unavailable; physical-machine boundary could not be verified' "$script"; then
+  echo 'physical-machine boundary must fail closed when virtualization detection is unavailable' >&2
+  exit 1
+fi
 grep -q 'virtualization=%s' "$script"
 grep -q 'SUMMARY candidate_sha=' "$script"
 grep -q 'destructive_actions=0' "$script"
