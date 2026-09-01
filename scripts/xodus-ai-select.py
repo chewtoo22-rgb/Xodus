@@ -9,11 +9,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Optional
+
+
+MAX_VENDOR_LEN = 64
+MAX_CPU_THREADS = 4096
 
 
 @dataclass(frozen=True)
@@ -33,11 +37,30 @@ class Recommendation:
     reason: str
 
 
-def classify(hw: Hardware) -> Recommendation:
-    """Return a conservative tier using resources available to local inference."""
-    ram = max(0.0, hw.ram_gib)
-    vram = max(0.0, hw.vram_gib)
+def _validate_hardware(hw: Hardware) -> tuple[float, float, str]:
+    """Validate hardware observations before they can influence model selection."""
+    ram = float(hw.ram_gib)
+    vram = float(hw.vram_gib)
+    if not math.isfinite(ram) or ram < 0.0:
+        raise ValueError("RAM must be a finite non-negative GiB value")
+    if not math.isfinite(vram) or vram < 0.0:
+        raise ValueError("VRAM must be a finite non-negative GiB value")
+    if isinstance(hw.cpu_threads, bool) or not isinstance(hw.cpu_threads, int):
+        raise ValueError("CPU thread count must be an integer")
+    if hw.cpu_threads < 1 or hw.cpu_threads > MAX_CPU_THREADS:
+        raise ValueError(f"CPU thread count must be between 1 and {MAX_CPU_THREADS}")
+
     vendor = hw.gpu_vendor.strip().lower()
+    if len(vendor) > MAX_VENDOR_LEN:
+        raise ValueError("GPU vendor string is too long")
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in vendor):
+        raise ValueError("GPU vendor string contains control characters")
+    return ram, vram, vendor
+
+
+def classify(hw: Hardware) -> Recommendation:
+    """Return a conservative tier using validated resources available to local inference."""
+    ram, vram, vendor = _validate_hardware(hw)
 
     if ram < 7.0:
         return Recommendation("disabled", "none", "none", "none",
@@ -118,7 +141,11 @@ def main() -> int:
         args.gpu_vendor if args.gpu_vendor is not None else detected.gpu_vendor,
         detected.cpu_threads,
     )
-    print(json.dumps({"hardware": asdict(hw), "recommendation": asdict(classify(hw))}, sort_keys=True))
+    try:
+        recommendation = classify(hw)
+    except (TypeError, ValueError) as exc:
+        parser.error(str(exc))
+    print(json.dumps({"hardware": asdict(hw), "recommendation": asdict(recommendation)}, sort_keys=True))
     return 0
 
 
