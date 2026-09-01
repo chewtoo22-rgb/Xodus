@@ -5,6 +5,7 @@ on:
     paths:
       - 'qa/first-boot-runtime-acceptance.py'
       - 'qa/test_first_boot_runtime_acceptance.py'
+      - 'qa/test_first_boot_runtime_publication.py'
       - '.github/workflows/first-boot-runtime-acceptance.yml'
   workflow_dispatch:
 
@@ -20,9 +21,11 @@ jobs:
         with:
           python-version: '3.12'
       - name: Compile validator
-        run: python -m py_compile qa/first-boot-runtime-acceptance.py qa/test_first_boot_runtime_acceptance.py
+        run: python -m py_compile qa/first-boot-runtime-acceptance.py qa/test_first_boot_runtime_acceptance.py qa/test_first_boot_runtime_publication.py
       - name: Run regression suite
-        run: python qa/test_first_boot_runtime_acceptance.py
+        run: |
+          python qa/test_first_boot_runtime_acceptance.py
+          python qa/test_first_boot_runtime_publication.py
       - name: Enforce non-claiming contract
         run: |
           python - <<'PY'
