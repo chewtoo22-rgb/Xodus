@@ -11,6 +11,7 @@ assert spec.loader is not None
 spec.loader.exec_module(module)
 
 SHA = "a" * 40
+UPSTREAM = "b" * 40
 
 
 class AcceptanceTests(unittest.TestCase):
@@ -21,6 +22,7 @@ class AcceptanceTests(unittest.TestCase):
         return {
             "collector": "pass",
             "candidate_sha": SHA,
+            "upstream_sha": UPSTREAM,
             "boot_mode": "uefi",
             "root_source": "/dev/nvme0n1p2",
             "root_fstype": "ext4",
@@ -32,11 +34,12 @@ class AcceptanceTests(unittest.TestCase):
         result = module.evaluate(SHA, self.valid_live(), self.valid_installed())
         self.assertTrue(result["evidence_ready_for_operator_review"])
         self.assertFalse(result["hardware_validation_claim"])
+        self.assertEqual(UPSTREAM, result["upstream_sha"])
         self.assertEqual([], result["blockers"])
 
     def test_rejects_candidate_mismatch(self):
         live = self.valid_live()
-        live["candidate_sha"] = "b" * 40
+        live["candidate_sha"] = "c" * 40
         result = module.evaluate(SHA, live, self.valid_installed())
         self.assertFalse(result["evidence_ready_for_operator_review"])
         self.assertIn("live_candidate_sha_mismatch", result["blockers"])
@@ -60,6 +63,19 @@ class AcceptanceTests(unittest.TestCase):
         self.assertFalse(result["evidence_ready_for_operator_review"])
         self.assertIn("live_candidate_sha_invalid", result["blockers"])
         self.assertIn("installed_candidate_sha_invalid", result["blockers"])
+
+    def test_rejects_missing_or_malformed_upstream_provenance(self):
+        installed = self.valid_installed()
+        del installed["upstream_sha"]
+        result = module.evaluate(SHA, self.valid_live(), installed)
+        self.assertIn("installed_upstream_sha_missing", result["blockers"])
+        self.assertEqual("", result["upstream_sha"])
+
+        installed = self.valid_installed()
+        installed["upstream_sha"] = "deadbeef"
+        result = module.evaluate(SHA, self.valid_live(), installed)
+        self.assertIn("installed_upstream_sha_invalid", result["blockers"])
+        self.assertEqual("", result["upstream_sha"])
 
     def test_rejects_live_or_overlay_installed_root(self):
         installed = self.valid_installed()

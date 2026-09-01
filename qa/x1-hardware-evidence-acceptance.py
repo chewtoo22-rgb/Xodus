@@ -63,6 +63,12 @@ def evaluate(candidate_sha: str, live: dict[str, str], installed: dict[str, str]
     if installed.get("root_backing_disk", "").lower() in ("", "unknown"):
         blockers.append("installed_backing_disk_missing")
 
+    upstream_sha = installed.get("upstream_sha", "")
+    if not upstream_sha:
+        blockers.append("installed_upstream_sha_missing")
+    elif not SHA_RE.fullmatch(upstream_sha):
+        blockers.append("installed_upstream_sha_invalid")
+
     if candidate_valid:
         check_candidate(live, candidate_sha, "live", blockers)
         check_candidate(installed, candidate_sha, "installed", blockers)
@@ -71,6 +77,7 @@ def evaluate(candidate_sha: str, live: dict[str, str], installed: dict[str, str]
     return {
         "schema": 1,
         "candidate_sha": candidate_sha,
+        "upstream_sha": upstream_sha if SHA_RE.fullmatch(upstream_sha) else "",
         "evidence_ready_for_operator_review": not blockers,
         "hardware_validation_claim": False,
         "blockers": blockers,
@@ -91,6 +98,7 @@ def main() -> int:
         result = {
             "schema": 1,
             "candidate_sha": args.candidate_sha,
+            "upstream_sha": "",
             "evidence_ready_for_operator_review": False,
             "hardware_validation_claim": False,
             "blockers": [f"input_error:{type(exc).__name__}"],
