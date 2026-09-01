@@ -1,0 +1,56 @@
+name: Arena Profile Contract
+
+on:
+  pull_request:
+    paths:
+      - 'qa/arena_profile_contract.py'
+      - 'qa/test_arena_profile_contract.py'
+      - '.github/workflows/arena-profile-contract.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'qa/arena_profile_contract.py'
+      - 'qa/test_arena_profile_contract.py'
+      - '.github/workflows/arena-profile-contract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  arena-profile-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile contract
+        run: python -m py_compile qa/arena_profile_contract.py qa/test_arena_profile_contract.py
+      - name: Run focused regressions
+        run: python qa/test_arena_profile_contract.py
+      - name: Enforce non-execution boundary
+        run: |
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+
+          path = Path('qa/arena_profile_contract.py')
+          tree = ast.parse(path.read_text(encoding='utf-8'))
+          forbidden_imports = {'subprocess', 'socket', 'requests', 'urllib', 'shutil'}
+          forbidden_calls = {'system', 'popen', 'execv', 'execve', 'spawnl', 'spawnv'}
+
+          for node in ast.walk(tree):
+              if isinstance(node, ast.Import):
+                  for alias in node.names:
+                      if alias.name.split('.')[0] in forbidden_imports:
+                          raise SystemExit(f'forbidden import: {alias.name}')
+              elif isinstance(node, ast.ImportFrom):
+                  if node.module and node.module.split('.')[0] in forbidden_imports:
+                      raise SystemExit(f'forbidden import: {node.module}')
+              elif isinstance(node, ast.Call):
+                  fn = node.func
+                  if isinstance(fn, ast.Attribute) and fn.attr in forbidden_calls:
+                      raise SystemExit(f'forbidden execution call: {fn.attr}')
+          print('non-execution boundary: PASS')
+          PY
