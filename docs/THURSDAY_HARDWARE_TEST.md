@@ -130,13 +130,13 @@ After installation:
 
 ## Evidence to capture
 
-As soon as the live system reaches a terminal, run the read-only collector from the Xodus checkout:
+As soon as the live system reaches a terminal, run the read-only collector shipped inside the qualified Xodus image:
 
 ```bash
-bash qa/hardware-live-evidence.sh xodus-hardware-evidence
+/usr/lib/xodus/xodus-hardware-live-evidence xodus-hardware-evidence
 ```
 
-Keep the resulting `xodus-hardware-evidence/` directory with the candidate commit SHA. The collector records OS/kernel identity, block and mount topology, PCI/USB devices, networking, rfkill/Bluetooth/audio state, UEFI status, failed units, and boot warnings. It is observational only; CI rejects destructive storage commands in the collector source.
+The collector obtains the candidate SHA directly from the image's `/usr/lib/xodus/build-info`, so this step does not require a Git checkout, network access, or a manually supplied SHA. Keep the resulting `xodus-hardware-evidence/` directory with the candidate qualification manifest. The collector records OS/kernel identity, block and mount topology, PCI/USB devices, networking, rfkill/Bluetooth/audio state, UEFI status, failed units, and boot warnings. It is observational only; CI rejects destructive storage commands in the collector source and verifies that the exact collector is installed into the produced payload.
 
 For every failure, additionally record:
 
@@ -148,7 +148,7 @@ For every failure, additionally record:
 - a photo/screenshot when practical,
 - whether the failure reproduces after one cold reboot.
 
-If the collector cannot be run, capture the minimum fallback manually:
+If the shipped collector cannot be run, capture the minimum fallback manually:
 
 ```bash
 uname -a
