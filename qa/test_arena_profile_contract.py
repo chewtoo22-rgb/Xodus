@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 import importlib.util
 from pathlib import Path
+import sys
 import unittest
 
 MODULE = Path(__file__).with_name("arena_profile_contract.py")
 spec = importlib.util.spec_from_file_location("arena_profile_contract", MODULE)
 mod = importlib.util.module_from_spec(spec)
 assert spec and spec.loader
+sys.modules[spec.name] = mod
 spec.loader.exec_module(mod)
 
 
