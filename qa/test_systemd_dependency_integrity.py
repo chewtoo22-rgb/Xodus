@@ -65,6 +65,32 @@ class SystemdDependencyIntegrityTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "non-symlink"):
                 validate(root)
 
+    def test_symlinked_root_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            real_root = base / "real-units"
+            real_root.mkdir()
+            write_unit(real_root, "xodus-first.service", "After=local-fs.target")
+            linked_root = base / "units"
+            linked_root.symlink_to(real_root.name, target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, "traverses symlink component"):
+                validate(linked_root)
+
+    def test_symlinked_ancestor_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            real_parent = base / "real-parent"
+            real_root = real_parent / "units"
+            real_root.mkdir(parents=True)
+            write_unit(real_root, "xodus-first.service", "After=local-fs.target")
+            linked_parent = base / "linked-parent"
+            linked_parent.symlink_to(real_parent.name, target_is_directory=True)
+            candidate = linked_parent / "units"
+            self.assertFalse(candidate.is_symlink())
+            self.assertTrue(candidate.is_dir())
+            with self.assertRaisesRegex(ValueError, "traverses symlink component"):
+                validate(candidate)
+
     def test_empty_root_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaisesRegex(ValueError, "no Xodus service units"):
