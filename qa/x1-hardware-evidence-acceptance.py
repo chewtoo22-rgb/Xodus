@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import os
 import re
 import sys
+import tempfile
 from pathlib import Path
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -84,6 +86,43 @@ def evaluate(candidate_sha: str, live: dict[str, str], installed: dict[str, str]
     }
 
 
+def publish_output(path: Path, payload: str) -> None:
+    parent = path.parent
+    if parent.is_symlink() or not parent.is_dir():
+        raise ValueError(f"output parent is not a safe directory: {parent}")
+    if path.exists() or path.is_symlink():
+        raise FileExistsError(f"refusing to overwrite existing output: {path}")
+
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temp_path = Path(handle.name)
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+
+        os.replace(temp_path, path)
+        temp_path = None
+        dir_fd = os.open(parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+    finally:
+        if temp_path is not None:
+            try:
+                temp_path.unlink()
+            except FileNotFoundError:
+                pass
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Fail-closed acceptance gate for X1 NUC evidence summaries")
     parser.add_argument("--candidate-sha", required=True)
@@ -106,10 +145,11 @@ def main() -> int:
 
     payload = json.dumps(result, sort_keys=True, separators=(",", ":")) + "\n"
     if args.output:
-        if args.output.exists() and args.output.is_symlink():
-            print("refusing symlink output", file=sys.stderr)
+        try:
+            publish_output(args.output, payload)
+        except (OSError, ValueError) as exc:
+            print(f"refusing unsafe output: {exc}", file=sys.stderr)
             return 3
-        args.output.write_text(payload, encoding="utf-8")
     sys.stdout.write(payload)
     return 0 if result["evidence_ready_for_operator_review"] else 2
 
