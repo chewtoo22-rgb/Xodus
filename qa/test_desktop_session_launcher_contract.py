@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
-import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,6 +12,7 @@ MODULE_PATH = Path(__file__).with_name("desktop_session_launcher_contract.py")
 spec = importlib.util.spec_from_file_location("desktop_session_launcher_contract", MODULE_PATH)
 assert spec and spec.loader
 module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
 spec.loader.exec_module(module)
 
 DesktopSessionContractError = module.DesktopSessionContractError
@@ -114,9 +115,9 @@ class DesktopSessionLauncherContractTest(unittest.TestCase):
 
     def test_rejects_launcher_symlink_escape(self) -> None:
         root = self.make_root()
-        outside_dir = Path(tempfile.mkdtemp())
-        self.addCleanup(lambda: __import__("shutil").rmtree(outside_dir, ignore_errors=True))
-        outside = outside_dir / "outside-session"
+        outside_tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(outside_tmp.cleanup)
+        outside = Path(outside_tmp.name) / "outside-session"
         outside.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
         outside.chmod(0o755)
         (root / "usr/bin/xodus-session").symlink_to(outside)
