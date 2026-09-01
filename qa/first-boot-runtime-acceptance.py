@@ -2,9 +2,11 @@
 import argparse
 import json
 import math
+import os
 import pathlib
 import re
 import sys
+import tempfile
 from datetime import datetime, timezone
 
 LIVE_FSTYPES = {"overlay", "squashfs", "erofs", "tmpfs", "rootfs"}
@@ -137,6 +139,30 @@ def validate(root: pathlib.Path) -> dict:
         "hardware_validation_claim": False,
     }
 
+def publish_output(out: pathlib.Path, encoded: str) -> None:
+    if out.is_symlink() or out.exists():
+        fail("output path already exists or is a symlink")
+    parent = out.parent
+    if parent.is_symlink() or not parent.is_dir():
+        fail("output parent must be an existing non-symlink directory")
+
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{out.name}.", suffix=".tmp", dir=parent)
+    tmp = pathlib.Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(encoded)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, out)
+        dir_fd = os.open(parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Validate Xodus X1 installed first-boot runtime postconditions")
     parser.add_argument("--root", default="/", help="installed root or fixture root")
@@ -144,19 +170,12 @@ def main() -> int:
     args = parser.parse_args()
     try:
         result = validate(pathlib.Path(args.root))
+        encoded = json.dumps(result, sort_keys=True, separators=(",", ":")) + "\n"
+        if args.output:
+            publish_output(pathlib.Path(args.output), encoded)
     except (OSError, ValueError) as exc:
         print(f"xodus-first-boot-runtime-acceptance: FAIL: {exc}", file=sys.stderr)
         return 1
-    encoded = json.dumps(result, sort_keys=True, separators=(",", ":")) + "\n"
-    if args.output:
-        out = pathlib.Path(args.output)
-        if out.exists() and out.is_symlink():
-            print("xodus-first-boot-runtime-acceptance: FAIL: output symlink not allowed", file=sys.stderr)
-            return 1
-        out.parent.mkdir(parents=True, exist_ok=True)
-        tmp = out.with_name(f".{out.name}.tmp")
-        tmp.write_text(encoded, encoding="utf-8")
-        tmp.replace(out)
     sys.stdout.write(encoded)
     return 0
 
