@@ -11,11 +11,34 @@ for dep in "$lock" "$audit" "$patcher"; do
   [[ -f "$dep" ]] || { echo "ERROR: required installer preparation dependency missing: $dep" >&2; exit 66; }
 done
 
-mkdir -p "$outdir"
+# Qualified installer output is release evidence. Never reuse or recursively
+# clean an existing destination: that could destroy prior qualification data
+# or redirect writes through a symlink. Require a real, existing parent and a
+# brand-new output directory instead.
+out_parent="$(dirname -- "$outdir")"
+out_name="$(basename -- "$outdir")"
+[[ -n "$out_name" && "$out_name" != "." && "$out_name" != ".." ]] || {
+  echo "ERROR: invalid qualified installer output path: $outdir" >&2
+  exit 73
+}
+[[ -d "$out_parent" ]] || {
+  echo "ERROR: qualified installer output parent does not exist: $out_parent" >&2
+  exit 73
+}
+parent_abs="$(python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$out_parent")"
+parent_real="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$out_parent")"
+[[ "$parent_abs" == "$parent_real" ]] || {
+  echo "ERROR: qualified installer output parent traverses a symlink: $out_parent" >&2
+  exit 73
+}
+if [[ -e "$outdir" || -L "$outdir" ]]; then
+  echo "ERROR: qualified installer output already exists; refusing to overwrite evidence: $outdir" >&2
+  exit 73
+fi
+mkdir -- "$outdir"
 outdir="$(cd "$outdir" && pwd -P)"
 audit_dir="$outdir/audit"
-rm -rf "$audit_dir"
-mkdir -p "$audit_dir"
+mkdir -- "$audit_dir"
 
 bash "$audit" "$lock" "$audit_dir" | tee "$outdir/audit-report.txt"
 # installer.lock is repository-controlled data and is sourced only after the
