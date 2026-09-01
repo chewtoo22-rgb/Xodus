@@ -109,6 +109,37 @@ class AcceptanceTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 module.read_summary(link)
 
+    def test_atomic_output_publication_refuses_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = root / "acceptance.json"
+            payload = '{"ok":true}\n'
+            module.publish_output(output, payload)
+            self.assertEqual(payload, output.read_text(encoding="utf-8"))
+            self.assertEqual([], list(root.glob(f".{output.name}.*.tmp")))
+            with self.assertRaises(FileExistsError):
+                module.publish_output(output, '{"ok":false}\n')
+            self.assertEqual(payload, output.read_text(encoding="utf-8"))
+
+    def test_output_publication_rejects_symlink_destination_and_parent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "target.json"
+            target.write_text("original\n", encoding="utf-8")
+            link = root / "acceptance.json"
+            link.symlink_to(target)
+            with self.assertRaises(FileExistsError):
+                module.publish_output(link, "replacement\n")
+            self.assertEqual("original\n", target.read_text(encoding="utf-8"))
+
+            real_dir = root / "real"
+            real_dir.mkdir()
+            linked_dir = root / "linked"
+            linked_dir.symlink_to(real_dir, target_is_directory=True)
+            with self.assertRaises(ValueError):
+                module.publish_output(linked_dir / "acceptance.json", "unsafe\n")
+            self.assertFalse((real_dir / "acceptance.json").exists())
+
 
 if __name__ == "__main__":
     unittest.main()
