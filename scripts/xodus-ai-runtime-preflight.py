@@ -11,6 +11,7 @@ import argparse
 import json
 import os
 import shutil
+import tempfile
 from pathlib import Path
 
 SCHEMA = 1
@@ -95,6 +96,32 @@ def evaluate(selection: dict, engine: str | None) -> dict:
     }
 
 
+def publish_output(out: Path, payload: str) -> None:
+    if out.is_symlink() or out.exists():
+        raise ValueError("output path already exists or is a symlink")
+    parent = out.parent
+    if parent.is_symlink() or not parent.is_dir():
+        raise ValueError("output parent must be an existing non-symlink directory")
+
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{out.name}.", suffix=".tmp", dir=parent)
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, out)
+        dir_fd = os.open(parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--selection", default="/var/lib/xodus/ai/hardware-selection.json")
@@ -120,12 +147,11 @@ def main() -> int:
 
     payload = json.dumps(result, sort_keys=True, separators=(",", ":")) + "\n"
     if args.output:
-        out = Path(args.output)
-        out.parent.mkdir(parents=True, exist_ok=True)
-        tmp = out.with_name(out.name + ".tmp")
-        tmp.write_text(payload, encoding="utf-8")
-        os.chmod(tmp, 0o644)
-        os.replace(tmp, out)
+        try:
+            publish_output(Path(args.output), payload)
+        except (OSError, ValueError) as exc:
+            print(f"xodus-ai-runtime-preflight: FAIL: {exc}", file=os.sys.stderr)
+            return 2
     else:
         print(payload, end="")
     return 0 if result["ready"] else 2
