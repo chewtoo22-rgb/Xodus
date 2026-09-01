@@ -27,6 +27,22 @@ fi
 
 [[ $EUID -eq 0 ]] || warn "not running as root; some firmware/disk details may be incomplete"
 
+# A physical hardware milestone must not accidentally accept a VM/container as
+# NUC evidence. systemd-detect-virt is preferred because it recognizes the
+# common hypervisors used by our own CI/rehearsal paths without mutating state.
+virt="unknown"
+if command -v systemd-detect-virt >/dev/null 2>&1; then
+  virt="$(systemd-detect-virt 2>/dev/null || true)"
+  if [[ -n "$virt" && "$virt" != "none" ]]; then
+    fail "virtualized environment detected ($virt); physical X1 NUC evidence is required"
+  else
+    virt="none"
+    pass "physical-machine boundary: no virtualization detected"
+  fi
+else
+  warn "systemd-detect-virt unavailable; physical-machine boundary could not be verified"
+fi
+
 if [[ -d /sys/firmware/efi ]]; then
   pass "booted in UEFI mode"
 else
@@ -81,5 +97,5 @@ else
   warn "no non-loopback network interface detected"
 fi
 
-printf 'SUMMARY candidate_sha=%s failures=%d warnings=%d destructive_actions=0\n' "${candidate_sha:-missing}" "$fail" "$warn"
+printf 'SUMMARY candidate_sha=%s virtualization=%s failures=%d warnings=%d destructive_actions=0\n' "${candidate_sha:-missing}" "$virt" "$fail" "$warn"
 (( fail == 0 ))
