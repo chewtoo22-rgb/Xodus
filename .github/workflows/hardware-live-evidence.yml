@@ -5,6 +5,7 @@ on:
     paths:
       - 'qa/hardware-live-evidence.sh'
       - 'qa/hardware-live-evidence-contract.sh'
+      - 'overlay/apply-xodus-identity.sh'
       - '.github/workflows/hardware-live-evidence.yml'
       - 'docs/THURSDAY_HARDWARE_TEST.md'
   workflow_dispatch:
@@ -23,8 +24,9 @@ jobs:
         run: |
           bash -n qa/hardware-live-evidence.sh
           bash -n qa/hardware-live-evidence-contract.sh
+          bash -n overlay/apply-xodus-identity.sh
 
-      - name: Verify candidate provenance and atomic evidence contract
+      - name: Verify candidate provenance, payload integration, and atomic evidence contract
         run: bash qa/hardware-live-evidence-contract.sh
 
       - name: Run collector read-only on exact workflow SHA
