@@ -14,6 +14,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 from pathlib import Path
 
 SCHEMA = 1
@@ -125,6 +126,41 @@ def build_plan(readiness: dict, model: Path, host: str, port: int) -> dict:
     }
 
 
+def publish_plan(out: Path, payload: str) -> None:
+    """Publish a new launch-plan artifact without overwrite or partial-write risk."""
+    parent = out.parent
+    if out.exists() or out.is_symlink():
+        fail("output path already exists")
+    if not parent.exists() or not parent.is_dir() or parent.is_symlink():
+        fail("output parent must be an existing non-symlink directory")
+
+    fd = -1
+    tmp_name: str | None = None
+    try:
+        fd, tmp_name = tempfile.mkstemp(prefix=f".{out.name}.", suffix=".tmp", dir=parent)
+        os.fchmod(fd, 0o644)
+        with os.fdopen(fd, "w", encoding="utf-8", closefd=True) as handle:
+            fd = -1
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_name, out)
+        tmp_name = None
+        dir_fd = os.open(parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+    finally:
+        if fd >= 0:
+            os.close(fd)
+        if tmp_name is not None:
+            try:
+                os.unlink(tmp_name)
+            except FileNotFoundError:
+                pass
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Create a non-executing Xodus local-AI launch plan")
     parser.add_argument("--readiness", required=True)
@@ -137,21 +173,13 @@ def main() -> int:
     try:
         readiness = load_readiness(Path(args.readiness))
         plan = build_plan(readiness, Path(args.model), args.host, args.port)
+        payload = json.dumps(plan, sort_keys=True, separators=(",", ":")) + "\n"
+        if args.output:
+            publish_plan(Path(args.output), payload)
     except (OSError, ValueError) as exc:
         print(f"xodus-ai-launch-plan: FAIL: {exc}", file=sys.stderr)
         return 2
 
-    payload = json.dumps(plan, sort_keys=True, separators=(",", ":")) + "\n"
-    if args.output:
-        out = Path(args.output)
-        if out.exists() and out.is_symlink():
-            print("xodus-ai-launch-plan: FAIL: output symlink not allowed", file=sys.stderr)
-            return 2
-        out.parent.mkdir(parents=True, exist_ok=True)
-        tmp = out.with_name(f".{out.name}.{os.getpid()}.tmp")
-        tmp.write_text(payload, encoding="utf-8")
-        os.chmod(tmp, 0o644)
-        os.replace(tmp, out)
     sys.stdout.write(payload)
     return 0
 
