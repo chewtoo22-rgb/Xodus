@@ -27,20 +27,21 @@ fi
 
 [[ $EUID -eq 0 ]] || warn "not running as root; some firmware/disk details may be incomplete"
 
-# A physical hardware milestone must not accidentally accept a VM/container as
-# NUC evidence. systemd-detect-virt is preferred because it recognizes the
-# common hypervisors used by our own CI/rehearsal paths without mutating state.
+# Physical X1 qualification evidence must prove it did not originate from a VM
+# or container. If the detector is missing, that proof cannot be established,
+# so fail closed rather than accepting ambiguous hardware evidence.
 virt="unknown"
 if command -v systemd-detect-virt >/dev/null 2>&1; then
   virt="$(systemd-detect-virt 2>/dev/null || true)"
   if [[ -n "$virt" && "$virt" != "none" ]]; then
     fail "virtualized environment detected ($virt); physical X1 NUC evidence is required"
-  else
-    virt="none"
+  elif [[ "$virt" == "none" ]]; then
     pass "physical-machine boundary: no virtualization detected"
+  else
+    fail "systemd-detect-virt returned no trustworthy result; physical X1 NUC evidence cannot be verified"
   fi
 else
-  warn "systemd-detect-virt unavailable; physical-machine boundary could not be verified"
+  fail "systemd-detect-virt unavailable; physical X1 NUC evidence cannot be verified"
 fi
 
 if [[ -d /sys/firmware/efi ]]; then
