@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import math
 import pathlib
 import re
 import sys
@@ -11,6 +12,8 @@ LIVE_SOURCE_PATTERNS = (re.compile(r"airootfs", re.I), re.compile(r"^/dev/loop")
 HEX40 = re.compile(r"^[0-9a-f]{40}$")
 TIERS = {"disabled", "lite", "standard", "performance", "workstation"}
 BACKENDS = {"none", "cpu", "cuda", "vulkan"}
+MAX_VENDOR_LEN = 64
+MAX_CPU_THREADS = 4096
 
 def fail(msg: str) -> None:
     raise ValueError(msg)
@@ -93,14 +96,23 @@ def validate(root: pathlib.Path) -> dict:
         fail("unexpected hardware selection schema")
     if not isinstance(rec, dict) or set(rec) != {"tier", "max_model_class", "preferred_quant", "backend", "reason"}:
         fail("unexpected recommendation schema")
-    if isinstance(hw["cpu_threads"], bool) or not isinstance(hw["cpu_threads"], int) or hw["cpu_threads"] < 1:
+    if isinstance(hw["cpu_threads"], bool) or not isinstance(hw["cpu_threads"], int):
         fail("invalid cpu_threads")
+    if hw["cpu_threads"] < 1 or hw["cpu_threads"] > MAX_CPU_THREADS:
+        fail(f"cpu_threads must be between 1 and {MAX_CPU_THREADS}")
     for key in ("ram_gib", "vram_gib"):
         value = hw[key]
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
             fail(f"invalid {key}")
-    if not isinstance(hw["gpu_vendor"], str) or not hw["gpu_vendor"].strip():
+        if not math.isfinite(float(value)) or value < 0:
+            fail(f"invalid {key}")
+    vendor = hw["gpu_vendor"]
+    if not isinstance(vendor, str) or not vendor.strip():
         fail("invalid gpu_vendor")
+    if len(vendor.strip()) > MAX_VENDOR_LEN:
+        fail("gpu_vendor is too long")
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in vendor):
+        fail("gpu_vendor contains control characters")
     if rec["tier"] not in TIERS:
         fail("invalid recommendation tier")
     if rec["backend"] not in BACKENDS:
