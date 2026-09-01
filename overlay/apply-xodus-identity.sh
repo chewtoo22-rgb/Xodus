@@ -94,6 +94,19 @@ if [[ -f "$selector_source" ]]; then
   install -Dm0755 "$selector_source" "$root/pear/airootfs/usr/lib/xodus/xodus-ai-select.py"
 fi
 
+# Install and enable the read-only local-inference runtime preflight alongside
+# the hardware-selection service it requires. Keeping the script and unit in
+# the same overlay prevents repository-valid code from silently disappearing
+# from the produced live/installed payload.
+runtime_preflight_source="$repo_root/scripts/xodus-ai-runtime-preflight.py"
+runtime_preflight_unit="$script_dir/first-boot/xodus-ai-runtime-preflight.service"
+test -f "$runtime_preflight_source"
+test -f "$runtime_preflight_unit"
+install -Dm0755 "$runtime_preflight_source" "$root/pear/airootfs/usr/lib/xodus/xodus-ai-runtime-preflight.py"
+install -Dm0644 "$runtime_preflight_unit" "$root/pear/airootfs/usr/lib/systemd/system/xodus-ai-runtime-preflight.service"
+ln -sfn /usr/lib/systemd/system/xodus-ai-runtime-preflight.service \
+  "$root/pear/airootfs/etc/systemd/system/multi-user.target.wants/xodus-ai-runtime-preflight.service"
+
 # Assertions are part of the contract: a successful overlay must leave no
 # upstream pearOS ISO identity in the profile metadata.
 grep -Fq 'iso_name="Xodus"' "$profile"
@@ -108,5 +121,8 @@ test -L "$root/pear/airootfs/etc/systemd/system/multi-user.target.wants/xodus-fi
 test -x "$root/pear/airootfs/usr/lib/xodus/xodus-ai-first-boot"
 test -d "$root/pear/airootfs/var/lib/xodus/ai"
 test -L "$root/pear/airootfs/etc/systemd/system/multi-user.target.wants/xodus-ai-first-boot.service"
+test -x "$root/pear/airootfs/usr/lib/xodus/xodus-ai-runtime-preflight.py"
+test -f "$root/pear/airootfs/usr/lib/systemd/system/xodus-ai-runtime-preflight.service"
+test -L "$root/pear/airootfs/etc/systemd/system/multi-user.target.wants/xodus-ai-runtime-preflight.service"
 
 echo "Applied Xodus M0 identity overlay to $root"
