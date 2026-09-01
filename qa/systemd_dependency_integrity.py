@@ -8,6 +8,14 @@ DEPENDENCY_KEYS = {"After", "Before", "Requires", "Wants"}
 ORDERING_KEYS = {"After", "Before"}
 
 
+def reject_symlink_ancestors(path: Path) -> Path:
+    absolute = path.absolute()
+    for component in (absolute, *absolute.parents):
+        if component.is_symlink():
+            raise ValueError(f"unit root path traverses symlink component: {component}")
+    return absolute
+
+
 def parse_unit(path: Path) -> dict[str, list[str]]:
     if path.is_symlink() or not path.is_file():
         raise ValueError(f"unit must be a regular non-symlink file: {path}")
@@ -35,7 +43,8 @@ def split_units(values: list[str]) -> list[str]:
 
 
 def validate(root: Path) -> None:
-    if root.is_symlink() or not root.is_dir():
+    root = reject_symlink_ancestors(root)
+    if not root.is_dir():
         raise ValueError(f"unit root must be a regular directory: {root}")
 
     paths = sorted(root.glob("xodus-*.service"))
