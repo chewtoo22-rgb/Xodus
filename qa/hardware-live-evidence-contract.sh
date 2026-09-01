@@ -31,8 +31,6 @@ XODUS_CANDIDATE_SHA= XODUS_CANDIDATE_MANIFEST="$tmp/hardware-candidate.json" XOD
 grep -Fqx "candidate_sha=$sha_manifest" "$tmp/manifest-evidence/summary.txt"
 grep -Fqx 'candidate_sha_source=manifest' "$tmp/manifest-evidence/summary.txt"
 
-# A produced Xodus payload must be sufficient to establish candidate provenance
-# without a Git checkout or network-side qualification manifest.
 cat >"$tmp/build-info" <<EOF
 XODUS_NAME=Xodus
 XODUS_CHANNEL=M0-First-Blood
@@ -45,9 +43,6 @@ XODUS_CANDIDATE_SHA= XODUS_CANDIDATE_MANIFEST= XODUS_BUILD_INFO="$tmp/build-info
 grep -Fqx "candidate_sha=$sha_build" "$tmp/build-info-evidence/summary.txt"
 grep -Fqx 'candidate_sha_source=build-info' "$tmp/build-info-evidence/summary.txt"
 
-# Invalid or substituted build provenance must fail closed before evidence is
-# published. Do not silently fall back to a nearby checkout once payload
-# provenance exists but cannot be trusted.
 cat >"$tmp/bad-build-info" <<'EOF'
 XODUS_SOURCE_COMMIT=not-a-sha
 EOF
@@ -69,13 +64,10 @@ set -e
 [[ "$rc" -eq 3 ]]
 [[ ! -e "$tmp/symlink-build-evidence" ]]
 
-# The ISO overlay must carry the exact collector into the live filesystem and
-# assert its executable presence as part of overlay success.
 grep -Fq 'hardware_evidence_source="$repo_root/qa/hardware-live-evidence.sh"' "$overlay"
 grep -Fq 'install -Dm0755 "$hardware_evidence_source" "$root/pear/airootfs/usr/lib/xodus/xodus-hardware-live-evidence"' "$overlay"
 grep -Fq 'test -x "$root/pear/airootfs/usr/lib/xodus/xodus-hardware-live-evidence"' "$overlay"
 
-# Malformed manifest provenance must fail before publishing any evidence directory.
 cat >"$tmp/bad-candidate.json" <<'EOF'
 {"schema":1,"candidate_sha":"not-a-sha"}
 EOF
@@ -88,7 +80,6 @@ set -e
 grep -Fq 'candidate manifest must contain exactly one valid 40-character candidate_sha' "$tmp/bad.err"
 [[ ! -e "$tmp/bad-evidence" ]]
 
-# Duplicate provenance is ambiguous and must fail closed.
 cat >"$tmp/duplicate-candidate.json" <<EOF
 {"candidate_sha":"$sha_env","nested":{"candidate_sha":"$sha_manifest"}}
 EOF
@@ -100,7 +91,6 @@ set -e
 [[ "$rc" -eq 3 ]]
 [[ ! -e "$tmp/duplicate-evidence" ]]
 
-# Symlinked manifests are rejected rather than followed.
 ln -s "$tmp/hardware-candidate.json" "$tmp/manifest-link.json"
 set +e
 XODUS_CANDIDATE_SHA= XODUS_CANDIDATE_MANIFEST="$tmp/manifest-link.json" XODUS_BUILD_INFO="$tmp/missing-build-info" \
@@ -110,7 +100,6 @@ set -e
 [[ "$rc" -eq 3 ]]
 [[ ! -e "$tmp/symlink-manifest-evidence" ]]
 
-# Existing destinations, including symlinks, must never be merged or overwritten.
 mkdir "$tmp/existing-evidence"
 printf 'sentinel\n' >"$tmp/existing-evidence/keep.txt"
 set +e
@@ -129,7 +118,17 @@ set -e
 [[ "$rc" -eq 4 ]]
 [[ ! -e "$tmp/symlink-target/summary.txt" ]]
 
-# A failed provenance check must not leave staging directories behind.
+# A normal-looking parent below a symlinked ancestor must not redirect evidence.
+mkdir -p "$tmp/real-parent/nested"
+ln -s "$tmp/real-parent" "$tmp/linked-parent"
+set +e
+XODUS_CANDIDATE_SHA="$sha_env" bash "$collector" "$tmp/linked-parent/nested/evidence" >/dev/null 2>"$tmp/nested-parent.err"
+rc=$?
+set -e
+[[ "$rc" -eq 4 ]]
+grep -Fq 'parent traverses a symlink' "$tmp/nested-parent.err"
+[[ ! -e "$tmp/real-parent/nested/evidence" ]]
+
 if compgen -G "$tmp/.xodus-hardware-evidence.*" >/dev/null; then
   printf 'unexpected staging evidence directory remains after failure\n' >&2
   exit 1
