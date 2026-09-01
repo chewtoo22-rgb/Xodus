@@ -22,6 +22,13 @@ def selection(tier="standard", backend="vulkan"):
     }
 
 
+def write_engine(root: Path) -> Path:
+    fake = root / "llama-cli"
+    fake.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    fake.chmod(0o755)
+    return fake
+
+
 def run(sel, engine=True):
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
@@ -30,13 +37,21 @@ def run(sel, engine=True):
         sel_path.write_text(json.dumps(sel), encoding="utf-8")
         cmd = ["python3", str(SCRIPT), "--selection", str(sel_path), "--output", str(out_path)]
         if engine:
-            fake = root / "llama-cli"
-            fake.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-            fake.chmod(0o755)
-            cmd += ["--llama-bin", str(fake)]
+            cmd += ["--llama-bin", str(write_engine(root))]
         proc = subprocess.run(cmd, text=True, capture_output=True)
         data = json.loads(out_path.read_text(encoding="utf-8"))
         return proc.returncode, data
+
+
+def command(root: Path, out_path: Path):
+    sel_path = root / "selection.json"
+    sel_path.write_text(json.dumps(selection()), encoding="utf-8")
+    return [
+        "python3", str(SCRIPT),
+        "--selection", str(sel_path),
+        "--output", str(out_path),
+        "--llama-bin", str(write_engine(root)),
+    ]
 
 
 def main():
@@ -69,6 +84,47 @@ def main():
         proc = subprocess.run(["python3", str(SCRIPT), "--selection", str(link), "--output", str(out)], text=True)
         data = json.loads(out.read_text(encoding="utf-8"))
         assert proc.returncode == 2 and data["blockers"] == ["invalid_hardware_selection"]
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        out = root / "readiness.json"
+        out.write_text("preserve-me\n", encoding="utf-8")
+        proc = subprocess.run(command(root, out), text=True, capture_output=True)
+        assert proc.returncode == 2
+        assert out.read_text(encoding="utf-8") == "preserve-me\n"
+        assert "already exists" in proc.stderr
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        target = root / "target.json"
+        target.write_text("preserve-target\n", encoding="utf-8")
+        out = root / "readiness.json"
+        out.symlink_to(target.name)
+        proc = subprocess.run(command(root, out), text=True, capture_output=True)
+        assert proc.returncode == 2
+        assert target.read_text(encoding="utf-8") == "preserve-target\n"
+        assert out.is_symlink()
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        out = root / "missing" / "readiness.json"
+        proc = subprocess.run(command(root, out), text=True, capture_output=True)
+        assert proc.returncode == 2
+        assert not out.exists()
+        assert not out.parent.exists()
+        assert "existing non-symlink directory" in proc.stderr
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        real_parent = root / "real"
+        real_parent.mkdir()
+        linked_parent = root / "linked"
+        linked_parent.symlink_to(real_parent.name, target_is_directory=True)
+        out = linked_parent / "readiness.json"
+        proc = subprocess.run(command(root, out), text=True, capture_output=True)
+        assert proc.returncode == 2
+        assert not (real_parent / "readiness.json").exists()
+        assert "non-symlink directory" in proc.stderr
 
     unit = (REPO / "overlay/first-boot/xodus-ai-runtime-preflight.service").read_text(encoding="utf-8")
     assert "After=xodus-ai-first-boot.service" in unit
