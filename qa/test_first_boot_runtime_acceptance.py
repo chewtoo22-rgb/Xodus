@@ -48,6 +48,12 @@ class AcceptanceTests(unittest.TestCase):
         (ai / "hardware-selection.json").write_text(json.dumps(selection), encoding="utf-8")
         return td, root
 
+    def mutate_hardware(self, root, key, value):
+        path = root / "var/lib/xodus/ai/hardware-selection.json"
+        selection = json.loads(path.read_text(encoding="utf-8"))
+        selection["hardware"][key] = value
+        path.write_text(json.dumps(selection), encoding="utf-8")
+
     def test_accepts_coherent_installed_uefi_state(self):
         td, root = self.fixture()
         self.addCleanup(td.cleanup)
@@ -106,6 +112,48 @@ class AcceptanceTests(unittest.TestCase):
             encoding="utf-8",
         )
         with self.assertRaisesRegex(ValueError, "duplicate/empty key"):
+            acceptance.validate(root)
+
+    def test_rejects_nan_ram(self):
+        td, root = self.fixture()
+        self.addCleanup(td.cleanup)
+        self.mutate_hardware(root, "ram_gib", float("nan"))
+        with self.assertRaisesRegex(ValueError, "invalid ram_gib"):
+            acceptance.validate(root)
+
+    def test_rejects_infinite_vram(self):
+        td, root = self.fixture()
+        self.addCleanup(td.cleanup)
+        self.mutate_hardware(root, "vram_gib", float("inf"))
+        with self.assertRaisesRegex(ValueError, "invalid vram_gib"):
+            acceptance.validate(root)
+
+    def test_rejects_excessive_cpu_threads(self):
+        td, root = self.fixture()
+        self.addCleanup(td.cleanup)
+        self.mutate_hardware(root, "cpu_threads", acceptance.MAX_CPU_THREADS + 1)
+        with self.assertRaisesRegex(ValueError, "cpu_threads must be between"):
+            acceptance.validate(root)
+
+    def test_rejects_boolean_cpu_threads(self):
+        td, root = self.fixture()
+        self.addCleanup(td.cleanup)
+        self.mutate_hardware(root, "cpu_threads", True)
+        with self.assertRaisesRegex(ValueError, "invalid cpu_threads"):
+            acceptance.validate(root)
+
+    def test_rejects_control_character_gpu_vendor(self):
+        td, root = self.fixture()
+        self.addCleanup(td.cleanup)
+        self.mutate_hardware(root, "gpu_vendor", "intel\nspoof")
+        with self.assertRaisesRegex(ValueError, "control characters"):
+            acceptance.validate(root)
+
+    def test_rejects_oversized_gpu_vendor(self):
+        td, root = self.fixture()
+        self.addCleanup(td.cleanup)
+        self.mutate_hardware(root, "gpu_vendor", "x" * (acceptance.MAX_VENDOR_LEN + 1))
+        with self.assertRaisesRegex(ValueError, "too long"):
             acceptance.validate(root)
 
 if __name__ == "__main__":
