@@ -6,6 +6,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 manifest="${XODUS_CANDIDATE_MANIFEST:-}"
 candidate_sha="${XODUS_CANDIDATE_SHA:-}"
 candidate_sha_source="environment"
+build_info="${XODUS_BUILD_INFO:-/usr/lib/xodus/build-info}"
 
 if [[ -z "$candidate_sha" && -n "$manifest" ]]; then
   if [[ ! -f "$manifest" || -L "$manifest" || ! -r "$manifest" ]]; then
@@ -23,6 +24,24 @@ if [[ -z "$candidate_sha" && -n "$manifest" ]]; then
   candidate_sha_source="manifest"
 fi
 
+# Produced Xodus media carries immutable build provenance. Prefer it before a
+# repository checkout so the collector works directly from the live ISO on the
+# physical NUC without requiring git, network access, or operator-side files.
+if [[ -z "$candidate_sha" && -e "$build_info" ]]; then
+  if [[ ! -f "$build_info" || -L "$build_info" || ! -r "$build_info" ]]; then
+    printf 'Xodus build-info must be a readable regular file, not a symlink: %s\n' "$build_info" >&2
+    exit 3
+  fi
+  matches="$(grep -E '^XODUS_SOURCE_COMMIT=[0-9a-fA-F]{40}$' "$build_info" || true)"
+  match_count="$(printf '%s\n' "$matches" | grep -c . || true)"
+  if [[ "$match_count" -ne 1 ]]; then
+    printf 'Xodus build-info must contain exactly one valid XODUS_SOURCE_COMMIT: %s\n' "$build_info" >&2
+    exit 3
+  fi
+  candidate_sha="$(printf '%s\n' "$matches" | sed 's/^XODUS_SOURCE_COMMIT=//')"
+  candidate_sha_source="build-info"
+fi
+
 if [[ -z "$candidate_sha" ]] && command -v git >/dev/null 2>&1; then
   candidate_sha="$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || true)"
   candidate_sha_source="git-checkout"
@@ -30,7 +49,7 @@ fi
 
 if [[ ! "$candidate_sha" =~ ^[0-9a-fA-F]{40}$ ]]; then
   printf 'unable to resolve a valid 40-character Xodus candidate SHA\n' >&2
-  printf 'set XODUS_CANDIDATE_SHA or XODUS_CANDIDATE_MANIFEST, or run from a Git checkout\n' >&2
+  printf 'set XODUS_CANDIDATE_SHA/XODUS_CANDIDATE_MANIFEST, provide valid build-info, or run from a Git checkout\n' >&2
   exit 3
 fi
 candidate_sha="${candidate_sha,,}"
