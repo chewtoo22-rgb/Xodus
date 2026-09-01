@@ -1,0 +1,32 @@
+name: AI Runtime Overlay Contract
+
+on:
+  pull_request:
+    paths:
+      - 'overlay/apply-xodus-identity.sh'
+      - 'overlay/first-boot/xodus-ai-runtime-preflight.service'
+      - 'scripts/xodus-ai-runtime-preflight.py'
+      - 'qa/ai-runtime-overlay-contract.sh'
+      - '.github/workflows/ai-runtime-overlay-contract.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'overlay/apply-xodus-identity.sh'
+      - 'overlay/first-boot/xodus-ai-runtime-preflight.service'
+      - 'scripts/xodus-ai-runtime-preflight.py'
+      - 'qa/ai-runtime-overlay-contract.sh'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shell syntax
+        run: bash -n overlay/apply-xodus-identity.sh qa/ai-runtime-overlay-contract.sh
+      - name: Runtime Python syntax
+        run: python3 -m py_compile scripts/xodus-ai-runtime-preflight.py
+      - name: Overlay integration contract
+        run: bash qa/ai-runtime-overlay-contract.sh
