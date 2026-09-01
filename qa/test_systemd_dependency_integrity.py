@@ -32,16 +32,23 @@ class SystemdDependencyIntegrityTests(unittest.TestCase):
             root = Path(tmp)
             write_unit(root, "xodus-a.service", "After=xodus-b.service")
             write_unit(root, "xodus-b.service", "After=xodus-a.service")
-            with self.assertRaisesRegex(ValueError, "dependency cycle"):
+            with self.assertRaisesRegex(ValueError, "ordering cycle"):
                 validate(root)
 
-    def test_before_after_cycle_fails(self) -> None:
+    def test_before_cycle_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             write_unit(root, "xodus-a.service", "Before=xodus-b.service")
             write_unit(root, "xodus-b.service", "Before=xodus-a.service")
-            with self.assertRaisesRegex(ValueError, "dependency cycle"):
+            with self.assertRaisesRegex(ValueError, "ordering cycle"):
                 validate(root)
+
+    def test_mutual_wants_does_not_create_ordering_cycle(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_unit(root, "xodus-a.service", "Wants=xodus-b.service")
+            write_unit(root, "xodus-b.service", "Wants=xodus-a.service")
+            validate(root)
 
     def test_external_system_unit_is_allowed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
