@@ -6,6 +6,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "xodus-ai-launch-plan.py"
 spec = importlib.util.spec_from_file_location("xodus_ai_launch_plan", SCRIPT)
@@ -118,6 +119,45 @@ class LaunchPlanTests(unittest.TestCase):
                 plan = module.build_plan(self.load(), self.model, "::1", 22000)
                 self.assertEqual(plan["context_tokens"], ctx)
                 self.assertEqual(plan["bind_host"], "::1")
+
+    def test_publish_plan_creates_new_durable_artifact(self) -> None:
+        out = self.root / "launch.json"
+        payload = '{"status":"ready_for_local_launch"}\n'
+        module.publish_plan(out, payload)
+        self.assertEqual(out.read_text(encoding="utf-8"), payload)
+        self.assertFalse(any(self.root.glob(".launch.json.*.tmp")))
+
+    def test_publish_plan_refuses_existing_or_symlink_output(self) -> None:
+        existing = self.root / "existing.json"
+        existing.write_text("old", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "already exists"):
+            module.publish_plan(existing, "new\n")
+        self.assertEqual(existing.read_text(encoding="utf-8"), "old")
+
+        target = self.root / "target.json"
+        target.write_text("target", encoding="utf-8")
+        link = self.root / "linked.json"
+        link.symlink_to(target)
+        with self.assertRaisesRegex(ValueError, "already exists"):
+            module.publish_plan(link, "new\n")
+        self.assertEqual(target.read_text(encoding="utf-8"), "target")
+
+    def test_publish_plan_rejects_symlink_parent(self) -> None:
+        real_parent = self.root / "real"
+        real_parent.mkdir()
+        linked_parent = self.root / "linked-parent"
+        linked_parent.symlink_to(real_parent, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, "non-symlink directory"):
+            module.publish_plan(linked_parent / "launch.json", "new\n")
+        self.assertFalse((real_parent / "launch.json").exists())
+
+    def test_publish_plan_cleans_temp_file_on_replace_failure(self) -> None:
+        out = self.root / "launch.json"
+        with mock.patch.object(module.os, "replace", side_effect=OSError("replace failed")):
+            with self.assertRaisesRegex(OSError, "replace failed"):
+                module.publish_plan(out, "payload\n")
+        self.assertFalse(out.exists())
+        self.assertFalse(any(self.root.glob(".launch.json.*.tmp")))
 
 
 if __name__ == "__main__":
