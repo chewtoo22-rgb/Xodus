@@ -1,0 +1,28 @@
+name: X1 Service Chain Smoke
+
+on:
+  pull_request:
+    paths:
+      - 'qa/x1_service_chain_smoke.py'
+      - 'qa/fixtures/x1-service-chain-valid.json'
+      - '.github/workflows/x1-service-chain-smoke.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'qa/x1_service_chain_smoke.py'
+      - 'qa/fixtures/x1-service-chain-valid.json'
+      - '.github/workflows/x1-service-chain-smoke.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run pure service-chain smoke
+        run: python3 qa/x1_service_chain_smoke.py qa/fixtures/x1-service-chain-valid.json
+      - name: Enforce non-execution boundary
+        run: |
+          ! grep -nE '\b(systemctl|service |sudo |mount |umount |rm -rf|curl |wget )' qa/x1_service_chain_smoke.py
