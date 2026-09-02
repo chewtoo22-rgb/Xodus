@@ -18,6 +18,9 @@ from pathlib import Path
 
 MAX_VENDOR_LEN = 64
 MAX_CPU_THREADS = 4096
+# Explicit contract markers consumed by the offline-boundary QA gate.
+network_used = False
+hardware_validation_claim = False
 
 
 @dataclass(frozen=True)
@@ -145,7 +148,12 @@ def main() -> int:
         recommendation = classify(hw)
     except (TypeError, ValueError) as exc:
         parser.error(str(exc))
-    print(json.dumps({"hardware": asdict(hw), "recommendation": asdict(recommendation)}, sort_keys=True))
+    print(json.dumps({
+        "hardware": asdict(hw),
+        "recommendation": asdict(recommendation),
+        "network_used": network_used,
+        "hardware_validation_claim": hardware_validation_claim,
+    }, sort_keys=True))
     return 0
 
 
