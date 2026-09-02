@@ -1,0 +1,51 @@
+name: X1 Service Chain Smoke
+
+on:
+  pull_request:
+    paths:
+      - 'qa/x1_service_chain_smoke.py'
+      - 'qa/fixtures/x1-service-chain-valid.json'
+      - 'qa/fixtures/x1-service-chain-malformed.json'
+      - '.github/workflows/x1-service-chain-smoke.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'qa/x1_service_chain_smoke.py'
+      - 'qa/fixtures/x1-service-chain-valid.json'
+      - 'qa/fixtures/x1-service-chain-malformed.json'
+      - '.github/workflows/x1-service-chain-smoke.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run valid service-chain smoke
+        run: python3 qa/x1_service_chain_smoke.py qa/fixtures/x1-service-chain-valid.json
+      - name: Reject malformed service-chain fixture
+        run: |
+          if python3 qa/x1_service_chain_smoke.py qa/fixtures/x1-service-chain-malformed.json; then
+            echo 'malformed fixture unexpectedly passed'
+            exit 1
+          fi
+      - name: Enforce non-execution boundary
+        run: |
+          python3 - <<'PY'
+          import io
+          import re
+          import tokenize
+          from pathlib import Path
+
+          source = Path('qa/x1_service_chain_smoke.py').read_text(encoding='utf-8')
+          code = io.StringIO(source)
+          tokens = [tok for tok in tokenize.generate_tokens(code.readline)
+                    if tok.type not in {tokenize.COMMENT, tokenize.STRING, tokenize.NL, tokenize.NEWLINE, tokenize.ENCODING}]
+          executable = ' '.join(tok.string for tok in tokens)
+          forbidden = re.compile(r'\b(systemctl|service|sudo|mount|umount|curl|wget)\b|rm\s+-rf')
+          match = forbidden.search(executable)
+          if match:
+              raise SystemExit(f'forbidden execution primitive: {match.group(0)}')
+          PY
