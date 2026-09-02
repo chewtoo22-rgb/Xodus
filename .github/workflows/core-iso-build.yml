@@ -217,22 +217,3 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
-
-      - name: Preserve failure diagnostics
-        if: failure()
-        shell: bash
-        run: |
-          df -h > disk-usage.txt || true
-          find pearos-iso/work -maxdepth 3 -type f -printf '%p %s bytes\n' 2>/dev/null | tail -500 > build-files.txt || true
-
-      - name: Upload failure diagnostics
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: xodus-core-iso-failure-diagnostics
-          path: |
-            disk-usage.txt
-            build-files.txt
-            pearos-iso/xodus-build-attempt-*.log
-          if-no-files-found: ignore
-          retention-days: 7
