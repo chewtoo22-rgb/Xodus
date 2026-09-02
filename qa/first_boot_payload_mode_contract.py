@@ -42,9 +42,9 @@ def main() -> None:
     ai_first_boot = (PAYLOAD / "xodus-ai-first-boot.service").read_text(encoding="utf-8")
     runtime = (PAYLOAD / "xodus-ai-runtime-preflight.service").read_text(encoding="utf-8")
 
-    if "ExecStart=/usr/libexec/xodus-first-boot" not in first_boot:
+    if "ExecStart=/usr/lib/xodus/xodus-first-boot" not in first_boot:
         fail("base service is not bound to the shipped base runner")
-    if "ExecStart=/usr/libexec/xodus-ai-first-boot" not in ai_first_boot:
+    if "ExecStart=/usr/lib/xodus/xodus-ai-first-boot" not in ai_first_boot:
         fail("AI service is not bound to the shipped AI runner")
     if "After=xodus-ai-first-boot.service" not in runtime:
         fail("runtime preflight does not wait for AI first-boot")
