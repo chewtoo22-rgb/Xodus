@@ -1,0 +1,25 @@
+name: X1 NUC Readiness
+
+on:
+  pull_request:
+    paths:
+      - 'qa/x1_nuc_readiness_contract.py'
+      - 'qa/x1_nuc_readiness_manifest.json'
+      - '.github/workflows/x1-nuc-readiness.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'qa/x1_nuc_readiness_contract.py'
+      - 'qa/x1_nuc_readiness_manifest.json'
+      - '.github/workflows/x1-nuc-readiness.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate X1 NUC readiness manifest
+        run: python3 qa/x1_nuc_readiness_contract.py
