@@ -41,8 +41,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          line=$(grep -v '^#' upstream/iso.lock | grep -v '^$' | head -n1)
-          IFS='|' read -r repo branch commit captured <<< "$line"
+          mapfile -t entries < <(awk 'NF && $1 !~ /^#/ {print}' upstream/iso.lock)
+          test "${#entries[@]}" -eq 1
+          IFS='|' read -r repo branch commit captured extra <<< "${entries[0]}"
+          test -n "$repo"
+          test -n "$branch"
+          test -n "$captured"
+          test -z "${extra:-}"
+          [[ "$captured" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]
+          [[ "$repo" =~ ^https://[^[:space:]]+$ ]]
+          [[ "$branch" =~ ^[A-Za-z0-9._/-]+$ ]]
           [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
           echo "repo=$repo" >> "$GITHUB_OUTPUT"
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
