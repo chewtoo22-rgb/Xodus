@@ -91,6 +91,51 @@ class ReadinessTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "symlink not allowed"):
                 mod.validate(npath, link)
 
+    def test_publishes_new_evidence_without_temp_residue(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            out = root / "local-ai.json"
+            mod.publish_evidence(out, "{\"status\":\"ok\"}\n")
+            self.assertEqual(out.read_text(encoding="utf-8"), "{\"status\":\"ok\"}\n")
+            self.assertEqual(list(root.glob(".local-ai.json.*.tmp")), [])
+
+    def test_refuses_existing_output_without_overwrite(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            out = root / "local-ai.json"
+            out.write_text("original\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "already exists"):
+                mod.publish_evidence(out, "replacement\n")
+            self.assertEqual(out.read_text(encoding="utf-8"), "original\n")
+
+    def test_refuses_missing_or_symlink_parent(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            missing = root / "missing" / "local-ai.json"
+            with self.assertRaisesRegex(ValueError, "existing non-symlink directory"):
+                mod.publish_evidence(missing, "evidence\n")
+            self.assertFalse(missing.parent.exists())
+
+            real_parent = root / "real"
+            real_parent.mkdir()
+            link_parent = root / "linked"
+            link_parent.symlink_to(real_parent, target_is_directory=True)
+            redirected = link_parent / "local-ai.json"
+            with self.assertRaisesRegex(ValueError, "existing non-symlink directory"):
+                mod.publish_evidence(redirected, "evidence\n")
+            self.assertFalse((real_parent / "local-ai.json").exists())
+
+    def test_refuses_symlink_output_without_touching_target(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            target = root / "target.json"
+            target.write_text("original\n", encoding="utf-8")
+            out = root / "local-ai.json"
+            out.symlink_to(target)
+            with self.assertRaisesRegex(ValueError, "already exists"):
+                mod.publish_evidence(out, "replacement\n")
+            self.assertEqual(target.read_text(encoding="utf-8"), "original\n")
+
 
 if __name__ == "__main__":
     unittest.main()
