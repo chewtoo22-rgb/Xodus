@@ -68,6 +68,17 @@ hardware_evidence_source="$repo_root/qa/hardware-live-evidence.sh"
 test -f "$hardware_evidence_source"
 install -Dm0755 "$hardware_evidence_source" "$root/pear/airootfs/usr/lib/xodus/xodus-hardware-live-evidence"
 
+# Carry the strict physical-NUC admission check and its provenance verifier in
+# the same payload. This closes the final checkout dependency in the physical
+# X1 test path: qualified media can prove UEFI/physical-machine/provenance state
+# offline before any destructive installer step is considered.
+nuc_preflight_source="$repo_root/qa/x1-nuc-preflight.sh"
+build_info_verifier_source="$repo_root/qa/x1-build-info-contract.sh"
+test -f "$nuc_preflight_source"
+test -f "$build_info_verifier_source"
+install -Dm0755 "$nuc_preflight_source" "$root/pear/airootfs/usr/lib/xodus/xodus-x1-nuc-preflight"
+install -Dm0755 "$build_info_verifier_source" "$root/pear/airootfs/usr/lib/xodus/xodus-build-info-verify"
+
 # Install the first-boot foundation into the live payload. It is intentionally
 # present on live media but refuses to complete until booted from an installed
 # non-ephemeral root, so the installer can copy one identical payload to disk.
@@ -123,6 +134,8 @@ grep -Fq 'xodus-live' "$hostname_file"
 grep -Fxq "XODUS_SOURCE_COMMIT=${xodus_source_commit}" "$root/pear/airootfs/usr/lib/xodus/build-info"
 grep -Fxq "XODUS_UPSTREAM_COMMIT=${upstream_commit}" "$root/pear/airootfs/usr/lib/xodus/build-info"
 test -x "$root/pear/airootfs/usr/lib/xodus/xodus-hardware-live-evidence"
+test -x "$root/pear/airootfs/usr/lib/xodus/xodus-x1-nuc-preflight"
+test -x "$root/pear/airootfs/usr/lib/xodus/xodus-build-info-verify"
 test -x "$root/pear/airootfs/usr/lib/xodus/xodus-first-boot"
 test -d "$root/pear/airootfs/var/lib/xodus/first-boot"
 test -L "$root/pear/airootfs/etc/systemd/system/multi-user.target.wants/xodus-first-boot.service"
