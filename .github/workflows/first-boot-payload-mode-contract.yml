@@ -1,0 +1,28 @@
+name: First Boot Payload Mode Contract
+
+on:
+  pull_request:
+    paths:
+      - 'overlay/first-boot/**'
+      - 'qa/first_boot_payload_mode_contract.py'
+      - '.github/workflows/first-boot-payload-mode-contract.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'overlay/first-boot/**'
+      - 'qa/first_boot_payload_mode_contract.py'
+      - '.github/workflows/first-boot-payload-mode-contract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  first-boot-payload-mode:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate shipped payload modes and service bindings
+        run: python3 qa/first_boot_payload_mode_contract.py
