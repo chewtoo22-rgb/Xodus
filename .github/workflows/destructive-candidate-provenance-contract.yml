@@ -1,0 +1,23 @@
+name: Destructive Candidate Provenance Contract
+
+on:
+  pull_request:
+    paths:
+      - 'qa/qualify-destructive-candidate.sh'
+      - 'qa/qualify-destructive-candidate-contract.sh'
+      - '.github/workflows/destructive-candidate-provenance-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate qualification provenance boundary
+        run: bash qa/qualify-destructive-candidate-contract.sh
