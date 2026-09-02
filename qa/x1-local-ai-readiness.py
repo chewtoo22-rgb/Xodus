@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import pathlib
 import re
 import sys
+import tempfile
 
 HEX40 = re.compile(r"^[0-9a-f]{40}$")
 NUC_KEYS = {
@@ -90,6 +92,48 @@ def validate(nuc_path: pathlib.Path, runtime_path: pathlib.Path) -> dict:
     }
 
 
+def publish_evidence(out: pathlib.Path, encoded: str) -> None:
+    parent = out.parent
+    if out.is_symlink() or out.exists():
+        fail("output already exists or is a symlink")
+    if parent.is_symlink() or not parent.is_dir():
+        fail("output parent must be an existing non-symlink directory")
+
+    tmp_path: pathlib.Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=parent,
+            prefix=f".{out.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as tmp:
+            tmp.write(encoded)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+            tmp_path = pathlib.Path(tmp.name)
+
+        os.link(tmp_path, out)
+        tmp_path.unlink()
+        tmp_path = None
+
+        flags = os.O_RDONLY
+        if hasattr(os, "O_DIRECTORY"):
+            flags |= os.O_DIRECTORY
+        dir_fd = os.open(parent, flags)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+    finally:
+        if tmp_path is not None:
+            try:
+                tmp_path.unlink()
+            except FileNotFoundError:
+                pass
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Validate coherent X1 NUC + local AI runtime readiness evidence")
     parser.add_argument("--nuc-readiness", required=True)
@@ -98,19 +142,12 @@ def main() -> int:
     args = parser.parse_args()
     try:
         result = validate(pathlib.Path(args.nuc_readiness), pathlib.Path(args.ai_runtime))
+        encoded = json.dumps(result, sort_keys=True, separators=(",", ":")) + "\n"
+        if args.output:
+            publish_evidence(pathlib.Path(args.output), encoded)
     except (OSError, ValueError) as exc:
         print(f"xodus-x1-local-ai-readiness: FAIL: {exc}", file=sys.stderr)
         return 1
-    encoded = json.dumps(result, sort_keys=True, separators=(",", ":")) + "\n"
-    if args.output:
-        out = pathlib.Path(args.output)
-        if out.exists() and out.is_symlink():
-            print("xodus-x1-local-ai-readiness: FAIL: output symlink not allowed", file=sys.stderr)
-            return 1
-        out.parent.mkdir(parents=True, exist_ok=True)
-        tmp = out.with_name(f".{out.name}.tmp")
-        tmp.write_text(encoded, encoding="utf-8")
-        tmp.replace(out)
     sys.stdout.write(encoded)
     return 0
 
