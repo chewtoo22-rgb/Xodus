@@ -1,0 +1,25 @@
+name: Core ISO Diagnostics Scope
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/core-iso-build.yml'
+      - '.github/workflows/core-iso-diagnostics-scope.yml'
+      - 'qa/check_core_iso_diagnostics_scope.py'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/core-iso-build.yml'
+      - '.github/workflows/core-iso-diagnostics-scope.yml'
+      - 'qa/check_core_iso_diagnostics_scope.py'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostics-scope:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate bounded diagnostics scope
+        run: python3 qa/check_core_iso_diagnostics_scope.py
