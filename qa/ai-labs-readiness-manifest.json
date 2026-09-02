@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "target": "intel-nuc-x86_64",
+  "hardware_validation_claim": false,
+  "network_required": false,
+  "checks": [
+    "ai-first-boot-ordering",
+    "runtime-preflight-gate",
+    "model-cache-is-optional",
+    "offline-safe-default",
+    "service-health-observable"
+  ]
+}

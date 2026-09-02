@@ -1,0 +1,25 @@
+name: X1 AI Labs Readiness Contract
+
+on:
+  pull_request:
+    paths:
+      - 'qa/ai-labs-readiness-manifest.json'
+      - 'qa/ai_labs_readiness_contract.py'
+      - '.github/workflows/ai-labs-readiness-contract.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'qa/ai-labs-readiness-manifest.json'
+      - 'qa/ai_labs_readiness_contract.py'
+      - '.github/workflows/ai-labs-readiness-contract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate AI Labs readiness manifest
+        run: python3 qa/ai_labs_readiness_contract.py
