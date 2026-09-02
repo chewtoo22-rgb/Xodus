@@ -15,6 +15,9 @@ REQUIRED = {
     "xodus-ai-runtime-preflight.service": {"kind": "oneshot", "enabled": True, "after": {"xodus-ai-first-boot.service"}, "requires": {"xodus-ai-first-boot.service"}},
 }
 
+ROOT_FIELDS = {"units"}
+UNIT_FIELDS = {"kind", "enabled", "after", "requires", "network_online", "shell_indirection"}
+
 
 def _dependency_set(unit: dict[str, Any], field: str, name: str, errors: list[str]) -> set[str]:
     value = unit.get(field)
@@ -28,14 +31,20 @@ def _dependency_set(unit: dict[str, Any], field: str, name: str, errors: list[st
 
 def validate(payload: dict[str, Any]) -> list[str]:
     errors: list[str] = []
+    unknown_root = set(payload) - ROOT_FIELDS
+    if unknown_root:
+        errors.append(f"root contains unknown fields: {sorted(unknown_root)}")
     units = payload.get("units")
     if not isinstance(units, dict):
-        return ["units must be an object"]
+        return errors + ["units must be an object"]
     for name, contract in REQUIRED.items():
         unit = units.get(name)
         if not isinstance(unit, dict):
             errors.append(f"missing unit: {name}")
             continue
+        unknown_unit = set(unit) - UNIT_FIELDS
+        if unknown_unit:
+            errors.append(f"{name}: contains unknown fields: {sorted(unknown_unit)}")
         if unit.get("kind") != contract["kind"]:
             errors.append(f"{name}: kind must be oneshot")
         if unit.get("enabled") is not True:
@@ -54,6 +63,9 @@ def validate(payload: dict[str, Any]) -> list[str]:
     if not isinstance(graphical, dict):
         errors.append("graphical.target must be an object")
     else:
+        unknown_graphical = set(graphical) - {"after"}
+        if unknown_graphical:
+            errors.append(f"graphical.target: contains unknown fields: {sorted(unknown_graphical)}")
         graphical_after = _dependency_set(graphical, "after", "graphical.target", errors)
         if "xodus-first-boot.service" not in graphical_after:
             errors.append("graphical.target must wait for xodus-first-boot.service")
