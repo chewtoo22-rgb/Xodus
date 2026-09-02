@@ -5,12 +5,14 @@ on:
     paths:
       - 'qa/x1_service_chain_smoke.py'
       - 'qa/fixtures/x1-service-chain-valid.json'
+      - 'qa/fixtures/x1-service-chain-malformed.json'
       - '.github/workflows/x1-service-chain-smoke.yml'
   push:
     branches: [main]
     paths:
       - 'qa/x1_service_chain_smoke.py'
       - 'qa/fixtures/x1-service-chain-valid.json'
+      - 'qa/fixtures/x1-service-chain-malformed.json'
       - '.github/workflows/x1-service-chain-smoke.yml'
 
 permissions:
@@ -21,8 +23,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Run pure service-chain smoke
+      - name: Run valid service-chain smoke
         run: python3 qa/x1_service_chain_smoke.py qa/fixtures/x1-service-chain-valid.json
+      - name: Reject malformed service-chain fixture
+        run: |
+          if python3 qa/x1_service_chain_smoke.py qa/fixtures/x1-service-chain-malformed.json; then
+            echo 'malformed fixture unexpectedly passed'
+            exit 1
+          fi
       - name: Enforce non-execution boundary
         run: |
           ! grep -nE '\b(systemctl|service |sudo |mount |umount |rm -rf|curl |wget )' qa/x1_service_chain_smoke.py
