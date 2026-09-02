@@ -16,6 +16,16 @@ REQUIRED = {
 }
 
 
+def _dependency_set(unit: dict[str, Any], field: str, name: str, errors: list[str]) -> set[str]:
+    value = unit.get(field)
+    if not isinstance(value, list) or any(not isinstance(item, str) or not item for item in value):
+        errors.append(f"{name}: {field} must be a list of non-empty strings")
+        return set()
+    if len(value) != len(set(value)):
+        errors.append(f"{name}: {field} contains duplicates")
+    return set(value)
+
+
 def validate(payload: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     units = payload.get("units")
@@ -30,8 +40,8 @@ def validate(payload: dict[str, Any]) -> list[str]:
             errors.append(f"{name}: kind must be oneshot")
         if unit.get("enabled") is not True:
             errors.append(f"{name}: must be enabled")
-        after = set(unit.get("after", [])) if isinstance(unit.get("after", []), list) else set()
-        requires = set(unit.get("requires", [])) if isinstance(unit.get("requires", []), list) else set()
+        after = _dependency_set(unit, "after", name, errors)
+        requires = _dependency_set(unit, "requires", name, errors)
         if not contract["after"].issubset(after):
             errors.append(f"{name}: missing After dependency")
         if not contract["requires"].issubset(requires):
@@ -41,8 +51,12 @@ def validate(payload: dict[str, Any]) -> list[str]:
         if unit.get("shell_indirection") is True:
             errors.append(f"{name}: shell indirection is forbidden")
     graphical = units.get("graphical.target", {})
-    if not isinstance(graphical, dict) or "xodus-first-boot.service" not in set(graphical.get("after", [])):
-        errors.append("graphical.target must wait for xodus-first-boot.service")
+    if not isinstance(graphical, dict):
+        errors.append("graphical.target must be an object")
+    else:
+        graphical_after = _dependency_set(graphical, "after", "graphical.target", errors)
+        if "xodus-first-boot.service" not in graphical_after:
+            errors.append("graphical.target must wait for xodus-first-boot.service")
     return errors
 
 
@@ -52,6 +66,9 @@ def main() -> int:
     parser.add_argument("fixture", type=Path)
     args = parser.parse_args()
     payload = json.loads(args.fixture.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        print("fixture root must be an object")
+        return 1
     errors = validate(payload)
     if errors:
         for error in errors:
