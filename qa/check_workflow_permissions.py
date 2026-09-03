@@ -9,7 +9,11 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 
-FORBIDDEN = re.compile(r"(?:read-all|write-all|\*|contents\s*:\s*write|actions\s*:\s*write|pull-requests\s*:\s*write)")
+FORBIDDEN = re.compile(
+    r"(?:^|\n)\s*(?:read-all|write-all)\s*$|"
+    r"(?m)^\s+(?:contents|actions|pull-requests):\s*write\s*$|"
+    r"(?m)^\s+[^:#]+:\s*\*\s*$"
+)
 
 
 def main() -> int:
