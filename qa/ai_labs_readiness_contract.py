@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "qa" / "ai-labs-readiness-manifest.json"
@@ -27,11 +28,20 @@ def fail(message: str) -> None:
     raise SystemExit(f"AI Labs readiness contract failed: {message}")
 
 
+def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate key: {key}")
+        result[key] = value
+    return result
+
+
 def main() -> None:
     if not MANIFEST.is_file() or MANIFEST.is_symlink():
         fail("manifest must be a regular file")
     try:
-        data = json.loads(MANIFEST.read_text(encoding="utf-8"))
+        data = json.loads(MANIFEST.read_text(encoding="utf-8"), object_pairs_hook=reject_duplicate_keys)
     except Exception as exc:
         fail(f"invalid JSON: {exc}")
     if not isinstance(data, dict):
