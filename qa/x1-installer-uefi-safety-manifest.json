@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "target": "intel-nuc-x86_64",
+  "destructive_install": false,
+  "hardware_validation_claim": false,
+  "checks": {
+    "dedicated_target_disk_required": true,
+    "uefi_boot_entry_explicit": true,
+    "legacy_csm_not_required": true,
+    "secure_boot_state_recorded": true,
+    "installer_confirmation_required": true,
+    "rollback_path_documented": true
+  }
+}
