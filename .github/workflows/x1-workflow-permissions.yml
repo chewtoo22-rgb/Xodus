@@ -1,0 +1,23 @@
+name: X1 Workflow Permission Boundary
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+      - 'qa/check_workflow_permissions.py'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/**'
+      - 'qa/check_workflow_permissions.py'
+
+permissions:
+  contents: read
+
+jobs:
+  workflow-permissions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate workflow permissions
+        run: python3 qa/check_workflow_permissions.py
