@@ -11,8 +11,9 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 
 FORBIDDEN = re.compile(
     r"(?:^|\n)\s*(?:read-all|write-all)\s*$|"
-    r"(?m)^\s+(?:contents|actions|pull-requests):\s*write\s*$|"
-    r"(?m)^\s+[^:#]+:\s*\*\s*$"
+    r"^\s+(?:contents|actions|pull-requests):\s*write\s*$|"
+    r"^\s+[^:#]+:\s*\*\s*$",
+    re.MULTILINE,
 )
 
 
@@ -29,10 +30,10 @@ def main() -> int:
     failures: list[str] = []
     for path in files:
         text = path.read_text(encoding="utf-8")
-        if re.search(r"(?m)^permissions:\s*$", text) is None:
+        if re.search(r"^permissions:\s*$", text, re.MULTILINE) is None:
             failures.append(f"{path.relative_to(ROOT)}: missing top-level permissions block")
             continue
-        if re.search(r"(?m)^\s+contents:\s+read\s*$", text) is None:
+        if re.search(r"^\s+contents:\s+read\s*$", text, re.MULTILINE) is None:
             failures.append(f"{path.relative_to(ROOT)}: permissions must include contents: read")
         if FORBIDDEN.search(text):
             failures.append(f"{path.relative_to(ROOT)}: forbidden broad or writable permission detected")
