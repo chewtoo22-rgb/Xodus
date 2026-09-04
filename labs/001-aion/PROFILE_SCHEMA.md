@@ -28,7 +28,7 @@ A snapshot captures the current state of four system dimensions:
 **Fields:**
 
 | Field | Type | Values | Meaning |
-|-------|------|--------|---------|
+|-------|------|--------|----------|
 | `schema` | int | `1` | Contract version (must be 1). |
 | `power_profile` | string | `"power-saver"`, `"balanced"`, `"performance"` | System power state. |
 | `audio_profile` | string | `"default"`, `"low-latency"` | Audio subsystem mode. |
@@ -50,7 +50,7 @@ A request specifies the target profile and AI yield intent:
 **Fields:**
 
 | Field | Type | Values | Meaning |
-|-------|------|--------|---------|
+|-------|------|--------|----------|
 | `schema` | int | `1` | Contract version. |
 | `arena_profile` | string | `"quiet"`, `"balanced"`, `"performance"` | Target system profile. |
 | `yield_ai` | bool | `true`, `false` | Whether to yield the AI runtime (pause it). |
@@ -83,7 +83,7 @@ The planner output is an immutable, reversible transition plan:
 **Fields:**
 
 | Field | Type | Meaning |
-|-------|------|---------|
+|-------|------|----------|
 | `schema` | int | Contract version. |
 | `arena_profile` | string | The requested profile. |
 | `mutates_system` | bool | Always `false`. Planner never executes. |
