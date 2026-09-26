@@ -1,8 +1,8 @@
 [Unit]
 Description=Xodus live desktop boot evidence probe
 Documentation=https://github.com/chewtoo22-rgb/Xodus
-ConditionPathExists=/run/archiso/bootmnt
-After=display-manager.service systemd-logind.service
+ConditionPathExists=/run/archiso
+After=systemd-logind.service
 
 [Service]
 Type=oneshot

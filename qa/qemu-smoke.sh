@@ -80,9 +80,12 @@ fi
 serial="$LOG_DIR/serial.log"
 qemu_log="$LOG_DIR/qemu.log"
 monitor="$LOG_DIR/qmp.sock"
+vnc="$LOG_DIR/guest-vnc.sock"
+diagnostics="$LOG_DIR/qmp-status.log"
 : >"$serial"
 : >"$qemu_log"
-rm -f "$monitor"
+: >"$diagnostics"
+rm -f "$monitor" "$vnc"
 qemu_pid=''
 cleanup() {
   if [[ -n "$qemu_pid" ]] && kill -0 "$qemu_pid" 2>/dev/null; then
@@ -91,12 +94,14 @@ cleanup() {
     kill -KILL "$qemu_pid" 2>/dev/null || true
   fi
   if [[ -n "$qemu_pid" ]]; then wait "$qemu_pid" 2>/dev/null || true; fi
-  rm -f "$monitor"
+  rm -f "$monitor" "$vnc"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+# A local VNC display keeps the framebuffer active for QMP screenshots,
+# without opening a TCP listener or a window on the CI runner.
 qemu-system-x86_64 \
   -machine "$qemu_machine" \
   -cpu "$qemu_cpu" \
@@ -106,7 +111,7 @@ qemu-system-x86_64 \
   -drive "if=pflash,format=raw,file=$LOG_DIR/OVMF_VARS.fd" \
   -cdrom "$ISO_PATH" \
   -boot order=d \
-  -display none \
+  -display "vnc=unix:$vnc" \
   -vga virtio \
   -monitor none \
   -qmp "unix:$monitor,server=on,wait=off" \
@@ -116,35 +121,53 @@ qemu-system-x86_64 \
   >"$serial" 2>"$qemu_log" &
 qemu_pid=$!
 
-capture_screen() {
-  # A screenshot is diagnostic, not a pass condition. QMP can fail when the
-  # firmware or display backend has not initialized yet.
-  [[ -S "$monitor" ]] || return 0
-  python3 - "$monitor" "$LOG_DIR/guest-screen.ppm" <<'PY' || true
+capture_diagnostics() {
+  # Screen and VM status are diagnostic only; readiness still requires the
+  # exact serial sentinel from the live guest probe.
+  local label=$1 elapsed=$2
+  printf 'capture=%s elapsed_seconds=%s\n' "$label" "$elapsed" >>"$diagnostics"
+  if [[ ! -S "$monitor" ]]; then
+    echo 'qmp=socket_unavailable' >>"$diagnostics"
+    return 0
+  fi
+  python3 - "$monitor" "$LOG_DIR/guest-screen-$label.ppm" <<'PY' >>"$diagnostics" 2>&1 || true
 import json
 import socket
 import sys
 
 sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-sock.settimeout(5)
+sock.settimeout(10)
 try:
     sock.connect(sys.argv[1])
     stream = sock.makefile("rwb", buffering=0)
-    stream.readline()  # QMP greeting
-    stream.write(b'{"execute":"qmp_capabilities"}\n')
-    while json.loads(stream.readline()).get("return") is None:
-        pass
-    request = {"execute": "screendump", "arguments": {"filename": sys.argv[2]}}
-    stream.write((json.dumps(request) + "\n").encode())
-    while True:
-        response = json.loads(stream.readline())
-        if "return" in response:
-            break
-        if "error" in response:
-            print("QMP screendump failed:", response["error"], file=sys.stderr)
-            break
-except (OSError, ValueError, EOFError) as exc:
-    print("QMP screenshot unavailable:", exc, file=sys.stderr)
+    if not stream.readline():
+        raise EOFError("QMP greeting missing")
+
+    def execute(command, arguments=None):
+        request = {"execute": command, "id": command}
+        if arguments is not None:
+            request["arguments"] = arguments
+        stream.write((json.dumps(request) + "\n").encode())
+        while True:
+            line = stream.readline()
+            if not line:
+                raise EOFError(f"QMP closed while waiting for {command}")
+            response = json.loads(line)
+            if response.get("id") == command:
+                return response
+
+    capabilities = execute("qmp_capabilities")
+    if "error" in capabilities:
+        raise RuntimeError(f"QMP capabilities failed: {capabilities['error']}")
+    for command in ("query-status", "query-vnc"):
+        print(f"{command}={json.dumps(execute(command), sort_keys=True)}")
+    screen = execute("screendump", {"filename": sys.argv[2]})
+    if "error" in screen:
+        print(f"screendump_error={json.dumps(screen['error'], sort_keys=True)}")
+    else:
+        print(f"screendump={sys.argv[2]}")
+except (OSError, ValueError, EOFError, RuntimeError) as exc:
+    print("qmp_error=", exc)
 finally:
     sock.close()
 PY
@@ -166,6 +189,7 @@ qemu_alive() {
 
 started=$SECONDS
 deadline=$((SECONDS + BOOT_SECONDS))
+next_capture=$((started + 20))
 ready=no
 while (( SECONDS < deadline )); do
   if ! qemu_alive; then
@@ -175,14 +199,21 @@ while (( SECONDS < deadline )); do
     ready=yes
     break
   fi
+  if (( SECONDS >= next_capture )); then
+    capture_diagnostics "$((SECONDS - started))s" "$((SECONDS - started))"
+    next_capture=$((SECONDS + 120))
+  fi
   sleep 1
 done
 
-capture_screen
 elapsed=$((SECONDS - started))
+capture_diagnostics final "$elapsed"
 if [[ "$ready" != yes ]] || ! qemu_alive; then
-  printf 'result=fail\nreason=guest_desktop_sentinel_missing\nwatchdog_seconds=%s\nelapsed_seconds=%s\nqemu_accel=%s\n' \
-    "$BOOT_SECONDS" "$elapsed" "$qemu_accel" | tee "$LOG_DIR/smoke-summary.txt" >&2
+  reason=guest_desktop_sentinel_missing
+  if ! qemu_alive; then reason=qemu_exited_before_desktop_ready; fi
+  printf 'result=fail\nreason=%s\nwatchdog_seconds=%s\nelapsed_seconds=%s\nqemu_accel=%s\n' \
+    "$reason" "$BOOT_SECONDS" "$elapsed" "$qemu_accel" | tee "$LOG_DIR/smoke-summary.txt" >&2
+  tail -n 100 "$diagnostics" >&2 2>/dev/null || true
   tail -n 160 "$serial" >&2 2>/dev/null || true
   tail -n 120 "$qemu_log" >&2 2>/dev/null || true
   exit 1

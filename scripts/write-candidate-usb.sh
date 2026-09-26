@@ -50,8 +50,8 @@ done
 MANIFEST="$CANDIDATE_DIR/hardware-candidate.json"
 [[ -s "$MANIFEST" ]] || { echo "error: missing hardware-candidate.json in $CANDIDATE_DIR" >&2; exit 3; }
 
-# The qualification manifest is the local handoff from Hardware Candidate Gate.
-# Reject malformed fields before trusting any referenced producer or QA run.
+# The manifest and checksum check this local bundle for consistency. Fetch it
+# through fetch-qualified-candidate.sh, which checks the GitHub run provenance.
 if ! jq -e '
   .schema == 1 and
   (.candidate_sha | strings | test("^[0-9a-f]{40}$")) and
@@ -128,63 +128,123 @@ ARTIFACT_NAME="$(jq -er '.core_iso.artifact_name' "$MANIFEST")"
   exit 5
 }
 
-echo "Candidate bundle verified: $ISO ($ACTUAL_SHA)"
+echo "Candidate bundle internally consistent: $ISO ($ACTUAL_SHA)"
 if (( VERIFY_BUNDLE )); then
   exit 0
 fi
 
-for cmd in lsblk findmnt blockdev readlink stat awk sed head; do
+for cmd in lsblk findmnt blockdev readlink stat awk sed; do
   command -v "$cmd" >/dev/null 2>&1 || {
     echo "error: required command '$cmd' is not installed" >&2
     exit 2
   }
 done
 
-[[ -b "$DEVICE" ]] || { echo "error: target is not a block device: $DEVICE" >&2; exit 6; }
-DEVICE="$(readlink -f "$DEVICE")"
-DEVICE_TYPE="$(lsblk -dnro TYPE "$DEVICE" 2>/dev/null || true)"
-[[ "$DEVICE_TYPE" == "disk" ]] || {
-  echo "error: target must be a whole disk, not a partition or mapper device: $DEVICE (type=${DEVICE_TYPE:-unknown})" >&2
-  exit 6
+ISO_BYTES="$(stat -c '%s' "$ISO")"
+[[ "$ISO_BYTES" =~ ^[0-9]+$ ]] || { echo "error: cannot determine ISO size" >&2; exit 5; }
+DEVICE_INPUT="$DEVICE"
+
+# Capture the target twice: once for the user to inspect and once immediately
+# before dd. Resolve the original input again so a changed /dev/disk/by-id link
+# cannot silently redirect the write after confirmation (or with --yes).
+check_target() {
+  [[ -b "$DEVICE_INPUT" ]] || { echo "error: target is not a block device: $DEVICE_INPUT" >&2; exit 6; }
+  TARGET_DEVICE="$(readlink -f -- "$DEVICE_INPUT")" || {
+    echo "error: cannot resolve target: $DEVICE_INPUT" >&2; exit 6;
+  }
+  [[ -b "$TARGET_DEVICE" ]] || { echo "error: resolved target is not a block device: $TARGET_DEVICE" >&2; exit 6; }
+  TARGET_TYPE="$(lsblk -dnro TYPE "$TARGET_DEVICE" 2>/dev/null)" || {
+    echo "error: cannot determine target type: $TARGET_DEVICE" >&2; exit 6;
+  }
+  [[ "$TARGET_TYPE" == disk ]] || {
+    echo "error: target must be a whole disk, not a partition or mapper device: $TARGET_DEVICE (type=${TARGET_TYPE:-unknown})" >&2
+    exit 6
+  }
+  TARGET_MAJMIN="$(lsblk -dnro MAJ:MIN "$TARGET_DEVICE" 2>/dev/null)" || {
+    echo "error: cannot determine target device number: $TARGET_DEVICE" >&2; exit 6;
+  }
+  [[ "$TARGET_MAJMIN" =~ ^[0-9]+:[0-9]+$ ]] || {
+    echo "error: invalid target device number: $TARGET_MAJMIN" >&2; exit 6;
+  }
+  TARGET_NODE_STAT="$(stat -Lc '%D:%i:%t:%T' "$TARGET_DEVICE")" || {
+    echo "error: cannot identify target device node: $TARGET_DEVICE" >&2; exit 6;
+  }
+
+  ROOT_SOURCE="$(findmnt -nro SOURCE / 2>/dev/null)" || {
+    echo "error: cannot identify the running root filesystem" >&2; exit 7;
+  }
+  ROOT_SOURCE="${ROOT_SOURCE%%\[*}"
+  [[ -b "$ROOT_SOURCE" ]] || {
+    echo "error: cannot identify the block device backing the running root filesystem: $ROOT_SOURCE" >&2
+    exit 7
+  }
+  ROOT_REAL="$(readlink -f -- "$ROOT_SOURCE")" || {
+    echo "error: cannot resolve the running root filesystem device" >&2; exit 7;
+  }
+  ROOT_ANCESTORS="$(lsblk -snrpo NAME "$ROOT_REAL" 2>/dev/null)" || {
+    echo "error: cannot inspect disks backing the running root filesystem" >&2; exit 7;
+  }
+  [[ -n "$ROOT_ANCESTORS" ]] || {
+    echo "error: no backing disks found for the running root filesystem" >&2; exit 7;
+  }
+  while IFS= read -r backing; do
+    [[ -n "$backing" ]] || continue
+    backing="$(readlink -f -- "$backing")" || {
+      echo "error: cannot resolve a root backing device" >&2; exit 7;
+    }
+    if [[ "$TARGET_DEVICE" == "$backing" ]]; then
+      echo "error: refusing to overwrite a disk backing the running root filesystem: $TARGET_DEVICE" >&2
+      exit 7
+    fi
+  done <<< "$ROOT_ANCESTORS"
+
+  MOUNTED="$(lsblk -nrpo NAME,MOUNTPOINT "$TARGET_DEVICE" | awk '$2 != "" {print $1 " -> " $2}')" || {
+    echo "error: cannot inspect target mounts: $TARGET_DEVICE" >&2; exit 8;
+  }
+  if [[ -n "$MOUNTED" ]]; then
+    echo "error: target disk or one of its partitions is mounted:" >&2
+    echo "$MOUNTED" >&2
+    echo "unmount it explicitly before retrying; this script will not auto-unmount disks" >&2
+    exit 8
+  fi
+
+  TARGET_BYTES="$(blockdev --getsize64 "$TARGET_DEVICE")" || {
+    echo "error: cannot determine target capacity: $TARGET_DEVICE" >&2; exit 9;
+  }
+  [[ "$TARGET_BYTES" =~ ^[0-9]+$ ]] || {
+    echo "error: invalid target capacity: $TARGET_BYTES" >&2; exit 9;
+  }
+  if (( ISO_BYTES > TARGET_BYTES )); then
+    echo "error: ISO (${ISO_BYTES} bytes) does not fit target (${TARGET_BYTES} bytes)" >&2
+    exit 9
+  fi
+
+  TARGET_MODEL="$(lsblk -dnro MODEL "$TARGET_DEVICE" 2>/dev/null | sed 's/[[:space:]]*$//')" || {
+    echo "error: cannot determine target model" >&2; exit 6;
+  }
+  TARGET_SERIAL="$(lsblk -dnro SERIAL "$TARGET_DEVICE" 2>/dev/null | sed 's/[[:space:]]*$//')" || {
+    echo "error: cannot determine target serial" >&2; exit 6;
+  }
+  TARGET_SIZE="$(lsblk -dnro SIZE "$TARGET_DEVICE" 2>/dev/null)" || {
+    echo "error: cannot determine target size" >&2; exit 6;
+  }
 }
 
-ROOT_SOURCE="$(findmnt -nro SOURCE / 2>/dev/null || true)"
-ROOT_DISK=""
-if [[ -n "$ROOT_SOURCE" && -b "$ROOT_SOURCE" ]]; then
-  ROOT_REAL="$(readlink -f "$ROOT_SOURCE")"
-  ROOT_PKNAME="$(lsblk -nro PKNAME "$ROOT_REAL" 2>/dev/null | head -n1 || true)"
-  if [[ -n "$ROOT_PKNAME" ]]; then
-    ROOT_DISK="$(readlink -f "/dev/$ROOT_PKNAME")"
-  elif [[ "$(lsblk -dnro TYPE "$ROOT_REAL" 2>/dev/null || true)" == "disk" ]]; then
-    ROOT_DISK="$ROOT_REAL"
-  fi
-fi
-if [[ -n "$ROOT_DISK" && "$DEVICE" == "$ROOT_DISK" ]]; then
-  echo "error: refusing to overwrite the disk backing the running root filesystem: $DEVICE" >&2
-  exit 7
-fi
-
-MOUNTED="$(lsblk -nrpo NAME,MOUNTPOINT "$DEVICE" | awk '$2 != "" {print $1 " -> " $2}')"
-if [[ -n "$MOUNTED" ]]; then
-  echo "error: target disk or one of its partitions is mounted:" >&2
-  echo "$MOUNTED" >&2
-  echo "unmount it explicitly before retrying; this script will not auto-unmount disks" >&2
-  exit 8
-fi
-
-ISO_BYTES="$(stat -c '%s' "$ISO")"
-DEVICE_BYTES="$(blockdev --getsize64 "$DEVICE")"
-if (( ISO_BYTES > DEVICE_BYTES )); then
-  echo "error: ISO (${ISO_BYTES} bytes) does not fit target (${DEVICE_BYTES} bytes)" >&2
-  exit 9
-fi
-
-MODEL="$(lsblk -dnro MODEL "$DEVICE" 2>/dev/null | sed 's/[[:space:]]*$//' || true)"
-SERIAL="$(lsblk -dnro SERIAL "$DEVICE" 2>/dev/null | sed 's/[[:space:]]*$//' || true)"
-SIZE="$(lsblk -dnro SIZE "$DEVICE" 2>/dev/null || true)"
+check_target
+EXPECTED_DEVICE="$TARGET_DEVICE"
+EXPECTED_MAJMIN="$TARGET_MAJMIN"
+EXPECTED_NODE_STAT="$TARGET_NODE_STAT"
+EXPECTED_BYTES="$TARGET_BYTES"
+EXPECTED_MODEL="$TARGET_MODEL"
+EXPECTED_SERIAL="$TARGET_SERIAL"
+EXPECTED_SIZE="$TARGET_SIZE"
+DEVICE="$TARGET_DEVICE"
+MODEL="$TARGET_MODEL"
+SERIAL="$TARGET_SERIAL"
+SIZE="$TARGET_SIZE"
 
 cat <<EOF
-Qualified Xodus candidate ready to write.
+Xodus candidate bundle ready to write.
 Candidate SHA: $CANDIDATE_SHA
 Policy:        $POLICY
 ISO:           $ISO
@@ -198,7 +258,7 @@ The candidate policy remains LIVE BOOT ONLY; do not install Xodus to an internal
 EOF
 
 if (( DRY_RUN )); then
-  echo "dry-run: all provenance and target safety checks passed; no bytes written"
+  echo "dry-run: bundle consistency and target safety checks passed; no bytes written"
   exit 0
 fi
 
@@ -216,10 +276,30 @@ if [[ $EUID -eq 0 ]]; then
   DD=(dd)
 else
   command -v sudo >/dev/null 2>&1 || { echo "error: sudo is required to write the target disk" >&2; exit 11; }
+  sudo -v || { echo "error: sudo authorization failed" >&2; exit 11; }
   DD=(sudo dd)
 fi
 
-"${DD[@]}" if="$ISO" of="$DEVICE" bs=16M status=progress conv=fsync
+# Recheck the image after confirmation, then re-resolve the original disk input.
+# All target checks must pass again, and every identity field must match.
+PREWRITE_SHA="$(sha256sum "$ISO")"
+PREWRITE_SHA="${PREWRITE_SHA%% *}"
+[[ "$PREWRITE_SHA" == "$EXPECTED_SHA" ]] || {
+  echo "error: candidate ISO changed after verification; refusing to write" >&2; exit 5;
+}
+check_target
+if [[ "$TARGET_DEVICE" != "$EXPECTED_DEVICE" ||
+      "$TARGET_MAJMIN" != "$EXPECTED_MAJMIN" ||
+      "$TARGET_NODE_STAT" != "$EXPECTED_NODE_STAT" ||
+      "$TARGET_BYTES" != "$EXPECTED_BYTES" ||
+      "$TARGET_MODEL" != "$EXPECTED_MODEL" ||
+      "$TARGET_SERIAL" != "$EXPECTED_SERIAL" ||
+      "$TARGET_SIZE" != "$EXPECTED_SIZE" ]]; then
+  echo "error: target identity changed after confirmation; refusing to write" >&2
+  exit 12
+fi
+
+"${DD[@]}" if="$ISO" of="$TARGET_DEVICE" bs=16M status=progress conv=fsync
 if command -v sync >/dev/null 2>&1; then sync; fi
 if command -v udevadm >/dev/null 2>&1; then udevadm settle || true; fi
 

@@ -48,11 +48,15 @@ jobs:
         if: github.event_name != 'workflow_run'
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - name: Verify desktop probe and smoke gate contracts
         shell: bash
+        env:
+          EXPECTED_CHECKOUT_SHA: ${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}
         run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_CHECKOUT_SHA"
           bash -n qa/qemu-smoke.sh overlay/live-desktop/xodus-live-desktop-probe overlay/apply-xodus-identity.sh
           bash qa/test-live-desktop-probe.sh
           python3 qa/test_qemu_smoke.py
@@ -173,7 +177,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf xorriso file
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-system-gui ovmf xorriso file
           if [[ -c /dev/kvm ]]; then sudo chmod 666 /dev/kvm; fi
 
       - name: Download reference ISO artifact

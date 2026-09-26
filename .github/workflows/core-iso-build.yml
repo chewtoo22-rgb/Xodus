@@ -16,11 +16,15 @@ on:
   pull_request:
     paths:
       - 'upstream/iso.lock'
+      - 'upstream/installer.lock'
       - 'overlay/**'
       - 'qa/**'
+      - 'scripts/**'
       - '.github/workflows/core-iso-build.yml'
+      - '.github/workflows/installer-*.yml'
       - 'docs/core-iso.md'
       - 'docs/desktop-identity.md'
+      - 'docs/INSTALLER_SAFETY.md'
 
 permissions:
   contents: read

@@ -215,4 +215,77 @@ grep -Fq 'latest successful Hardware Candidate Gate run is stale' "$tmp/result.l
 mkdir "$tmp/existing-output"
 reject 'pre-existing output' bash "$fetch" "$tmp/existing-output"
 
+# Exercise the last-moment disk check without opening a real disk. The fake
+# blockdev command swaps the input symlink after the first safety snapshot;
+# both dd and sudo are stubs that record any attempted write.
+mapfile -t block_targets < <(find /dev -maxdepth 1 -type b -print | sort)
+if (( ${#block_targets[@]} >= 3 )); then
+  export FIXTURE_FIRST_BLOCK="${block_targets[0]}"
+  export FIXTURE_SECOND_BLOCK="${block_targets[1]}"
+  export FIXTURE_ROOT_BLOCK="${block_targets[2]}"
+  export FIXTURE_DEVICE_LINK="$tmp/swap-device"
+  export FIXTURE_SWAP_DONE="$tmp/swap-done"
+  export FIXTURE_DD_MARKER="$tmp/dd-invoked"
+  ln -s "$FIXTURE_FIRST_BLOCK" "$FIXTURE_DEVICE_LINK"
+
+  cat > "$tmp/bin/findmnt" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$FIXTURE_ROOT_BLOCK"
+EOF
+  cat > "$tmp/bin/lsblk" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1" == -snrpo && "$2" == NAME ]]; then
+  printf '%s\n' "$FIXTURE_ROOT_BLOCK"
+elif [[ "$1" == -nrpo && "$2" == NAME,MOUNTPOINT ]]; then
+  printf '%s\n' "$3"
+elif [[ "$1" == -dnro ]]; then
+  case "$2" in
+    TYPE) echo disk ;;
+    MAJ:MIN)
+      if [[ "$3" == "$FIXTURE_FIRST_BLOCK" ]]; then echo 7:0
+      elif [[ "$3" == "$FIXTURE_SECOND_BLOCK" ]]; then echo 7:1
+      else echo 7:2; fi ;;
+    MODEL) echo 'Fixture USB' ;;
+    SERIAL) echo 'fixture-serial' ;;
+    SIZE) echo 1G ;;
+    *) exit 90 ;;
+  esac
+else
+  exit 91
+fi
+EOF
+  cat > "$tmp/bin/blockdev" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$1" == --getsize64 ]] || exit 90
+echo 1073741824
+if [[ "${SWAP_TARGET:-0}" == 1 && ! -e "$FIXTURE_SWAP_DONE" ]]; then
+  ln -sfn "$FIXTURE_SECOND_BLOCK" "$FIXTURE_DEVICE_LINK"
+  touch "$FIXTURE_SWAP_DONE"
+fi
+EOF
+  cat > "$tmp/bin/dd" <<'EOF'
+#!/usr/bin/env bash
+touch "$FIXTURE_DD_MARKER"
+exit 98
+EOF
+  cat > "$tmp/bin/sudo" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$1" == -v ]]; then exit 0; fi
+touch "$FIXTURE_DD_MARKER"
+exit 98
+EOF
+  chmod +x "$tmp/bin/findmnt" "$tmp/bin/lsblk" "$tmp/bin/blockdev" "$tmp/bin/dd" "$tmp/bin/sudo"
+
+  reject 'changed target with --yes' env SWAP_TARGET=1 bash "$writer" --yes "$tmp/fetched-flat" "$FIXTURE_DEVICE_LINK"
+  grep -Fq 'target identity changed after confirmation' "$tmp/result.log"
+  [[ ! -e "$FIXTURE_DD_MARKER" ]] || {
+    echo 'FAIL: dd was invoked after target identity changed' >&2
+    exit 1
+  }
+else
+  echo 'SKIP: target-swap fixture needs three block device nodes' >&2
+fi
+
 echo 'candidate handoff contract: PASS'

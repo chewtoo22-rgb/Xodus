@@ -42,6 +42,10 @@ The fetcher:
 - preserves `hardware-candidate.json` beside the image.
 
 An optional output directory may be supplied as the first argument.
+Use the authenticated fetcher's output for the guarded writer. The writer's
+`--verify-bundle` mode checks that the local manifest, producer manifest,
+checksum, and ISO agree; those files alone cannot authenticate a qualification
+run or prove that the commit is still current `main`.
 
 Before writing anything, identify the dedicated USB disk with `lsblk` and run the guarded writer in dry-run mode:
 
@@ -49,7 +53,7 @@ Before writing anything, identify the dedicated USB disk with `lsblk` and run th
 ./scripts/write-candidate-usb.sh --dry-run xodus-hardware-candidate /dev/sdX
 ```
 
-Replace `/dev/sdX` with the **whole USB disk**, never a partition such as `/dev/sdX1`. The writer refuses non-disk block devices, mounted targets, the disk backing the running root filesystem, undersized targets, missing candidate provenance, bad checksums, and unexpected candidate policy.
+Replace `/dev/sdX` with the **whole USB disk**, never a partition such as `/dev/sdX1`. The writer refuses non-disk block devices, mounted targets, disks backing the running root filesystem, undersized targets, inconsistent bundle files, and unexpected candidate policy. It checks the target again immediately before writing, including when `--yes` skips typed confirmation, and aborts if its identity has changed.
 
 After the dry-run identifies the exact intended USB device, perform the real write:
 
@@ -57,7 +61,7 @@ After the dry-run identifies the exact intended USB device, perform the real wri
 ./scripts/write-candidate-usb.sh xodus-hardware-candidate /dev/sdX
 ```
 
-The script displays model, serial, size, candidate SHA, and a destructive-write warning, then requires you to type the exact device path before `dd` is allowed to run. It never auto-unmounts a disk.
+The script displays model, serial, size, candidate SHA, and a destructive-write warning, then requires you to type the exact resolved device path before `dd` is allowed to run. It never auto-unmounts a disk.
 
 ### Manual fallback
 
