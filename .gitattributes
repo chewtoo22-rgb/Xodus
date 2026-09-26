@@ -1,0 +1,4 @@
+*.sh text eol=lf
+*.service text eol=lf
+overlay/first-boot/xodus-* text eol=lf
+overlay/live-desktop/xodus-live-desktop-probe text eol=lf

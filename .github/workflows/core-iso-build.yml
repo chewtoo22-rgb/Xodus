@@ -17,6 +17,7 @@ on:
     paths:
       - 'upstream/iso.lock'
       - 'overlay/**'
+      - 'qa/**'
       - '.github/workflows/core-iso-build.yml'
       - 'docs/core-iso.md'
       - 'docs/desktop-identity.md'
@@ -35,6 +36,8 @@ jobs:
     steps:
       - name: Checkout Xodus
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Parse pinned pearOS source
         id: lock
@@ -86,6 +89,7 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$XODUS_SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$XODUS_SOURCE_COMMIT"
           bash -n overlay/apply-xodus-identity.sh
           bash overlay/apply-xodus-identity.sh "$GITHUB_WORKSPACE/pearos-iso"
           grep -F 'iso_name="Xodus"' pearos-iso/pear/profiledef.sh
@@ -203,6 +207,7 @@ jobs:
           grep -Fx "xodus_source_commit=$XODUS_SOURCE_COMMIT" pearos-iso/xodus-reference.manifest
           grep -Fx "upstream_commit=$XODUS_UPSTREAM_COMMIT" pearos-iso/xodus-reference.manifest
           grep -Eq '^iso_sha256=[0-9a-f]{64}$' pearos-iso/xodus-reference.manifest
+          test -s pearos-iso/xodus-build-attempt-1.log
           printf 'iso=%s\n' "$iso" >> "$GITHUB_OUTPUT"
           ls -lh "$iso" pearos-iso/xodus-reference.sha256 pearos-iso/xodus-reference.manifest
 
@@ -214,6 +219,7 @@ jobs:
             ${{ steps.artifact.outputs.iso }}
             pearos-iso/xodus-reference.sha256
             pearos-iso/xodus-reference.manifest
+            pearos-iso/xodus-build-attempt-*.log
           if-no-files-found: error
           compression-level: 0
           retention-days: 7

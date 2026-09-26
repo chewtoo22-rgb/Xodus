@@ -1,36 +1,21 @@
-# Xodus Core ISO — M0 Reference Build
+# Xodus Core ISO — M0 Build
 
-## Upstream baseline
+## Pinned source and build path
 
-Xodus M0 currently pins pearOS `iso` at:
+`upstream/iso.lock` pins pearOS `iso` at `8175d4851fcf85b2325c56a3751c0697e044d049`. `Core ISO Build` fetches that exact Git commit, checks the upstream `build-binary` entrypoint and prebuilt Ploader files, then applies `overlay/apply-xodus-identity.sh` before building. The result is already Xodus-branded; M0 does not build an unmodified pearOS ISO first.
 
-`8175d4851fcf85b2325c56a3751c0697e044d049`
+The workflow runs on an Ubuntu GitHub runner but invokes the upstream Arch-native builder inside a privileged `archlinux:base-devel` container. It installs the required Arch build tools, initializes repository trust for the package sources used by the ISO profile, and calls `./build-binary --build --filename Xodus-reference --compression fastest --clean --sha256`. The `reference` string is a legacy output filename and artifact label; it does not mean the image is unmodified pearOS. The build uses the prebuilt Ploader artifacts from the pinned source rather than rebuilding that bootloader.
 
-The upstream README documents the reference build entrypoint as:
+## Artifact and provenance contract
 
-```sh
-sudo ./build-binary
-```
+A successful `Core ISO Build` run uploads `xodus-reference-iso-<upstream-sha>` for seven days. The artifact contains the `Xodus-reference-*.iso`, `xodus-reference.sha256`, and `xodus-reference.manifest` with the Xodus source commit, upstream commit, filename, and ISO digest. The workflow also packages `xodus-build-attempt-*.log` from successful runs; confirm the log is present in the first fresh artifact after this workflow change. Failed runs upload available attempt logs and disk diagnostics as `xodus-core-iso-failure-diagnostics`, also retained for seven days.
 
-Required Arch-side tools are `arch-install-scripts`, `mtools`, `squashfs-tools`, `xorriso`, `e2fsprogs`, `git`, and `pv`. The live image uses prebuilt Ploader artifacts already present under `pear/efiboot/ploader/`; the reference ISO build should not rebuild the bootloader during M0.
+The checksum detects a changed download, and the manifest identifies the source revisions. Neither proves a bitwise reproducible build. The `archlinux:base-devel` tag is not pinned to an immutable digest, and `pacman -Syu` plus the ISO profile resolve packages from rolling repositories and mirrors. A later reproducibility milestone must lock or snapshot those inputs, control build metadata, and compare independently built ISO hashes before claiming identical bytes.
 
-## Reproducibility contract
+## M0 evidence sequence
 
-1. CI must checkout the exact SHA in `upstream/iso.lock`, never floating `main`.
-2. CI must validate that `build-binary` exists and is executable before attempting a build.
-3. Generated upstream source, work directories, and ISO artifacts remain outside tracked source.
-4. The first successful artifact is intentionally an unmodified pearOS reference ISO. Xodus identity overlays are applied only after the reference build is reproducible.
-5. Each candidate artifact must ship with SHA-256 output and retained build logs.
+1. `Core ISO Build` succeeds on the current `main` commit and uploads the ISO, checksum, manifest, and successful attempt log.
+2. `QA QEMU Boot Smoke` downloads that exact Core run's artifact, verifies its checksum, and boots it with OVMF. Its guest probe emits the exact serial line `XODUS_LIVE_DESKTOP_READY` only after finding the live Arch root, active display manager, an active local `liveuser` graphical session (Wayland with `kwin_wayland` or X11 with `kwin_x11`), and `plasmashell`. QA requires that line and retains `qa-artifacts/serial.log`, `smoke-summary.txt`, VM diagnostics, and `qa-image-digest.txt` in `xodus-qemu-smoke-<source-sha>`. A screen dump may be captured for diagnosis but is not the pass condition. The older watchdog-only test merely showed that QEMU survived its timeout.
+3. `Hardware Candidate Gate` checks successful Core and QA runs and unexpired artifacts for the same current `main` SHA, then publishes `hardware-candidate-<source-sha>`. No historical survival-only QA run is sufficient for the changed gate's new SHA.
 
-## M0 sequence
-
-- [x] Pin current upstream ISO commit.
-- [x] Record upstream build dependencies and entrypoint.
-- [ ] Prove the pinned source contract in GitHub Actions.
-- [ ] Run a full Arch-native reference ISO build in CI.
-- [ ] Upload ISO, checksum, and logs as artifacts.
-- [ ] Hand artifact to the QA lane for QEMU/OVMF boot smoke testing.
-
-## CI host constraint
-
-The upstream builder is Arch-native and requires root/chroot operations. Standard Ubuntu GitHub-hosted runners are therefore suitable for source-contract validation but are not treated as the final reference build environment. The full builder should run in an Arch container/VM path with the privileges required by `pacstrap`, `arch-chroot`, filesystem image creation, and loop/mount operations, or on a self-hosted Arch runner if GitHub-hosted container privileges prove insufficient.
+M0 exit remains pending until this complete sequence passes on a fresh commit. The hardware qualification manifest permits a separately controlled **live-boot** test; it does not prove physical installation or recovery/rollback.

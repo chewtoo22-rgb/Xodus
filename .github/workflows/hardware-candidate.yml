@@ -18,9 +18,10 @@ permissions:
 jobs:
   qualify:
     if: >-
-      ${{ github.event_name == 'workflow_dispatch' ||
+      ${{ (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
           (github.event.workflow_run.conclusion == 'success' &&
-           github.event.workflow_run.head_branch == 'main') }}
+           github.event.workflow_run.head_branch == 'main' &&
+           github.event.workflow_run.head_repository.full_name == github.repository) }}
     runs-on: ubuntu-24.04
     steps:
       - name: Resolve candidate SHA
@@ -52,14 +53,23 @@ jobs:
             const sha = process.env.CANDIDATE_SHA;
             const owner = context.repo.owner;
             const repo = context.repo.repo;
+            const {data: mainBranch} = await github.rest.repos.getBranch({owner, repo, branch: 'main'});
+            if (mainBranch.commit.sha !== sha) {
+              core.setFailed(`Candidate ${sha} is not the current main commit ${mainBranch.commit.sha}`);
+              return;
+            }
 
-            async function findSuccessfulRun(workflowFile, workflowName) {
+            async function findSuccessfulRun(workflowFile, workflowName, allowedEvents) {
               const runs = await github.paginate(
                 github.rest.actions.listWorkflowRuns,
                 {owner, repo, workflow_id: workflowFile, per_page: 100}
               );
               const matches = runs.filter(r =>
-                r.head_sha === sha && r.status === 'completed' && r.conclusion === 'success'
+                r.head_sha === sha &&
+                r.head_branch === 'main' &&
+                r.head_repository?.full_name === `${owner}/${repo}` &&
+                allowedEvents.includes(r.event) &&
+                r.status === 'completed' && r.conclusion === 'success'
               );
               if (!matches.length) {
                 core.setFailed(`${workflowName} has no successful run for ${sha}`);
@@ -68,8 +78,8 @@ jobs:
               return matches.sort((a, b) => b.run_number - a.run_number)[0];
             }
 
-            const coreRun = await findSuccessfulRun('core-iso-build.yml', 'Core ISO Build');
-            const qaRun = await findSuccessfulRun('qa-qemu-smoke.yml', 'QA QEMU Boot Smoke');
+            const coreRun = await findSuccessfulRun('core-iso-build.yml', 'Core ISO Build', ['push', 'workflow_dispatch']);
+            const qaRun = await findSuccessfulRun('qa-qemu-smoke.yml', 'QA QEMU Boot Smoke', ['workflow_run', 'workflow_dispatch']);
             if (!coreRun || !qaRun) return;
 
             const coreArtifacts = await github.paginate(
@@ -81,17 +91,21 @@ jobs:
               {owner, repo, run_id: qaRun.id, per_page: 100}
             );
 
-            const isoArtifact = coreArtifacts.find(a => /iso/i.test(a.name) && !a.expired);
-            if (!isoArtifact) {
-              core.setFailed(`Core ISO run ${coreRun.id} has no live ISO artifact`);
+            const isoArtifacts = coreArtifacts.filter(a => /^xodus-reference-iso-[0-9a-f]{40}$/.test(a.name) && !a.expired);
+            const qaEvidence = qaArtifacts.filter(a => a.name === `xodus-qemu-smoke-${sha}` && !a.expired);
+            if (isoArtifacts.length !== 1 || qaEvidence.length !== 1) {
+              core.setFailed(`Expected one live Core ISO artifact and one matching QEMU evidence artifact for ${sha}`);
               return;
             }
+            const isoArtifact = isoArtifacts[0];
+            core.setOutput('core_run_id', String(coreRun.id));
+            core.setOutput('qa_run_id', String(qaRun.id));
 
             const manifest = {
               schema: 1,
               candidate_sha: sha,
               qualified_at: new Date().toISOString(),
-              policy: 'live-boot-only-until-destructive-installer-vm-gate-passes',
+              policy: 'live-boot-only',
               core_iso: {
                 run_id: coreRun.id,
                 run_number: coreRun.run_number,
@@ -127,6 +141,47 @@ jobs:
                 [{data: 'Policy', header: true}, manifest.policy]
               ])
               .write();
+
+      - name: Download matching QEMU evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: xodus-qemu-smoke-${{ steps.candidate.outputs.sha }}
+          path: qa-evidence
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.verify.outputs.qa_run_id }}
+
+      - name: Bind QEMU result to the selected ISO run
+        shell: bash
+        env:
+          CANDIDATE_SHA: ${{ steps.candidate.outputs.sha }}
+          CORE_RUN_ID: ${{ steps.verify.outputs.core_run_id }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          path = Path('qa-evidence/qa-image-digest.txt')
+          if not path.is_file() or path.is_symlink():
+              raise SystemExit('missing regular QEMU image digest evidence')
+          lines = path.read_text(encoding='utf-8').splitlines()
+          fields = {}
+          for line in lines:
+              key, sep, value = line.partition('=')
+              if not sep or key in fields:
+                  raise SystemExit('malformed or duplicate QEMU digest key')
+              fields[key] = value
+          if set(fields) != {'sha256', 'core_source_sha', 'core_run_id'}:
+              raise SystemExit('QEMU digest schema mismatch')
+          if not re.fullmatch(r'[0-9a-f]{64}', fields['sha256']):
+              raise SystemExit('invalid QEMU ISO SHA-256')
+          if fields['core_source_sha'] != os.environ['CANDIDATE_SHA']:
+              raise SystemExit('QEMU source SHA does not match candidate')
+          if fields['core_run_id'] != os.environ['CORE_RUN_ID']:
+              raise SystemExit('QEMU tested a different Core ISO run')
+          print(f"QEMU tested Core ISO run {fields['core_run_id']} at {fields['sha256']}")
+          PY
 
       - name: Upload qualification manifest
         uses: actions/upload-artifact@v4

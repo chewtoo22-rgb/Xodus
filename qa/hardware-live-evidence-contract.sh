@@ -23,7 +23,7 @@ cat >"$tmp/hardware-candidate.json" <<EOF
 {
   "schema": 1,
   "candidate_sha": "$sha_manifest",
-  "policy": "live-boot-only-until-destructive-installer-vm-gate-passes"
+  "policy": "live-boot-only"
 }
 EOF
 XODUS_CANDIDATE_SHA= XODUS_CANDIDATE_MANIFEST="$tmp/hardware-candidate.json" XODUS_BUILD_INFO="$tmp/missing-build-info" \

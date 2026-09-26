@@ -1,22 +1,24 @@
 # Thursday Hardware Validation
 
-This runbook is the M0 physical-machine gate for Xodus.
+This runbook covers physical **live boot** of an M0 image. Installation to an internal disk is a separate, currently blocked gate.
 
 ## Candidate rule
 
-Only test an image whose commit has:
+Only test an image whose commit is the current `main` HEAD and has:
 
 1. a successful `Core ISO Build` run,
-2. a successful `QA QEMU Boot Smoke` run for the same commit SHA, and
-3. a generated `hardware-candidate-<sha>` qualification manifest.
+2. a successful updated `QA QEMU Boot Smoke` run for the same commit SHA, with retained positive graphical-session evidence, and
+3. an unexpired `hardware-candidate-<sha>` qualification manifest tying those same-commit ISO and QA artifacts together.
 
-Do not substitute an older ISO, a locally modified image, or an artifact from a different commit.
+The former QEMU watchdog pass only proved the VM did not exit early. It is not desktop evidence. After the new gate lands, require a fresh Core/QA chain on that `main` commit; do not substitute an older ISO, a locally modified image, or an artifact from a different commit. Confirm the Core artifact includes its checksum, provenance manifest, and successful build log before writing USB media. In `xodus-qemu-smoke-<source-sha>`, check `qa-artifacts/smoke-summary.txt` for `result=pass` and `guest_evidence=XODUS_LIVE_DESKTOP_READY`, and `qa-artifacts/serial.log` for the exact guest sentinel. `qa-image-digest.txt` records the ISO checksum and Core run ID. An optional screen dump is diagnostic, not the gate's pass condition.
+
+The manifest policy must be `live-boot-only`. A passing VM installer gate does not change that policy or authorize physical installation; the recovery/rollback and dedicated-disk requirements below still apply.
 
 ## Installer safety boundary
 
-The pearOS Electron installer is whole-disk destructive. Xodus now has a green automated destructive-install proof on an expendable virtual disk: the exact audited installer completed, installer media was detached, the installed GPT/ESP/root layout was verified, OVMF booted the installed disk independently, and installed userspace emitted the exact `XODUS_POSTINSTALL_BOOT_OK` sentinel.
+The pearOS Electron installer is whole-disk destructive. Historical automated destructive-install runs passed on an expendable virtual disk: the exact audited installer completed, installer media was detached, the installed GPT/ESP/root layout was verified, OVMF booted the installed disk independently, and installed userspace emitted the exact `XODUS_POSTINSTALL_BOOT_OK` sentinel.
 
-That automated proof does **not** count as physical NUC/SATA validation. Thursday begins with the live-boot checklist below. Do not attempt physical installation unless the live-boot checklist is acceptable, the target is a dedicated disk containing no wanted data, and `scripts/installer-target-guard.sh` approves the exact whole-disk device after explicit human opt-in.
+That automated proof does **not** count as physical NUC/SATA validation or recovery/rollback proof. Thursday begins and ends with the live-boot checklist while the separate recovery/rollback gate remains open. Physical installation later requires a fresh destructive VM result for the candidate, an acceptable live-boot checklist, a tested recovery/rollback procedure, a dedicated disk containing no wanted data, and `scripts/installer-target-guard.sh` approval of that exact whole-disk device after explicit human opt-in.
 
 Never use an ambiguous device name, a mounted disk, the disk backing the running system, or a disk containing wanted data.
 
@@ -60,8 +62,9 @@ The script displays model, serial, size, candidate SHA, and a destructive-write 
 ### Manual fallback
 
 - Download the exact ISO artifact named in `hardware-candidate.json`.
-- Confirm the candidate, Core ISO, and QEMU QA commit SHAs are identical.
+- Confirm the candidate, Core ISO, and updated graphical QEMU QA commit SHAs are identical and equal current `main`.
 - Verify the downloaded ISO using the SHA-256 checksum packaged by the Core ISO build.
+- Confirm the QA evidence contains a positive desktop-session result; the older watchdog-only summary is insufficient.
 - Write the verified ISO only to a dedicated USB drive using a raw-image-capable writer.
 - Safely eject the drive after writing.
 
@@ -97,9 +100,9 @@ Record PASS/FAIL for each item:
 - [ ] Reboot/shutdown completes cleanly.
 - [ ] Existing installed OS remains bootable after USB removal.
 
-## Optional physical install gate
+## Future physical install gate — blocked pending recovery/rollback proof
 
-Do not enter this section merely because the VM gate is green. First complete the live-boot sequence and capture its evidence.
+Do not enter this section merely because the VM gate or live-boot checklist is green. First capture the live-boot evidence, rerun the destructive VM install gate for the intended candidate, and verify a documented recovery/rollback procedure on an expendable disk. Until that recovery/rollback proof exists, stop after live boot and leave internal disks unchanged.
 
 If physical installation is intentionally being tested, use only a dedicated target disk with **no wanted data**. Identify the whole-disk device and record its model, serial, and size:
 
@@ -172,8 +175,8 @@ Stop physical testing and return to VM/CI if any of these occur:
 - the boot process writes unexpectedly to an internal disk,
 - firmware settings cannot be restored confidently.
 
-## M0 hardware pass
+## Live hardware pass
 
-M0 live hardware validation passes when the candidate completes live boot, input, display, network, audio, one suspend/resume cycle, and clean shutdown/reboot without modifying an internal disk.
+Live hardware validation passes when the candidate completes live boot, input, display, network, audio, one suspend/resume cycle, and clean shutdown/reboot without modifying an internal disk.
 
-Physical installation is a separate result. It passes only after the live-boot gate is acceptable, the exact dedicated target passes `installer-target-guard.sh`, installation completes, installer media is removed, and that physical installed disk boots independently under UEFI. Until those steps are performed on real hardware, no NUC or SATA installation success is claimed.
+Physical installation is a separate result. It passes only after the recovery/rollback prerequisite and live-boot gate are acceptable, the exact dedicated target passes `installer-target-guard.sh`, installation completes, installer media is removed, and that physical installed disk boots independently under UEFI. Until those steps are performed and recovery is verified on real hardware, no NUC/SATA installation or rollback success is claimed.

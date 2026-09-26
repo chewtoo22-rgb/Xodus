@@ -1,6 +1,6 @@
 # Xodus M0 desktop identity
 
-M0 deliberately keeps pearOS/NiceC0re desktop behavior intact while replacing the image-level identity in a reproducible overlay. The goal is to prove that Xodus can own its distribution identity without forking the full upstream tree.
+M0 deliberately keeps pearOS/NiceC0re desktop behavior intact while replacing the image-level identity through a reviewable overlay. The goal is to prove that Xodus can own its distribution identity without forking the full upstream tree.
 
 ## M0 identity contract
 
@@ -35,7 +35,7 @@ The following remain pearOS/NiceC0re assets during M0 and will be replaced incre
 - System Preferences/application branding
 - Dynamic Island/notch visuals
 
-Those replacements must not be allowed to block Thursday hardware validation. Functional boot/install evidence has priority over cosmetic completeness.
+Those replacements do not block the M0 live-image gate. Positive desktop boot evidence takes priority over cosmetic completeness; installation has a separate safety gate.
 
 ## Exit gate
 
@@ -45,4 +45,4 @@ A successful Desktop Identity M0 candidate must:
 2. produce an artifact named `Xodus-reference-*.iso`;
 3. embed the Xodus ISO metadata, hostname, MOTD, and provenance file;
 4. retain upstream attribution;
-5. pass the existing QEMU UEFI boot-smoke workflow before hardware testing.
+5. pass the updated QEMU/OVMF gate on the same current `main` commit with retained positive graphical-session evidence. The historical watchdog-only result does not satisfy this item.

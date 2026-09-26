@@ -4,6 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage: scripts/write-candidate-usb.sh [--yes] [--dry-run] <candidate-dir> <disk-device>
+       scripts/write-candidate-usb.sh --verify-bundle <candidate-dir>
 
 Safely writes a qualified Xodus hardware-candidate ISO to an entire removable/test disk.
 The target must be a whole block disk (for example /dev/sdb), not a partition.
@@ -11,15 +12,18 @@ The target must be a whole block disk (for example /dev/sdb), not a partition.
 Options:
   --yes      Skip the final typed confirmation (intended for controlled automation only).
   --dry-run  Perform every safety/provenance check but do not write to the target.
+  --verify-bundle  Verify the candidate files without checking or writing a disk.
 EOF
 }
 
 ASSUME_YES=0
 DRY_RUN=0
+VERIFY_BUNDLE=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --yes) ASSUME_YES=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
+    --verify-bundle) VERIFY_BUNDLE=1; shift ;;
     -h|--help) usage; exit 0 ;;
     --) shift; break ;;
     -*) echo "error: unknown option: $1" >&2; usage >&2; exit 2 ;;
@@ -27,11 +31,15 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ $# -eq 2 ]] || { usage >&2; exit 2; }
+if (( VERIFY_BUNDLE )); then
+  [[ $# -eq 1 && $ASSUME_YES -eq 0 && $DRY_RUN -eq 0 ]] || { usage >&2; exit 2; }
+else
+  [[ $# -eq 2 ]] || { usage >&2; exit 2; }
+fi
 CANDIDATE_DIR="$1"
-DEVICE="$2"
+DEVICE="${2:-}"
 
-for cmd in jq sha256sum find lsblk findmnt blockdev; do
+for cmd in jq sha256sum find; do
   command -v "$cmd" >/dev/null 2>&1 || {
     echo "error: required command '$cmd' is not installed" >&2
     exit 2
@@ -42,26 +50,95 @@ done
 MANIFEST="$CANDIDATE_DIR/hardware-candidate.json"
 [[ -s "$MANIFEST" ]] || { echo "error: missing hardware-candidate.json in $CANDIDATE_DIR" >&2; exit 3; }
 
+# The qualification manifest is the local handoff from Hardware Candidate Gate.
+# Reject malformed fields before trusting any referenced producer or QA run.
+if ! jq -e '
+  .schema == 1 and
+  (.candidate_sha | strings | test("^[0-9a-f]{40}$")) and
+  .policy == "live-boot-only" and
+  (.core_iso.run_id | numbers | . > 0 and floor == .) and
+  (.core_iso.artifact_id | numbers | . > 0 and floor == .) and
+  (.core_iso.artifact_name | strings | test("^xodus-reference-iso-[0-9a-f]{40}$")) and
+  (.qa_qemu.run_id | numbers | . > 0 and floor == .) and
+  .core_iso.run_id != .qa_qemu.run_id
+' "$MANIFEST" >/dev/null; then
+  echo "error: malformed qualification manifest or unrecognized candidate policy" >&2
+  exit 4
+fi
 CANDIDATE_SHA="$(jq -er '.candidate_sha' "$MANIFEST")"
 POLICY="$(jq -er '.policy' "$MANIFEST")"
-[[ "$POLICY" == "live-boot-only" ]] || {
-  echo "error: unexpected candidate policy '$POLICY'; refusing to write an unrecognized artifact" >&2
-  exit 4
-}
 
-mapfile -t ISO_FILES < <(find "$CANDIDATE_DIR" -maxdepth 2 -type f -name '*.iso' -print)
+mapfile -d '' -t ISO_FILES < <(find "$CANDIDATE_DIR" -type f -name '*.iso' -print0)
 [[ ${#ISO_FILES[@]} -eq 1 ]] || {
   echo "error: expected exactly one ISO under $CANDIDATE_DIR; found ${#ISO_FILES[@]}" >&2
   exit 5
 }
 ISO="${ISO_FILES[0]}"
+[[ -s "$ISO" ]] || { echo "error: candidate ISO is empty" >&2; exit 5; }
+ISO_NAME="${ISO##*/}"
+[[ "$ISO_NAME" =~ ^Xodus-reference-[A-Za-z0-9._-]+\.iso$ ]] || {
+  echo "error: unexpected ISO filename: $ISO_NAME" >&2
+  exit 5
+}
 
-CHECKSUM_FILE="$(find "$CANDIDATE_DIR" -maxdepth 2 -type f \( -name '*.sha256' -o -name 'SHA256SUMS' \) -print -quit)"
-[[ -n "$CHECKSUM_FILE" ]] || { echo "error: no SHA-256 checksum file found beside candidate ISO" >&2; exit 5; }
-(
-  cd "$(dirname "$CHECKSUM_FILE")"
-  sha256sum -c "$(basename "$CHECKSUM_FILE")"
-)
+mapfile -d '' -t CHECKSUM_FILES < <(find "$CANDIDATE_DIR" -type f -name 'xodus-reference.sha256' -print0)
+[[ ${#CHECKSUM_FILES[@]} -eq 1 ]] || {
+  echo "error: expected exactly one xodus-reference.sha256; found ${#CHECKSUM_FILES[@]}" >&2
+  exit 5
+}
+mapfile -t CHECKSUM_LINES < "${CHECKSUM_FILES[0]}"
+CHECKSUM_PATTERN='^([0-9a-fA-F]{64})  (pearos-iso/Xodus-reference-[A-Za-z0-9._-]+\.iso)$'
+[[ ${#CHECKSUM_LINES[@]} -eq 1 && "${CHECKSUM_LINES[0]}" =~ $CHECKSUM_PATTERN ]] || {
+  echo "error: malformed producer SHA-256 checksum" >&2
+  exit 5
+}
+EXPECTED_SHA="${BASH_REMATCH[1],,}"
+CHECKSUM_PATH="${BASH_REMATCH[2]}"
+[[ "${CHECKSUM_PATH#pearos-iso/}" == "$ISO_NAME" ]] || {
+  echo "error: checksum identifies a different ISO" >&2
+  exit 5
+}
+ACTUAL_SHA="$(sha256sum "$ISO")"
+ACTUAL_SHA="${ACTUAL_SHA%% *}"
+[[ "$ACTUAL_SHA" == "$EXPECTED_SHA" ]] || {
+  echo "error: candidate ISO SHA-256 verification failed" >&2
+  exit 5
+}
+
+mapfile -d '' -t PRODUCER_FILES < <(find "$CANDIDATE_DIR" -type f -name 'xodus-reference.manifest' -print0)
+[[ ${#PRODUCER_FILES[@]} -eq 1 ]] || {
+  echo "error: expected exactly one xodus-reference.manifest; found ${#PRODUCER_FILES[@]}" >&2
+  exit 5
+}
+mapfile -t PRODUCER_LINES < "${PRODUCER_FILES[0]}"
+[[ ${#PRODUCER_LINES[@]} -eq 5 ]] || {
+  echo "error: malformed ISO producer manifest" >&2
+  exit 5
+}
+UPSTREAM_SHA="${PRODUCER_LINES[2]#upstream_commit=}"
+ARTIFACT_NAME="$(jq -er '.core_iso.artifact_name' "$MANIFEST")"
+[[ "${PRODUCER_LINES[0]}" == 'schema=1' &&
+   "${PRODUCER_LINES[1]}" == "xodus_source_commit=$CANDIDATE_SHA" &&
+   "${PRODUCER_LINES[2]}" == "upstream_commit=$UPSTREAM_SHA" &&
+   "$UPSTREAM_SHA" =~ ^[0-9a-f]{40}$ &&
+   "$ARTIFACT_NAME" == "xodus-reference-iso-$UPSTREAM_SHA" &&
+   "${PRODUCER_LINES[3]}" == "iso_filename=$ISO_NAME" &&
+   "${PRODUCER_LINES[4]}" == "iso_sha256=$EXPECTED_SHA" ]] || {
+  echo "error: ISO producer manifest does not match candidate SHA, artifact, filename, or checksum" >&2
+  exit 5
+}
+
+echo "Candidate bundle verified: $ISO ($ACTUAL_SHA)"
+if (( VERIFY_BUNDLE )); then
+  exit 0
+fi
+
+for cmd in lsblk findmnt blockdev readlink stat awk sed head; do
+  command -v "$cmd" >/dev/null 2>&1 || {
+    echo "error: required command '$cmd' is not installed" >&2
+    exit 2
+  }
+done
 
 [[ -b "$DEVICE" ]] || { echo "error: target is not a block device: $DEVICE" >&2; exit 6; }
 DEVICE="$(readlink -f "$DEVICE")"

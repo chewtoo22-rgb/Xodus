@@ -125,6 +125,19 @@ install -Dm0644 "$runtime_preflight_unit" "$root/pear/airootfs/usr/lib/systemd/s
 ln -sfn /usr/lib/systemd/system/xodus-ai-runtime-preflight.service \
   "$root/pear/airootfs/etc/systemd/system/multi-user.target.wants/xodus-ai-runtime-preflight.service"
 
+# The QEMU boot gate needs evidence from a real live Plasma session. The probe
+# runs only on archiso media, so copying this payload to an installed system
+# does not turn a later installed boot into a live-media QA pass.
+desktop_probe_source="$script_dir/live-desktop/xodus-live-desktop-probe"
+desktop_probe_unit="$script_dir/live-desktop/xodus-live-desktop-probe.service"
+test -f "$desktop_probe_source"
+test -f "$desktop_probe_unit"
+install -Dm0755 "$desktop_probe_source" "$root/pear/airootfs/usr/lib/xodus/xodus-live-desktop-probe"
+install -Dm0644 "$desktop_probe_unit" "$root/pear/airootfs/usr/lib/systemd/system/xodus-live-desktop-probe.service"
+install -d "$root/pear/airootfs/etc/systemd/system/graphical.target.wants"
+ln -sfn /usr/lib/systemd/system/xodus-live-desktop-probe.service \
+  "$root/pear/airootfs/etc/systemd/system/graphical.target.wants/xodus-live-desktop-probe.service"
+
 # Assertions are part of the contract: a successful overlay must leave no
 # upstream pearOS ISO identity in the profile metadata.
 grep -Fq 'iso_name="Xodus"' "$profile"
@@ -145,5 +158,8 @@ test -L "$root/pear/airootfs/etc/systemd/system/multi-user.target.wants/xodus-ai
 test -x "$root/pear/airootfs/usr/lib/xodus/xodus-ai-runtime-preflight.py"
 test -f "$root/pear/airootfs/usr/lib/systemd/system/xodus-ai-runtime-preflight.service"
 test -L "$root/pear/airootfs/etc/systemd/system/multi-user.target.wants/xodus-ai-runtime-preflight.service"
+test -x "$root/pear/airootfs/usr/lib/xodus/xodus-live-desktop-probe"
+test -f "$root/pear/airootfs/usr/lib/systemd/system/xodus-live-desktop-probe.service"
+test -L "$root/pear/airootfs/etc/systemd/system/graphical.target.wants/xodus-live-desktop-probe.service"
 
 echo "Applied Xodus M0 identity overlay to $root"
