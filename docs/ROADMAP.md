@@ -10,10 +10,10 @@ Goal: prove that a source-pinned, Xodus-branded live image reaches the NiceC0re 
 - [x] Apply the minimum Xodus identity overlay before building the ISO.
 - [x] Build a branded ISO in `Core ISO Build` and package its SHA-256 and source provenance. Historical runs passed; this change needs a fresh run.
 - [x] Launch that ISO under QEMU/OVMF in `QA QEMU Boot Smoke`. The historical watchdog pass proves only that QEMU did not exit early.
-- [ ] Capture a positive graphical-session signal and retain its VM evidence from the updated QA gate on the current `main` commit.
+- [ ] Capture a positive graphical-session signal and a fresh visible VM frame from the updated QA gate on the current `main` commit; review the retained frame.
 - [ ] Retain the successful ISO build log with that commit's ISO artifact and confirm the fresh artifact is downloadable and checksum-valid.
 
-**Exit gate:** the current `main` commit has successful, matching-commit Core ISO and updated QA runs. The ISO artifact contains the image, checksum, source provenance, and successful build log. QA evidence positively shows the desktop session started; a watchdog timeout alone cannot pass. `Hardware Candidate Gate` must then produce a qualification manifest for that same current commit. An older green run or artifact is not M0 completion evidence.
+**Exit gate:** the current `main` commit has successful, matching-commit Core ISO and updated QA runs. The ISO artifact contains the image, checksum, source provenance, and successful build log. QA evidence shows the guest desktop session started and includes a fresh visible QMP frame; a watchdog timeout or process-only signal cannot pass. Review the frame before hardware qualification. `Hardware Candidate Gate` must then produce a qualification manifest for that same current commit. An older green run or artifact is not M0 completion evidence.
 
 This is a **live-image VM gate**. Physical live boot on an Intel NUC is a later, separate observation. Physical installation needs the destructive VM installer proof, a dedicated empty target, an explicit human decision, and a verified recovery/rollback procedure. No physical install or rollback success is claimed here. Pinning the pearOS Git revision gives source provenance, but the Arch container tag and rolling package repositories are not locked, so M0 does not claim byte-for-byte reproducible ISOs.
 

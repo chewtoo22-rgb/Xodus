@@ -29,6 +29,7 @@ class QemuSmokeContract(unittest.TestCase):
         self.qmp_server = self.root / "mock-qmp-server.py"
         self.qmp_server.write_text(
             """import json
+import os
 import socket
 import sys
 import time
@@ -40,6 +41,8 @@ server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 server.bind(path)
 server.listen(2)
 server.settimeout(8)
+if os.environ.get('MOCK_QMP_READY') == 'yes':
+    print('XODUS_LIVE_DESKTOP_READY', flush=True)
 deadline = time.monotonic() + 8
 while time.monotonic() < deadline:
     try:
@@ -56,8 +59,15 @@ while time.monotonic() < deadline:
             request = json.loads(line)
             command = request['execute']
             if command == 'screendump':
+                if request['arguments']['filename'].endswith('guest-screen-ready.ppm'):
+                    time.sleep(float(os.environ.get('MOCK_QMP_SCREEN_DELAY', '0')))
                 with open(request['arguments']['filename'], 'wb') as image:
-                    image.write(b'P6\\n1 1\\n255\\n\\x00\\x00\\x00')
+                    if os.environ.get('MOCK_QMP_FRAME') == 'visible':
+                        image.write(b'P6\\n32 32\\n255\\n')
+                        image.write(bytes(channel for y in range(32) for x in range(32)
+                                          for channel in (70 + x, 80 + y, 110)))
+                    else:
+                        image.write(b'P6\\n1 1\\n255\\n\\x00\\x00\\x00')
             result = {'status': 'running'} if command == 'query-status' else {}
             stream.write((json.dumps({'id': request['id'], 'return': result}) + '\\n').encode())
 """,
@@ -118,9 +128,41 @@ esac
         )
 
     def test_exact_live_guest_marker_passes(self):
-        result = self.run_gate("ready")
+        result = self.run_gate("qmp", MOCK_QMP_READY="yes", MOCK_QMP_FRAME="visible",
+                               BOOT_SECONDS="4")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("result=pass", (self.logs / "smoke-summary.txt").read_text())
+        self.assertIn("rendered_frame=guest-screen-ready.ppm",
+                      (self.logs / "smoke-summary.txt").read_text())
+        self.assertTrue((self.logs / "frame-evidence.txt").is_file())
+
+    def test_guest_marker_with_black_frame_does_not_pass(self):
+        result = self.run_gate("qmp", MOCK_QMP_READY="yes")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("reason=guest_rendered_frame_missing",
+                      (self.logs / "smoke-summary.txt").read_text())
+
+    def test_stale_visible_frame_does_not_pass_without_fresh_qmp_capture(self):
+        self.logs.mkdir()
+        (self.logs / "frame-evidence.txt").write_text("visible_fraction=1.0000\n")
+        (self.logs / "guest-screen-ready.ppm").write_bytes(
+            b"P6\n32 32\n255\n" + bytes(channel for y in range(32) for x in range(32)
+                                      for channel in (70 + x, 80 + y, 110))
+        )
+        result = self.run_gate("ready")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("reason=guest_rendered_frame_missing",
+                      (self.logs / "smoke-summary.txt").read_text())
+        self.assertFalse((self.logs / "guest-screen-ready.ppm").exists())
+        self.assertFalse((self.logs / "frame-evidence.txt").exists())
+
+    def test_visible_frame_after_boot_deadline_does_not_pass(self):
+        result = self.run_gate("qmp", MOCK_QMP_READY="yes", MOCK_QMP_FRAME="visible",
+                               MOCK_QMP_SCREEN_DELAY="4", BOOT_SECONDS="3")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("reason=guest_rendered_frame_missing",
+                      (self.logs / "smoke-summary.txt").read_text())
+        self.assertIn("frame_check=late", (self.logs / "qmp-status.log").read_text())
 
     def test_qemu_surviving_timeout_is_not_a_pass(self):
         result = self.run_gate("idle")

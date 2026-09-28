@@ -4,6 +4,7 @@ set -euo pipefail
 # The live image carries xodus-live-desktop-probe.service. Only that service,
 # after checking SDDM, logind, KWin and Plasma in the guest, emits this line.
 readonly SENTINEL='XODUS_LIVE_DESKTOP_READY'
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 ISO_PATH=${1:-}
 LOG_DIR=${2:-qa-artifacts}
 BOOT_SECONDS=${BOOT_SECONDS:-600}
@@ -22,6 +23,10 @@ for command in file xorriso qemu-system-x86_64 python3 awk realpath ps; do
     exit 69
   }
 done
+[[ -f "$script_dir/visible-frame.py" ]] || {
+  echo 'Missing QEMU framebuffer visibility check' >&2
+  exit 69
+}
 
 mkdir -p "$LOG_DIR"
 LOG_DIR=$(cd "$LOG_DIR" && pwd -P)
@@ -85,7 +90,8 @@ diagnostics="$LOG_DIR/qmp-status.log"
 : >"$serial"
 : >"$qemu_log"
 : >"$diagnostics"
-rm -f "$monitor" "$vnc"
+rm -f -- "$monitor" "$vnc" "$LOG_DIR/frame-evidence.txt" "$LOG_DIR/smoke-summary.txt" \
+  "$LOG_DIR"/guest-screen-*.ppm
 qemu_pid=''
 cleanup() {
   if [[ -n "$qemu_pid" ]] && kill -0 "$qemu_pid" 2>/dev/null; then
@@ -122,10 +128,11 @@ qemu-system-x86_64 \
 qemu_pid=$!
 
 capture_diagnostics() {
-  # Screen and VM status are diagnostic only; readiness still requires the
-  # exact serial sentinel from the live guest probe.
+  # A fresh framebuffer capture and the exact guest sentinel are both required
+  # for readiness. Never reuse a screenshot from an earlier capture or run.
   local label=$1 elapsed=$2
   printf 'capture=%s elapsed_seconds=%s\n' "$label" "$elapsed" >>"$diagnostics"
+  rm -f -- "$LOG_DIR/guest-screen-$label.ppm"
   if [[ ! -S "$monitor" ]]; then
     echo 'qmp=socket_unavailable' >>"$diagnostics"
     return 0
@@ -190,16 +197,33 @@ qemu_alive() {
 started=$SECONDS
 deadline=$((SECONDS + BOOT_SECONDS))
 next_capture=$((started + 20))
+next_visible_capture=$started
+guest_ready=no
 ready=no
+visible_frame=''
+frame_report=''
 while (( SECONDS < deadline )); do
   if ! qemu_alive; then
     break
   fi
   if exact_sentinel_seen; then
-    ready=yes
-    break
+    guest_ready=yes
   fi
-  if (( SECONDS >= next_capture )); then
+  if [[ "$guest_ready" == yes ]] && (( SECONDS >= next_visible_capture )); then
+    elapsed=$((SECONDS - started))
+    capture_diagnostics ready "$elapsed"
+    visible_frame="$LOG_DIR/guest-screen-ready.ppm"
+    if frame_report=$(python3 "$script_dir/visible-frame.py" "$visible_frame" 2>>"$diagnostics"); then
+      if (( SECONDS < deadline )); then
+        printf '%s\n' "$frame_report" | tee "$LOG_DIR/frame-evidence.txt"
+        ready=yes
+        break
+      fi
+      printf 'frame_check=late elapsed_seconds=%s %s\n' "$((SECONDS - started))" "$frame_report" >>"$diagnostics"
+    fi
+    printf 'frame_check=not_visible elapsed_seconds=%s %s\n' "$elapsed" "$frame_report" >>"$diagnostics"
+    next_visible_capture=$((SECONDS + 10))
+  elif (( SECONDS >= next_capture )); then
     capture_diagnostics "$((SECONDS - started))s" "$((SECONDS - started))"
     next_capture=$((SECONDS + 120))
   fi
@@ -210,6 +234,7 @@ elapsed=$((SECONDS - started))
 capture_diagnostics final "$elapsed"
 if [[ "$ready" != yes ]] || ! qemu_alive; then
   reason=guest_desktop_sentinel_missing
+  if [[ "$guest_ready" == yes ]]; then reason=guest_rendered_frame_missing; fi
   if ! qemu_alive; then reason=qemu_exited_before_desktop_ready; fi
   printf 'result=fail\nreason=%s\nwatchdog_seconds=%s\nelapsed_seconds=%s\nqemu_accel=%s\n' \
     "$reason" "$BOOT_SECONDS" "$elapsed" "$qemu_accel" | tee "$LOG_DIR/smoke-summary.txt" >&2
@@ -219,7 +244,7 @@ if [[ "$ready" != yes ]] || ! qemu_alive; then
   exit 1
 fi
 
-printf 'result=pass\nguest_evidence=%s\nwatchdog_seconds=%s\nelapsed_seconds=%s\nqemu_accel=%s\nfirmware=%s\n' \
-  "$SENTINEL" "$BOOT_SECONDS" "$elapsed" "$qemu_accel" "$OVMF_CODE" \
+printf 'result=pass\nguest_evidence=%s\nrendered_frame=%s\n%s\nwatchdog_seconds=%s\nelapsed_seconds=%s\nqemu_accel=%s\nfirmware=%s\n' \
+  "$SENTINEL" "$(basename "$visible_frame")" "$frame_report" "$BOOT_SECONDS" "$elapsed" "$qemu_accel" "$OVMF_CODE" \
   | tee "$LOG_DIR/smoke-summary.txt"
-echo "Live Xodus desktop session reached SDDM, logind, KWin and Plasma readiness."
+echo "Live Xodus desktop session reached SDDM, logind, KWin and Plasma readiness with a rendered frame."
