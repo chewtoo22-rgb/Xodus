@@ -68,11 +68,43 @@ new = '''    git init -q "${pacstrap_dir}/usr/share/pearOS-installer" || _msg_er
     [[ "$(git -C "${pacstrap_dir}/usr/share/pearOS-installer" rev-parse HEAD)" == "@COMMIT@" ]] || _msg_error "pearOS-installer commit does not match the lock" 1
     [[ "$(git -C "${pacstrap_dir}/usr/share/pearOS-installer" rev-parse HEAD:system_install/setup)" == "@BLOB@" ]] || _msg_error "pearOS-installer setup blob does not match the lock" 1'''
 new = new.replace('@COMMIT@', commit).replace('@BLOB@', setup_blob)
-builder.write_text(source.replace(old, new))
+hook_anchor = '    _run_once _make_customize_airootfs\n    _run_once _make_pkglist'
+hook_definition_anchor = '_make_pkglist() {'
+if source.count(hook_anchor) != 1 or source.count(hook_definition_anchor) != 1:
+    raise SystemExit('pinned upstream live identity hook layout changed')
+hook_definition = '''_apply_xodus_visible_identity() {
+    local helper="${profile}/xodus-apply-visible-identity.sh"
+    [[ -f "$helper" ]] || _msg_error "Xodus visible identity hook is missing" 1
+    bash "$helper" "${pacstrap_dir}" || _msg_error "Xodus visible identity hook failed" 1
+}
+
+'''
+source = source.replace(old, new)
+source = source.replace(hook_definition_anchor, hook_definition + hook_definition_anchor)
+source = source.replace(
+    hook_anchor,
+    '    _run_once _make_customize_airootfs\n    _run_once _apply_xodus_visible_identity\n    _run_once _make_pkglist',
+)
+builder.write_text(source)
 PY
 bash -n "$builder"
 grep -Fq "fetch --depth=1 origin $installer_commit" "$builder"
 ! grep -Fq 'git clone --depth 1 https://github.com/pearOS-archlinux/pearOS-installer.git' "$builder"
+grep -Fq '    _run_once _apply_xodus_visible_identity' "$builder"
+
+# The visible identity helper runs after upstream package installation and
+# live-user creation. It edits the packaged Plasma and installer files inside
+# pacstrap_dir, where the profile overlay alone cannot reach them.
+visible_identity_hook="$script_dir/identity/apply-visible-identity.sh"
+wallpaper_source="$script_dir/identity/assets/xodus-wallpaper.png"
+app_icon_source="$script_dir/identity/assets/xodus-app-icon.png"
+[[ -f "$visible_identity_hook" && -s "$wallpaper_source" && -s "$app_icon_source" ]] || {
+  echo 'Xodus visible identity hook or artwork is missing' >&2
+  exit 66
+}
+install -Dm0644 "$visible_identity_hook" "$root/pear/xodus-apply-visible-identity.sh"
+install -Dm0644 "$wallpaper_source" "$root/pear/airootfs/usr/share/wallpapers/Xodus/xodus-wallpaper.png"
+install -Dm0644 "$app_icon_source" "$root/pear/airootfs/usr/share/pixmaps/xodus-app-icon.png"
 
 # Fail closed if the pinned upstream shape drifts. This prevents a partially
 # branded image from silently shipping after an upstream layout change.

@@ -8,6 +8,7 @@ on:
       - 'upstream/iso.lock'
       - 'upstream/installer.lock'
       - 'overlay/**'
+      - 'scripts/inventory-iso-payload.py'
       - '.github/workflows/core-iso-build.yml'
       - 'docs/core-iso.md'
       - 'docs/desktop-identity.md'
@@ -43,6 +44,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Check visible identity hook contract
+        shell: bash
+        run: bash qa/m1-visible-identity-contract.sh
 
       - name: Parse pinned pearOS source
         id: lock
@@ -147,7 +152,7 @@ jobs:
               pacman -Syu --noconfirm
               pacman -S --needed --noconfirm \
                 arch-install-scripts mtools squashfs-tools xorriso e2fsprogs \
-                git pv erofs-utils gnupg dosfstools syslinux
+                git pv erofs-utils gnupg dosfstools syslinux python
 
               # Reproduce pearOS upstream CI trust bootstrap. The ISO profile
               # consumes pearOS, inled, and CachyOS repositories, so a fresh
@@ -165,7 +170,7 @@ jobs:
               pacman-key --populate cachyos
               pacman -Sy --noconfirm --config pear/pacman.conf
 
-              command -v pacstrap arch-chroot mksquashfs xorriso mkfs.ext4 tune2fs git pv
+              command -v pacstrap arch-chroot mksquashfs xorriso mkfs.ext4 tune2fs git pv python3
 
               # pearOS currently serves some profile packages from a single
               # upstream mirror. Retain pacman CacheDir across attempts so each
@@ -202,7 +207,31 @@ jobs:
                 sleep "$delay"
                 attempt=$((attempt + 1))
               done
+
+              # The firmware boots Ploader from this FAT image. Extract the
+              # actual EFI payload with the mtools already used by the builder.
+              shopt -s nullglob
+              efi_images=(/build/work/tmp.*/efiboot.img)
+              (( ${#efi_images[@]} == 1 )) || { echo "Expected one EFI boot image" >&2; exit 1; }
+              mcopy -i "${efi_images[0]}" ::/EFI/BOOT/BOOTx64.EFI /build/xodus-ploader-firmware.efi
+              cmp /build/pear/efiboot/ploader/ploader_x64.efi /build/xodus-ploader-firmware.efi
             '
+
+      - name: Inventory staged ISO payload
+        shell: bash
+        env:
+          XODUS_SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$XODUS_SOURCE_COMMIT"
+          python3 scripts/inventory-iso-payload.py \
+            --xodus-root "$GITHUB_WORKSPACE" \
+            --upstream-dir "$GITHUB_WORKSPACE/pearos-iso" \
+            --output-dir "$GITHUB_WORKSPACE/pearos-iso" \
+            --expected-source-commit "$XODUS_SOURCE_COMMIT"
+          test -s pearos-iso/xodus-payload-inventory.json
+          test -s pearos-iso/xodus-package-license-inventory.tsv
+          test -s pearos-iso/xodus-asset-hashes.tsv
 
       - name: Verify produced image and write provenance manifest
         id: artifact
@@ -222,6 +251,14 @@ jobs:
           sha256sum "$iso" | tee pearos-iso/xodus-reference.sha256
           iso_sha=$(sha256sum "$iso" | awk '{print $1}')
           iso_name=$(basename "$iso")
+          python3 - "$iso_name" "$iso_sha" <<'PY'
+          import json
+          import sys
+          with open('pearos-iso/xodus-payload-inventory.json', encoding='utf-8') as stream:
+              inventory = json.load(stream)
+          assert inventory['iso_filename'] == sys.argv[1]
+          assert inventory['iso_sha256'] == sys.argv[2]
+          PY
           cat > pearos-iso/xodus-reference.manifest <<EOF
           schema=2
           xodus_source_commit=$XODUS_SOURCE_COMMIT
@@ -246,6 +283,9 @@ jobs:
             ${{ steps.artifact.outputs.iso }}
             pearos-iso/xodus-reference.sha256
             pearos-iso/xodus-reference.manifest
+            pearos-iso/xodus-payload-inventory.json
+            pearos-iso/xodus-package-license-inventory.tsv
+            pearos-iso/xodus-asset-hashes.tsv
             pearos-iso/xodus-build-attempt-*.log
           if-no-files-found: error
           compression-level: 0

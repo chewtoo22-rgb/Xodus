@@ -90,6 +90,11 @@ _make_custom_airootfs() {
     # Clone pearOS-installer from GitHub instead of using local files
     git clone --depth 1 https://github.com/pearOS-archlinux/pearOS-installer.git "${pacstrap_dir}/usr/share/pearOS-installer" || _msg_error "Failed to clone pearOS-installer from GitHub" 1
 }
+_make_pkglist() { :; }
+_build_buildmode() {
+    _run_once _make_customize_airootfs
+    _run_once _make_pkglist
+}
 EOF
 bash "$repo_root/overlay/apply-xodus-identity.sh" "$fixture" >/dev/null
 test -x "$fixture/pear/airootfs/usr/lib/xodus/xodus-live-desktop-probe"
