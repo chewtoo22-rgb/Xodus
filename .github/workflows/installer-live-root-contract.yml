@@ -5,7 +5,10 @@ on:
     paths:
       - 'qa/installer-live-root-contract.sh'
       - 'scripts/fetch-qualified-candidate.sh'
+      - 'overlay/**'
+      - 'upstream/iso.lock'
       - 'upstream/installer.lock'
+      - '.github/workflows/core-iso-build.yml'
       - '.github/workflows/installer-live-root-contract.yml'
   workflow_dispatch:
 
@@ -16,9 +19,82 @@ permissions:
 jobs:
   live-root-contract:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    # A PR waits for its exact-head Core ISO before inspecting the live root.
+    timeout-minutes: 225
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Verify exact PR-head checkout
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PR_HEAD_SHA"
+
+      - name: Parse pinned pearOS revision
+        if: github.event_name == 'pull_request'
+        id: lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          line=$(grep -v '^#' upstream/iso.lock | grep -v '^$' | head -n1)
+          IFS='|' read -r repo branch commit captured <<< "$line"
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve exact PR-head Core ISO
+        if: github.event_name == 'pull_request'
+        id: run
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_ARTIFACT: xodus-reference-iso-${{ steps.lock.outputs.commit }}
+        run: |
+          set -euo pipefail
+          [[ "$PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          for attempt in $(seq 1 360); do
+            runs=$(gh api -H 'Accept: application/vnd.github+json' \
+              "/repos/${GITHUB_REPOSITORY}/actions/workflows/core-iso-build.yml/runs?head_sha=${PR_HEAD_SHA}&per_page=100")
+            row=''
+            while IFS=$'\t' read -r candidate_id candidate_sha; do
+              [[ -n "$candidate_id" ]] || continue
+              artifacts=$(gh api -H 'Accept: application/vnd.github+json' \
+                "/repos/${GITHUB_REPOSITORY}/actions/runs/${candidate_id}/artifacts?per_page=100")
+              if jq -e --arg name "$EXPECTED_ARTIFACT" \
+                '[.artifacts[] | select(.name == $name)] as $matches |
+                 ($matches | length) == 1 and
+                 $matches[0].expired == false and
+                 $matches[0].size_in_bytes > 0' <<< "$artifacts" >/dev/null; then
+                row="${candidate_id}"$'\t'"${candidate_sha}"
+                break
+              fi
+            done < <(jq -r --arg sha "$PR_HEAD_SHA" \
+              '.workflow_runs[] |
+               select(.head_sha == $sha and .event == "pull_request" and
+                      .status == "completed" and .conclusion == "success") |
+               [.id,.head_sha] | @tsv' <<< "$runs")
+
+            if [[ -n "$row" ]]; then break; fi
+            active=$(jq -r --arg sha "$PR_HEAD_SHA" \
+              '[.workflow_runs[] | select(.head_sha == $sha and .event == "pull_request" and .status != "completed")] | length' \
+              <<< "$runs")
+            if (( active == 0 && attempt >= 4 )); then
+              echo "No successful exact-head Core ISO run with live artifact for $PR_HEAD_SHA" >&2
+              exit 5
+            fi
+            echo "Waiting for exact-head Core ISO artifact for $PR_HEAD_SHA (poll $attempt/360)"
+            sleep 30
+          done
+          [[ -n "${row:-}" ]] || { echo 'Exact-head Core ISO artifact did not appear before timeout' >&2; exit 5; }
+          IFS=$'\t' read -r run_id source_sha <<< "$row"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "Using Core ISO workflow run $run_id from $source_sha"
 
       - name: Reclaim runner disk
         run: |
@@ -31,13 +107,51 @@ jobs:
           sudo apt-get install -y libarchive-tools squashfs-tools jq
 
       - name: Fetch latest qualified Xodus candidate
+        if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           bash scripts/fetch-qualified-candidate.sh qualified-candidate
           find qualified-candidate -maxdepth 2 -type f -printf '%p %s bytes\n'
 
+      - name: Download exact PR-head ISO artifact
+        if: github.event_name == 'pull_request'
+        uses: actions/download-artifact@v4
+        with:
+          name: xodus-reference-iso-${{ steps.lock.outputs.commit }}
+          path: qualified-candidate
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.run.outputs.run_id }}
+
+      - name: Verify exact PR-head ISO provenance
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          UPSTREAM_COMMIT: ${{ steps.lock.outputs.commit }}
+        run: |
+          set -euo pipefail
+          mapfile -t isos < <(find qualified-candidate -type f -name '*.iso')
+          mapfile -t checksums < <(find qualified-candidate -type f -name 'xodus-reference.sha256')
+          mapfile -t manifests < <(find qualified-candidate -type f -name 'xodus-reference.manifest')
+          (( ${#isos[@]} == 1 && ${#checksums[@]} == 1 && ${#manifests[@]} == 1 ))
+          expected=$(awk 'NR == 1 {print $1}' "${checksums[0]}")
+          actual=$(sha256sum "${isos[0]}" | awk '{print $1}')
+          [[ "$expected" == "$actual" ]]
+          grep -Fxq "xodus_source_commit=$PR_HEAD_SHA" "${manifests[0]}"
+          grep -Fxq "upstream_commit=$UPSTREAM_COMMIT" "${manifests[0]}"
+          # The embedded build-info is checked separately against this lock.
+          source upstream/installer.lock
+          grep -Fxq "installer_commit=$REF" "${manifests[0]}"
+          grep -Fxq "iso_filename=$(basename "${isos[0]}")" "${manifests[0]}"
+          grep -Fxq "iso_sha256=$actual" "${manifests[0]}"
+          printf 'core_source_sha=%s\ncore_run_id=%s\nsha256=%s\n' \
+            "$PR_HEAD_SHA" '${{ steps.run.outputs.run_id }}' "$actual" \
+            | tee installer-live-root-image-digest.txt
+
       - name: Verify embedded installer against pinned contract
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           iso="$(find qualified-candidate -type f -name '*.iso' -print -quit)"
           test -n "$iso"
@@ -48,6 +162,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: installer-live-root-contract-evidence
-          path: installer-live-root-evidence/
+          path: |
+            installer-live-root-evidence/
+            installer-live-root-image-digest.txt
           if-no-files-found: warn
           retention-days: 7

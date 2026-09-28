@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# This program runs in the booted live image, never on the CI host. The pinned
+# pearOS profile starts SDDM and auto logs liveuser into Plasma.
+readonly SENTINEL='XODUS_LIVE_DESKTOP_READY'
+readonly USER_NAME='liveuser'
+readonly SERIAL_DEVICE=/dev/ttyS0
+
+report_failure() {
+  local reason=$1
+  echo "live desktop probe: $reason" >&2
+  if [[ -c "$SERIAL_DEVICE" ]]; then
+    printf 'XODUS_LIVE_DESKTOP_PROBE_ERROR reason=%s\n' "$reason" >"$SERIAL_DEVICE" || true
+  fi
+}
+
+report_wait_state() {
+  local elapsed=$1 dm uid plasma sessions session details
+  dm=$(systemctl is-active display-manager.service 2>/dev/null) || :
+  [[ -n "$dm" ]] || dm=unavailable
+  uid=$(id -u "$USER_NAME" 2>/dev/null) || uid=missing
+  plasma=missing
+  if [[ "$uid" != missing ]] && pgrep -u "$uid" -x plasmashell >/dev/null; then
+    plasma=running
+  fi
+  sessions=$(loginctl show-user "$USER_NAME" -p Sessions --value 2>/dev/null) || sessions=''
+  {
+    printf 'XODUS_LIVE_DESKTOP_WAIT elapsed=%s display_manager=%s user_uid=%s plasmashell=%s sessions=%s\n' \
+      "$elapsed" "$dm" "$uid" "$plasma" "${sessions:-none}"
+    for session in $sessions; do
+      details=$(loginctl show-session "$session" \
+        -p Name -p Active -p State -p Type -p Class -p Remote 2>/dev/null) || details=unavailable
+      printf 'XODUS_LIVE_DESKTOP_SESSION id=%s %s\n' \
+        "$session" "${details//$'\n'/,}"
+    done
+  } >"$SERIAL_DEVICE" || true
+}
+
+live_media() {
+  [[ -d /run/archiso/bootmnt ]] &&
+    grep -Eq '(^|[[:space:]])archisobasedir=' /proc/cmdline &&
+    [[ $(findmnt -no FSTYPE /) == overlay ]] &&
+    grep -Fxq 'XODUS_NAME=Xodus' /usr/lib/xodus/build-info
+}
+
+live_media_failure_reason() {
+  if [[ ! -d /run/archiso/bootmnt ]]; then
+    echo archiso_boot_mount_missing
+  elif ! grep -Eq '(^|[[:space:]])archisobasedir=' /proc/cmdline; then
+    echo archisobasedir_kernel_argument_missing
+  elif [[ $(findmnt -no FSTYPE /) != overlay ]]; then
+    echo live_root_is_not_overlay
+  elif ! grep -Fxq 'XODUS_NAME=Xodus' /usr/lib/xodus/build-info; then
+    echo xodus_build_info_missing
+  else
+    echo live_root_check_failed
+  fi
+}
+
+desktop_session() {
+  local uid sessions session details type compositor
+  systemctl is-active --quiet display-manager.service || return 1
+  uid=$(id -u "$USER_NAME") || return 1
+  pgrep -u "$uid" -x plasmashell >/dev/null || return 1
+
+  # A running SDDM or a reached graphical.target can still show only a login
+  # screen. Require an active local graphical session owned by liveuser. The
+  # pinned profile chooses Session=plasma; accept its Wayland or X11 backend
+  # only when the matching KWin compositor is running as that same user.
+  sessions=$(loginctl show-user "$USER_NAME" -p Sessions --value) || return 1
+  for session in $sessions; do
+    details=$(loginctl show-session "$session" \
+      -p Name -p Active -p State -p Type -p Class -p Remote) || continue
+    if grep -Fxq "Name=$USER_NAME" <<<"$details" &&
+       grep -Fxq 'Active=yes' <<<"$details" &&
+       grep -Fxq 'State=active' <<<"$details" &&
+       grep -Fxq 'Class=user' <<<"$details" &&
+       grep -Fxq 'Remote=no' <<<"$details"; then
+      if grep -Fxq 'Type=wayland' <<<"$details"; then
+        type=wayland
+        compositor=kwin_wayland
+      elif grep -Fxq 'Type=x11' <<<"$details"; then
+        type=x11
+        compositor=kwin_x11
+      else
+        continue
+      fi
+      if pgrep -u "$uid" -x "$compositor" >/dev/null; then
+        printf '%s %s %s\n' "$session" "$type" "$compositor"
+        return 0
+      fi
+    fi
+  done
+  return 1
+}
+
+main() {
+  local timeout session type compositor deadline started next_report elapsed
+  timeout=${XODUS_LIVE_DESKTOP_PROBE_SECONDS:-480}
+  [[ "$timeout" =~ ^[1-9][0-9]*$ ]] || {
+    report_failure invalid_timeout
+    return 2
+  }
+  [[ -c "$SERIAL_DEVICE" ]] || {
+    echo 'live desktop probe: ttyS0 is unavailable' >&2
+    return 1
+  }
+  if ! live_media; then
+    report_failure "$(live_media_failure_reason)"
+    return 1
+  fi
+
+  started=$SECONDS
+  deadline=$((SECONDS + timeout))
+  next_report=$started
+  while (( SECONDS < deadline )); do
+    if read -r session type compositor < <(desktop_session); then
+      printf 'XODUS_LIVE_DESKTOP_EVIDENCE session=%s type=%s user=%s compositor=%s shell=plasmashell display_manager=active\n' \
+        "$session" "$type" "$USER_NAME" "$compositor" >"$SERIAL_DEVICE"
+      printf '%s\n' "$SENTINEL" >"$SERIAL_DEVICE"
+      echo "live desktop probe: ready (session $session)"
+      return 0
+    fi
+    if (( SECONDS >= next_report )); then
+      elapsed=$((SECONDS - started))
+      report_wait_state "$elapsed"
+      next_report=$((SECONDS + 30))
+    fi
+    sleep 1
+  done
+  report_wait_state "$((SECONDS - started))"
+  report_failure no_active_plasma_graphical_session_before_timeout
+  printf 'XODUS_LIVE_DESKTOP_NOT_READY\n' >"$SERIAL_DEVICE"
+  return 1
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

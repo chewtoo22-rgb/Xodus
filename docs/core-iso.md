@@ -1,36 +1,23 @@
-# Xodus Core ISO — M0 Reference Build
+# Xodus Core ISO — M0 Build
 
-## Upstream baseline
+## Pinned source and build path
 
-Xodus M0 currently pins pearOS `iso` at:
+`upstream/iso.lock` pins pearOS `iso` at `8175d4851fcf85b2325c56a3751c0697e044d049`. `Core ISO Build` fetches that exact Git commit, checks the upstream `build-binary` entrypoint and prebuilt Ploader files, then applies `overlay/apply-xodus-identity.sh` before building. The result is already Xodus-branded; M0 does not build an unmodified pearOS ISO first.
 
-`8175d4851fcf85b2325c56a3751c0697e044d049`
+The pinned upstream builder would clone the installer's moving branch into the live image. The Xodus overlay replaces that one audited clone command with a fetch and detached checkout of the commit in `upstream/installer.lock`, then verifies both the commit and its `system_install/setup` blob. A changed upstream command stops the build. This pins the embedded installer source, while package repository and other asset inputs remain subject to the limits below.
 
-The upstream README documents the reference build entrypoint as:
+The workflow runs on an Ubuntu GitHub runner but invokes the upstream Arch-native builder inside a privileged `archlinux:base-devel` container. It installs the required Arch build tools, initializes repository trust for the package sources used by the ISO profile, and calls `./build-binary --build --filename Xodus-reference --compression fastest --clean --sha256`. The `reference` string is a legacy output filename and artifact label; it does not mean the image is unmodified pearOS. The build uses the prebuilt Ploader artifacts from the pinned source rather than rebuilding that bootloader.
 
-```sh
-sudo ./build-binary
-```
+## Artifact and provenance contract
 
-Required Arch-side tools are `arch-install-scripts`, `mtools`, `squashfs-tools`, `xorriso`, `e2fsprogs`, `git`, and `pv`. The live image uses prebuilt Ploader artifacts already present under `pear/efiboot/ploader/`; the reference ISO build should not rebuild the bootloader during M0.
+A successful `Core ISO Build` run uploads `xodus-reference-iso-<upstream-sha>` for seven days. The artifact contains the `Xodus-reference-*.iso`, `xodus-reference.sha256`, and a schema-2 `xodus-reference.manifest` with the Xodus source commit, upstream ISO commit, embedded installer commit, filename, and ISO digest. The same three commits are recorded inside the live image's `build-info`. The workflow also packages `xodus-build-attempt-*.log` from successful runs; confirm the log is present in the first fresh artifact after this workflow change. Failed runs upload available attempt logs and disk diagnostics as `xodus-core-iso-failure-diagnostics`, also retained for seven days.
 
-## Reproducibility contract
+The checksum detects a changed download, and the manifest identifies the source revisions. Neither proves a bitwise reproducible build. The `archlinux:base-devel` tag is not pinned to an immutable digest, and `pacman -Syu` plus the ISO profile resolve packages from rolling repositories and mirrors. A later reproducibility milestone must lock or snapshot those inputs, control build metadata, and compare independently built ISO hashes before claiming identical bytes.
 
-1. CI must checkout the exact SHA in `upstream/iso.lock`, never floating `main`.
-2. CI must validate that `build-binary` exists and is executable before attempting a build.
-3. Generated upstream source, work directories, and ISO artifacts remain outside tracked source.
-4. The first successful artifact is intentionally an unmodified pearOS reference ISO. Xodus identity overlays are applied only after the reference build is reproducible.
-5. Each candidate artifact must ship with SHA-256 output and retained build logs.
+## M0 evidence sequence
 
-## M0 sequence
+1. `Core ISO Build` succeeds on the current `main` commit and uploads the ISO, checksum, manifest, and successful attempt log.
+2. `QA QEMU Boot Smoke` downloads that exact Core run's artifact, verifies its checksum, and boots it with OVMF. Its guest probe emits the exact serial line `XODUS_LIVE_DESKTOP_READY` only after finding the live Arch root, active display manager, an active local `liveuser` graphical session (Wayland with `kwin_wayland` or X11 with `kwin_x11`), and `plasmashell`. QA requires that line **and** a fresh QMP framebuffer capture with visible, varied pixels before the boot deadline. It retains `qa-artifacts/serial.log`, `smoke-summary.txt`, `frame-evidence.txt`, `guest-screen-ready.ppm`, periodic VM screenshots/status, and `qa-image-digest.txt` in `xodus-qemu-smoke-<source-sha>`. The pixel check rejects blank screens; it does not recognize the desktop UI, so review the retained frame before qualifying hardware. The older watchdog-only test merely showed that QEMU survived its timeout.
+3. `Hardware Candidate Gate` checks successful Core and QA runs and unexpired artifacts for the same current `main` SHA, then publishes `hardware-candidate-<source-sha>`. No historical survival-only QA run is sufficient for the changed gate's new SHA.
 
-- [x] Pin current upstream ISO commit.
-- [x] Record upstream build dependencies and entrypoint.
-- [ ] Prove the pinned source contract in GitHub Actions.
-- [ ] Run a full Arch-native reference ISO build in CI.
-- [ ] Upload ISO, checksum, and logs as artifacts.
-- [ ] Hand artifact to the QA lane for QEMU/OVMF boot smoke testing.
-
-## CI host constraint
-
-The upstream builder is Arch-native and requires root/chroot operations. Standard Ubuntu GitHub-hosted runners are therefore suitable for source-contract validation but are not treated as the final reference build environment. The full builder should run in an Arch container/VM path with the privileges required by `pacstrap`, `arch-chroot`, filesystem image creation, and loop/mount operations, or on a self-hosted Arch runner if GitHub-hosted container privileges prove insufficient.
+M0 exit remains pending until this complete sequence passes on a fresh commit. The hardware qualification manifest permits a separately controlled **live-boot** test; it does not prove physical installation or recovery/rollback.

@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'qa/**'
+      - 'overlay/**'
+      - 'upstream/iso.lock'
       - '.github/workflows/qa-qemu-smoke.yml'
   workflow_run:
     workflows: ['Core ISO Build']
@@ -25,16 +27,39 @@ concurrency:
 
 jobs:
   boot-smoke:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    # workflow_run has actions:read even when the producer built a PR head.
+    # Only main push builds enter this privileged path; PRs use pull_request.
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == github.event.repository.default_branch)
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    env:
-      GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Checkout Xodus QA lane
+      - name: Checkout trusted main push QA lane for workflow_run
+        if: github.event_name == 'workflow_run'
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+
+      - name: Checkout PR or dispatch QA lane
+        if: github.event_name != 'workflow_run'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Verify desktop probe and smoke gate contracts
+        shell: bash
+        env:
+          EXPECTED_CHECKOUT_SHA: ${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_CHECKOUT_SHA"
+          bash -n qa/qemu-smoke.sh overlay/live-desktop/xodus-live-desktop-probe overlay/apply-xodus-identity.sh
+          bash qa/test-live-desktop-probe.sh
+          python3 qa/test_qemu_smoke.py
 
       - name: Parse pinned pearOS revision
         id: lock
@@ -49,6 +74,9 @@ jobs:
       - name: Resolve successful Core ISO build
         id: run
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_SOURCE_SHA: ${{ inputs.source_sha || '' }}
         run: |
           set -euo pipefail
 
@@ -65,7 +93,7 @@ jobs:
             source_sha='${{ github.event.workflow_run.head_sha }}'
             test '${{ github.event.workflow_run.conclusion }}' = 'success'
           else
-            requested='${{ inputs.source_sha || '' }}'
+            requested="$REQUESTED_SOURCE_SHA"
             target_sha=''
 
             if [[ -n "$requested" ]]; then
@@ -80,12 +108,22 @@ jobs:
               row=$(resolve_success_for_sha "$target_sha")
 
               if [[ -z "$row" && '${{ github.event_name }}' == 'pull_request' ]]; then
-                live=$(gh api -H 'Accept: application/vnd.github+json' \
-                  "/repos/${GITHUB_REPOSITORY}/actions/workflows/core-iso-build.yml/runs?per_page=50" \
-                  | jq -r --arg sha "$target_sha" '.workflow_runs[] | select(.head_sha == $sha and (.status == "queued" or .status == "in_progress" or .status == "waiting")) | .id' \
-                  | head -n1)
+                # PR workflows start together. Allow the exact-head producer
+                # a short window to appear in the Actions runs API.
+                live=''
+                for appearance_attempt in $(seq 1 12); do
+                  live=$(gh api -H 'Accept: application/vnd.github+json' \
+                    "/repos/${GITHUB_REPOSITORY}/actions/workflows/core-iso-build.yml/runs?per_page=50" \
+                    | jq -r --arg sha "$target_sha" '.workflow_runs[] | select(.head_sha == $sha and .status != "completed") | .id' \
+                    | head -n1)
+                  if [[ -n "$live" ]]; then break; fi
+                  row=$(resolve_success_for_sha "$target_sha")
+                  if [[ -n "$row" ]]; then break; fi
+                  echo "Waiting for exact-head Core ISO run to appear ($appearance_attempt/12)"
+                  sleep 10
+                done
 
-                if [[ -n "$live" ]]; then
+                if [[ -z "$row" && -n "$live" ]]; then
                   echo "Core ISO run $live for $target_sha is still active; waiting for artifact producer"
                   for attempt in $(seq 1 75); do
                     state=$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/$live" | jq -r '[.status,.conclusion] | @tsv')
@@ -105,8 +143,8 @@ jobs:
               fi
             fi
 
-            if [[ -z "$row" && -z "$requested" ]]; then
-              echo "No successful same-head Core ISO build is available; using latest proven ISO for QA-only changes"
+            if [[ -z "$row" && -z "$requested" && '${{ github.event_name }}' == 'workflow_dispatch' ]]; then
+              echo "No source SHA supplied; using latest successful Core ISO build"
               row=$(gh api -H 'Accept: application/vnd.github+json' \
                 "/repos/${GITHUB_REPOSITORY}/actions/workflows/core-iso-build.yml/runs?status=success&per_page=50" \
                 | jq -r '.workflow_runs[] | [.id,.head_sha] | @tsv' \
@@ -139,7 +177,8 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf xorriso file
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-system-gui ovmf xorriso file
+          if [[ -c /dev/kvm ]]; then sudo chmod 666 /dev/kvm; fi
 
       - name: Download reference ISO artifact
         uses: actions/download-artifact@v4
@@ -169,10 +208,10 @@ jobs:
             | tee qa-image-digest.txt
           ls -lh "$iso_abs"
 
-      - name: Run headless UEFI boot smoke test
+      - name: Require live UEFI desktop session readiness
         shell: bash
         env:
-          BOOT_SECONDS: 90
+          BOOT_SECONDS: 600
         run: |
           chmod +x qa/qemu-smoke.sh
           qa/qemu-smoke.sh '${{ steps.image.outputs.iso }}' qa-artifacts

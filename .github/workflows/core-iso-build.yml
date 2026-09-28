@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - 'upstream/iso.lock'
+      - 'upstream/installer.lock'
       - 'overlay/**'
       - '.github/workflows/core-iso-build.yml'
       - 'docs/core-iso.md'
@@ -16,10 +17,15 @@ on:
   pull_request:
     paths:
       - 'upstream/iso.lock'
+      - 'upstream/installer.lock'
       - 'overlay/**'
+      - 'qa/**'
+      - 'scripts/**'
       - '.github/workflows/core-iso-build.yml'
+      - '.github/workflows/installer-*.yml'
       - 'docs/core-iso.md'
       - 'docs/desktop-identity.md'
+      - 'docs/INSTALLER_SAFETY.md'
 
 permissions:
   contents: read
@@ -35,6 +41,8 @@ jobs:
     steps:
       - name: Checkout Xodus
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Parse pinned pearOS source
         id: lock
@@ -54,6 +62,22 @@ jobs:
           [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
           echo "repo=$repo" >> "$GITHUB_OUTPUT"
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
+
+      - name: Parse pinned installer source
+        id: installer-lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t entries < <(awk 'NF && $1 !~ /^#/ {sub(/\r$/, ""); print}' upstream/installer.lock)
+          test "${#entries[@]}" -eq 5
+          test "${entries[0]}" = 'REPO=https://github.com/pearOS-archlinux/pearOS-installer.git'
+          test "${entries[2]}" = 'SETUP_PATH=system_install/setup'
+          test "${entries[4]}" = 'POLICY=live-boot-only-until-vm-install-gate-passes'
+          ref="${entries[1]#REF=}"
+          blob="${entries[3]#SETUP_BLOB=}"
+          [[ "${entries[1]}" == "REF=$ref" && "$ref" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${entries[3]}" == "SETUP_BLOB=$blob" && "$blob" =~ ^[0-9a-f]{40}$ ]]
+          echo "commit=$ref" >> "$GITHUB_OUTPUT"
 
       - name: Reclaim runner disk
         shell: bash
@@ -86,11 +110,14 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$XODUS_SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$XODUS_SOURCE_COMMIT"
           bash -n overlay/apply-xodus-identity.sh
           bash overlay/apply-xodus-identity.sh "$GITHUB_WORKSPACE/pearos-iso"
           grep -F 'iso_name="Xodus"' pearos-iso/pear/profiledef.sh
           grep -Fx "XODUS_SOURCE_COMMIT=$XODUS_SOURCE_COMMIT" pearos-iso/pear/airootfs/usr/lib/xodus/build-info
           grep -Fx 'XODUS_UPSTREAM_COMMIT=${{ steps.lock.outputs.commit }}' pearos-iso/pear/airootfs/usr/lib/xodus/build-info
+          grep -Fx 'XODUS_INSTALLER_COMMIT=${{ steps.installer-lock.outputs.commit }}' pearos-iso/pear/airootfs/usr/lib/xodus/build-info
+          grep -Fq 'fetch --depth=1 origin ${{ steps.installer-lock.outputs.commit }}' pearos-iso/build-binary
 
       - name: Require build headroom
         shell: bash
@@ -183,10 +210,12 @@ jobs:
         env:
           XODUS_SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
           XODUS_UPSTREAM_COMMIT: ${{ steps.lock.outputs.commit }}
+          XODUS_INSTALLER_COMMIT: ${{ steps.installer-lock.outputs.commit }}
         run: |
           set -euo pipefail
           [[ "$XODUS_SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
           [[ "$XODUS_UPSTREAM_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$XODUS_INSTALLER_COMMIT" =~ ^[0-9a-f]{40}$ ]]
           iso=$(find pearos-iso -maxdepth 1 -type f -name 'Xodus-reference-*.iso' -print -quit)
           test -n "$iso"
           test -s "$iso"
@@ -194,15 +223,18 @@ jobs:
           iso_sha=$(sha256sum "$iso" | awk '{print $1}')
           iso_name=$(basename "$iso")
           cat > pearos-iso/xodus-reference.manifest <<EOF
-          schema=1
+          schema=2
           xodus_source_commit=$XODUS_SOURCE_COMMIT
           upstream_commit=$XODUS_UPSTREAM_COMMIT
+          installer_commit=$XODUS_INSTALLER_COMMIT
           iso_filename=$iso_name
           iso_sha256=$iso_sha
           EOF
           grep -Fx "xodus_source_commit=$XODUS_SOURCE_COMMIT" pearos-iso/xodus-reference.manifest
           grep -Fx "upstream_commit=$XODUS_UPSTREAM_COMMIT" pearos-iso/xodus-reference.manifest
+          grep -Fx "installer_commit=$XODUS_INSTALLER_COMMIT" pearos-iso/xodus-reference.manifest
           grep -Eq '^iso_sha256=[0-9a-f]{64}$' pearos-iso/xodus-reference.manifest
+          test -s pearos-iso/xodus-build-attempt-1.log
           printf 'iso=%s\n' "$iso" >> "$GITHUB_OUTPUT"
           ls -lh "$iso" pearos-iso/xodus-reference.sha256 pearos-iso/xodus-reference.manifest
 
@@ -214,6 +246,7 @@ jobs:
             ${{ steps.artifact.outputs.iso }}
             pearos-iso/xodus-reference.sha256
             pearos-iso/xodus-reference.manifest
+            pearos-iso/xodus-build-attempt-*.log
           if-no-files-found: error
           compression-level: 0
           retention-days: 7

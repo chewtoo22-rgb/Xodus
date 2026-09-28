@@ -28,7 +28,7 @@ ISO composition, installer configuration, bootloader, recovery environment, and 
 | ISO composition | pearOS-archlinux/iso | build orchestration, Xodus packages and release metadata |
 | Base filesystem | pearOS-archlinux/filesystem | identity, defaults, system policy |
 | Packages | pearOS-archlinux/pkgbuilds | Xodus packages and patch queue |
-| Installer | pearOS-archlinux/pearOS-installer + pear-calamares-config | branding, safety gates, target profiles |
+| Installer | pinned pearOS-archlinux/pearOS-installer setup; pear-calamares-config under evaluation | payload handoff, target guard, VM install proof, physical safety gates |
 | Settings | pearOS-archlinux/pearos-settings | Xodus settings pages and system integrations |
 | Effects | pearOS-archlinux/liquid-gel | visual tuning and Xodus UX |
 | Boot | pearOS-archlinux/pearos-bootloader + plymouth | Xodus boot identity and recovery entries |
@@ -51,15 +51,8 @@ Each workstream owns a directory and must avoid editing another workstream's fil
 
 The AI layer must not run as unrestricted root. Privileged actions pass through a narrow broker with explicit verbs, typed arguments, policy checks, user confirmation for destructive operations, and an audit log. Model output is never executed directly as shell code by the privileged service.
 
-## Release gates
+## Live-image and installation gates
 
-A candidate release cannot progress to hardware testing until:
+A **live-boot-only** hardware candidate needs validated manifests and configuration, pinned upstream source, a successful ISO build, and positive VM evidence that the desktop session starts. `Hardware Candidate Gate` must bind the Core ISO and QA runs and unexpired artifacts to the same current `main` commit. The former QEMU watchdog result alone did not establish a usable desktop.
 
-1. manifests validate;
-2. upstream sources resolve to known commits;
-3. configuration checks pass;
-4. ISO builds successfully;
-5. VM boots successfully;
-6. installer completes in an expendable VM disk;
-7. post-install smoke tests pass;
-8. rollback/recovery path is verified.
+Physical installation is a separate gate. The expendable-disk destructive VM workflow and detached-media post-install UEFI/userspace proof exercise the installer path, but they do not prove safety on a real disk. Before a physical install trial, the live hardware checklist must pass, a dedicated empty target must be identified and accepted by the read-only target guard, and a recovery/rollback procedure must be defined and verified. Installed-disk boot and recovery must then be checked on the target machine before either is claimed successful.

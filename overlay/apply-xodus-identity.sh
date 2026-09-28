@@ -12,6 +12,8 @@ repo_root=$(cd "$script_dir/.." && pwd -P)
 profile="$root/pear/profiledef.sh"
 hostname_file="$root/pear/airootfs/etc/hostname"
 motd_file="$root/pear/airootfs/etc/motd"
+builder="$root/build-binary"
+installer_lock="$repo_root/upstream/installer.lock"
 
 xodus_source_commit=${XODUS_SOURCE_COMMIT:-unknown}
 if [[ "$xodus_source_commit" != "unknown" && ! "$xodus_source_commit" =~ ^[0-9a-f]{40}$ ]]; then
@@ -23,6 +25,54 @@ if [[ "$upstream_commit" != "unknown" && ! "$upstream_commit" =~ ^[0-9a-f]{40}$ 
   echo "XODUS_UPSTREAM_COMMIT must be a lowercase 40-character git SHA or 'unknown'" >&2
   exit 65
 fi
+
+# The pinned pearOS builder otherwise clones the installer's moving main branch
+# while constructing the live root. Parse the lock as data, then replace only
+# the audited clone command. A changed builder layout must stop the ISO build.
+[[ -f "$builder" && ! -L "$builder" && -f "$installer_lock" ]] || {
+  echo "pinned installer builder or lock is missing or unsafe" >&2
+  exit 66
+}
+mapfile -t installer_entries < <(awk 'NF && $1 !~ /^#/ {sub(/\r$/, ""); print}' "$installer_lock")
+[[ ${#installer_entries[@]} -eq 5 &&
+   "${installer_entries[0]}" == 'REPO=https://github.com/pearOS-archlinux/pearOS-installer.git' &&
+   "${installer_entries[2]}" == 'SETUP_PATH=system_install/setup' &&
+   "${installer_entries[4]}" == 'POLICY=live-boot-only-until-vm-install-gate-passes' ]] || {
+  echo "pinned installer lock layout changed" >&2
+  exit 66
+}
+installer_commit="${installer_entries[1]#REF=}"
+installer_setup_blob="${installer_entries[3]#SETUP_BLOB=}"
+[[ "${installer_entries[1]}" == "REF=$installer_commit" &&
+   "$installer_commit" =~ ^[0-9a-f]{40}$ &&
+   "${installer_entries[3]}" == "SETUP_BLOB=$installer_setup_blob" &&
+   "$installer_setup_blob" =~ ^[0-9a-f]{40}$ ]] || {
+  echo "pinned installer commit or setup blob is invalid" >&2
+  exit 66
+}
+command -v python3 >/dev/null 2>&1 || { echo "python3 is required to pin the installer source" >&2; exit 66; }
+python3 - "$builder" "$installer_commit" "$installer_setup_blob" <<'PY'
+from pathlib import Path
+import sys
+
+builder = Path(sys.argv[1])
+commit, setup_blob = sys.argv[2:]
+source = builder.read_text()
+old = '    git clone --depth 1 https://github.com/pearOS-archlinux/pearOS-installer.git "${pacstrap_dir}/usr/share/pearOS-installer" || _msg_error "Failed to clone pearOS-installer from GitHub" 1'
+if source.count(old) != 1 or source.count('    # Clone pearOS-installer from GitHub instead of using local files') != 1:
+    raise SystemExit('pinned upstream installer clone layout changed')
+new = '''    git init -q "${pacstrap_dir}/usr/share/pearOS-installer" || _msg_error "Failed to initialize pearOS-installer repository" 1
+    git -C "${pacstrap_dir}/usr/share/pearOS-installer" remote add origin https://github.com/pearOS-archlinux/pearOS-installer.git || _msg_error "Failed to configure pearOS-installer origin" 1
+    git -C "${pacstrap_dir}/usr/share/pearOS-installer" fetch --depth=1 origin @COMMIT@ || _msg_error "Failed to fetch pinned pearOS-installer" 1
+    git -C "${pacstrap_dir}/usr/share/pearOS-installer" checkout --detach FETCH_HEAD || _msg_error "Failed to check out pinned pearOS-installer" 1
+    [[ "$(git -C "${pacstrap_dir}/usr/share/pearOS-installer" rev-parse HEAD)" == "@COMMIT@" ]] || _msg_error "pearOS-installer commit does not match the lock" 1
+    [[ "$(git -C "${pacstrap_dir}/usr/share/pearOS-installer" rev-parse HEAD:system_install/setup)" == "@BLOB@" ]] || _msg_error "pearOS-installer setup blob does not match the lock" 1'''
+new = new.replace('@COMMIT@', commit).replace('@BLOB@', setup_blob)
+builder.write_text(source.replace(old, new))
+PY
+bash -n "$builder"
+grep -Fq "fetch --depth=1 origin $installer_commit" "$builder"
+! grep -Fq 'git clone --depth 1 https://github.com/pearOS-archlinux/pearOS-installer.git' "$builder"
 
 # Fail closed if the pinned upstream shape drifts. This prevents a partially
 # branded image from silently shipping after an upstream layout change.
@@ -59,6 +109,7 @@ XODUS_CHANNEL=M0-First-Blood
 XODUS_FOUNDATION=pearOS-NiceC0re
 XODUS_SOURCE_COMMIT=${xodus_source_commit}
 XODUS_UPSTREAM_COMMIT=${upstream_commit}
+XODUS_INSTALLER_COMMIT=${installer_commit}
 EOF
 
 # Carry the read-only hardware evidence collector in the image itself. The
@@ -125,6 +176,50 @@ install -Dm0644 "$runtime_preflight_unit" "$root/pear/airootfs/usr/lib/systemd/s
 ln -sfn /usr/lib/systemd/system/xodus-ai-runtime-preflight.service \
   "$root/pear/airootfs/etc/systemd/system/multi-user.target.wants/xodus-ai-runtime-preflight.service"
 
+# The QEMU boot gate needs evidence from a real live Plasma session. The probe
+# runs only on archiso media, so copying this payload to an installed system
+# does not turn a later installed boot into a live-media QA pass.
+desktop_probe_source="$script_dir/live-desktop/xodus-live-desktop-probe"
+desktop_probe_unit="$script_dir/live-desktop/xodus-live-desktop-probe.service"
+test -f "$desktop_probe_source"
+test -f "$desktop_probe_unit"
+install -Dm0755 "$desktop_probe_source" "$root/pear/airootfs/usr/lib/xodus/xodus-live-desktop-probe"
+install -Dm0644 "$desktop_probe_unit" "$root/pear/airootfs/usr/lib/systemd/system/xodus-live-desktop-probe.service"
+install -d "$root/pear/airootfs/etc/systemd/system/graphical.target.wants"
+ln -sfn /usr/lib/systemd/system/xodus-live-desktop-probe.service \
+  "$root/pear/airootfs/etc/systemd/system/graphical.target.wants/xodus-live-desktop-probe.service"
+
+# build-binary copies the profile airootfs with --no-preserve=mode. Its later
+# file_permissions pass must restore executable bits inside the squashfs;
+# install -m0755 above only sets modes in the source tree.
+grep -Eq '^[[:space:]]*file_permissions=\(' "$profile" || {
+  echo 'pinned upstream profile no longer declares file_permissions' >&2
+  exit 66
+}
+! grep -Fq '["/usr/lib/xodus/' "$profile" || {
+  echo 'pinned upstream profile already has Xodus permissions' >&2
+  exit 66
+}
+cat >> "$profile" <<'EOF'
+
+# Xodus executable payloads (the builder discards source-tree modes).
+file_permissions+=(
+  ["/usr/lib/xodus/xodus-hardware-live-evidence"]="0:0:755"
+  ["/usr/lib/xodus/xodus-x1-nuc-preflight"]="0:0:755"
+  ["/usr/lib/xodus/xodus-build-info-verify"]="0:0:755"
+  ["/usr/lib/xodus/xodus-first-boot"]="0:0:755"
+  ["/usr/lib/xodus/xodus-ai-first-boot"]="0:0:755"
+  ["/usr/lib/xodus/xodus-ai-runtime-preflight.py"]="0:0:755"
+  ["/usr/lib/xodus/xodus-live-desktop-probe"]="0:0:755"
+)
+EOF
+if [[ -f "$root/pear/airootfs/usr/lib/xodus/xodus-ai-select.py" ]]; then
+  cat >> "$profile" <<'EOF'
+file_permissions["/usr/lib/xodus/xodus-ai-select.py"]="0:0:755"
+EOF
+fi
+bash -n "$profile"
+
 # Assertions are part of the contract: a successful overlay must leave no
 # upstream pearOS ISO identity in the profile metadata.
 grep -Fq 'iso_name="Xodus"' "$profile"
@@ -133,6 +228,7 @@ grep -Fq 'xodus-live' "$hostname_file"
 ! grep -Fq 'iso_name="pearOS-NiceC0re"' "$profile"
 grep -Fxq "XODUS_SOURCE_COMMIT=${xodus_source_commit}" "$root/pear/airootfs/usr/lib/xodus/build-info"
 grep -Fxq "XODUS_UPSTREAM_COMMIT=${upstream_commit}" "$root/pear/airootfs/usr/lib/xodus/build-info"
+grep -Fxq "XODUS_INSTALLER_COMMIT=${installer_commit}" "$root/pear/airootfs/usr/lib/xodus/build-info"
 test -x "$root/pear/airootfs/usr/lib/xodus/xodus-hardware-live-evidence"
 test -x "$root/pear/airootfs/usr/lib/xodus/xodus-x1-nuc-preflight"
 test -x "$root/pear/airootfs/usr/lib/xodus/xodus-build-info-verify"
@@ -145,5 +241,8 @@ test -L "$root/pear/airootfs/etc/systemd/system/multi-user.target.wants/xodus-ai
 test -x "$root/pear/airootfs/usr/lib/xodus/xodus-ai-runtime-preflight.py"
 test -f "$root/pear/airootfs/usr/lib/systemd/system/xodus-ai-runtime-preflight.service"
 test -L "$root/pear/airootfs/etc/systemd/system/multi-user.target.wants/xodus-ai-runtime-preflight.service"
+test -x "$root/pear/airootfs/usr/lib/xodus/xodus-live-desktop-probe"
+test -f "$root/pear/airootfs/usr/lib/systemd/system/xodus-live-desktop-probe.service"
+test -L "$root/pear/airootfs/etc/systemd/system/graphical.target.wants/xodus-live-desktop-probe.service"
 
 echo "Applied Xodus M0 identity overlay to $root"

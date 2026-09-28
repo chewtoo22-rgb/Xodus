@@ -1,0 +1,13 @@
+[Unit]
+Description=Xodus live desktop boot evidence probe
+Documentation=https://github.com/chewtoo22-rgb/Xodus
+ConditionPathExists=/run/archiso
+After=systemd-logind.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/xodus/xodus-live-desktop-probe
+TimeoutStartSec=550s
+
+[Install]
+WantedBy=graphical.target
