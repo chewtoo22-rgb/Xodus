@@ -39,7 +39,7 @@ fi
 CANDIDATE_DIR="$1"
 DEVICE="${2:-}"
 
-for cmd in jq sha256sum find; do
+for cmd in jq sha256sum find sed tr; do
   command -v "$cmd" >/dev/null 2>&1 || {
     echo "error: required command '$cmd' is not installed" >&2
     exit 2
@@ -111,20 +111,27 @@ mapfile -d '' -t PRODUCER_FILES < <(find "$CANDIDATE_DIR" -type f -name 'xodus-r
   exit 5
 }
 mapfile -t PRODUCER_LINES < "${PRODUCER_FILES[0]}"
-[[ ${#PRODUCER_LINES[@]} -eq 5 ]] || {
+[[ ${#PRODUCER_LINES[@]} -eq 6 ]] || {
   echo "error: malformed ISO producer manifest" >&2
   exit 5
 }
 UPSTREAM_SHA="${PRODUCER_LINES[2]#upstream_commit=}"
+INSTALLER_SHA="${PRODUCER_LINES[3]#installer_commit=}"
+INSTALLER_LOCK="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)/upstream/installer.lock"
+[[ -f "$INSTALLER_LOCK" ]] || { echo "error: local installer lock is missing" >&2; exit 5; }
+LOCKED_INSTALLER_SHA="$(sed -n 's/^REF=//p' "$INSTALLER_LOCK" | tr -d '\r')"
 ARTIFACT_NAME="$(jq -er '.core_iso.artifact_name' "$MANIFEST")"
-[[ "${PRODUCER_LINES[0]}" == 'schema=1' &&
+[[ "${PRODUCER_LINES[0]}" == 'schema=2' &&
    "${PRODUCER_LINES[1]}" == "xodus_source_commit=$CANDIDATE_SHA" &&
    "${PRODUCER_LINES[2]}" == "upstream_commit=$UPSTREAM_SHA" &&
    "$UPSTREAM_SHA" =~ ^[0-9a-f]{40}$ &&
    "$ARTIFACT_NAME" == "xodus-reference-iso-$UPSTREAM_SHA" &&
-   "${PRODUCER_LINES[3]}" == "iso_filename=$ISO_NAME" &&
-   "${PRODUCER_LINES[4]}" == "iso_sha256=$EXPECTED_SHA" ]] || {
-  echo "error: ISO producer manifest does not match candidate SHA, artifact, filename, or checksum" >&2
+   "${PRODUCER_LINES[3]}" == "installer_commit=$INSTALLER_SHA" &&
+   "$INSTALLER_SHA" =~ ^[0-9a-f]{40}$ &&
+   "$INSTALLER_SHA" == "$LOCKED_INSTALLER_SHA" &&
+   "${PRODUCER_LINES[4]}" == "iso_filename=$ISO_NAME" &&
+   "${PRODUCER_LINES[5]}" == "iso_sha256=$EXPECTED_SHA" ]] || {
+  echo "error: ISO producer manifest does not match candidate SHA, source locks, artifact, filename, or checksum" >&2
   exit 5
 }
 

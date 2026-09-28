@@ -5,7 +5,10 @@ on:
     paths:
       - 'qa/installer-live-root-contract.sh'
       - 'scripts/fetch-qualified-candidate.sh'
+      - 'overlay/**'
+      - 'upstream/iso.lock'
       - 'upstream/installer.lock'
+      - '.github/workflows/core-iso-build.yml'
       - '.github/workflows/installer-live-root-contract.yml'
   workflow_dispatch:
 
@@ -137,6 +140,9 @@ jobs:
           [[ "$expected" == "$actual" ]]
           grep -Fxq "xodus_source_commit=$PR_HEAD_SHA" "${manifests[0]}"
           grep -Fxq "upstream_commit=$UPSTREAM_COMMIT" "${manifests[0]}"
+          # The embedded build-info is checked separately against this lock.
+          source upstream/installer.lock
+          grep -Fxq "installer_commit=$REF" "${manifests[0]}"
           grep -Fxq "iso_filename=$(basename "${isos[0]}")" "${manifests[0]}"
           grep -Fxq "iso_sha256=$actual" "${manifests[0]}"
           printf 'core_source_sha=%s\ncore_run_id=%s\nsha256=%s\n' \
@@ -144,6 +150,8 @@ jobs:
             | tee installer-live-root-image-digest.txt
 
       - name: Verify embedded installer against pinned contract
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           iso="$(find qualified-candidate -type f -name '*.iso' -print -quit)"
           test -n "$iso"

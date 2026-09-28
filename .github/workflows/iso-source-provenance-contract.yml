@@ -4,12 +4,16 @@ on:
   pull_request:
     paths:
       - 'overlay/apply-xodus-identity.sh'
+      - 'upstream/installer.lock'
+      - 'qa/installer-source-pin-contract.sh'
       - '.github/workflows/core-iso-build.yml'
       - '.github/workflows/iso-source-provenance-contract.yml'
   push:
     branches: [main]
     paths:
       - 'overlay/apply-xodus-identity.sh'
+      - 'upstream/installer.lock'
+      - 'qa/installer-source-pin-contract.sh'
       - '.github/workflows/core-iso-build.yml'
       - '.github/workflows/iso-source-provenance-contract.yml'
   workflow_dispatch:
@@ -40,8 +44,16 @@ jobs:
           iso_label="pearOS_NiceC0re_$(date +%Y%m)"
           iso_publisher="The Pear Project <https://pearos.xyz>"
           iso_application="pearOS Live Session"
+          file_permissions=()
           EOF
           printf '%s\n' 'pearOS-Live-System' > "$root/pear/airootfs/etc/hostname"
+          cat > "$root/build-binary" <<'EOF'
+          #!/usr/bin/env bash
+          _make_custom_airootfs() {
+              # Clone pearOS-installer from GitHub instead of using local files
+              git clone --depth 1 https://github.com/pearOS-archlinux/pearOS-installer.git "${pacstrap_dir}/usr/share/pearOS-installer" || _msg_error "Failed to clone pearOS-installer from GitHub" 1
+          }
+          EOF
 
           XODUS_SOURCE_COMMIT="$SOURCE_SHA" \
           XODUS_UPSTREAM_COMMIT="$UPSTREAM_SHA" \
@@ -51,8 +63,15 @@ jobs:
           test -f "$info"
           grep -Fx "XODUS_SOURCE_COMMIT=$SOURCE_SHA" "$info"
           grep -Fx "XODUS_UPSTREAM_COMMIT=$UPSTREAM_SHA" "$info"
+          installer_sha=$(sed -n 's/^REF=//p' upstream/installer.lock | tr -d '\r')
+          [[ "$installer_sha" =~ ^[0-9a-f]{40}$ ]]
+          grep -Fx "XODUS_INSTALLER_COMMIT=$installer_sha" "$info"
           test "$(grep -c '^XODUS_SOURCE_COMMIT=' "$info")" -eq 1
           test "$(grep -c '^XODUS_UPSTREAM_COMMIT=' "$info")" -eq 1
+          test "$(grep -c '^XODUS_INSTALLER_COMMIT=' "$info")" -eq 1
+
+      - name: Require pinned installer clone and reject source drift
+        run: bash qa/installer-source-pin-contract.sh
 
       - name: Reject malformed explicit source provenance
         shell: bash
@@ -65,6 +84,7 @@ jobs:
           iso_label="pearOS_NiceC0re_$(date +%Y%m)"
           iso_publisher="The Pear Project <https://pearos.xyz>"
           iso_application="pearOS Live Session"
+          file_permissions=()
           EOF
           printf '%s\n' 'pearOS-Live-System' > "$root/pear/airootfs/etc/hostname"
 
@@ -84,4 +104,5 @@ jobs:
           test "$(grep -Fc 'github.event.pull_request.head.sha || github.sha' "$workflow")" -eq 3
           grep -Fq 'test "$(git rev-parse HEAD)" = "$XODUS_SOURCE_COMMIT"' "$workflow"
           grep -Fq 'xodus_source_commit=$XODUS_SOURCE_COMMIT' "$workflow"
+          grep -Fq 'installer_commit=$XODUS_INSTALLER_COMMIT' "$workflow"
           grep -Fq 'xodus-reference.manifest' "$workflow"

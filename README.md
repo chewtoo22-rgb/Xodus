@@ -56,7 +56,7 @@ Xodus will preserve all applicable upstream licenses, notices, source obligation
 
 ## Release blockers
 
-A public release is not cleared. The graphical VM boot gate still needs a fresh passing artifact; upstream component licensing and redistribution review is open; the Arch container and rolling package inputs are not locked for bitwise reproducibility; and physical live boot, installation, and recovery/rollback have not been validated on the target hardware.
+A public release is not cleared. The graphical VM boot gate still needs a fresh passing artifact; [upstream component licensing and redistribution review](docs/UPSTREAM_REDISTRIBUTION_REVIEW.md) is open; the Arch container and rolling package inputs are not locked for bitwise reproducibility; and physical live boot, installation, and recovery/rollback have not been validated on the target hardware.
 
 ---
 

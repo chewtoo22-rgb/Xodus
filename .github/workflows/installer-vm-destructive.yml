@@ -10,6 +10,7 @@ on:
       - 'scripts/prepare-qualified-installer.sh'
       - 'scripts/patch-installer-xodus-payload.py'
       - 'scripts/patch-installer-package-retries.py'
+      - 'qa/test_installer_package_retries.py'
       - 'upstream/installer.lock'
       - 'qa/post-install-uefi-smoke.sh'
       - 'qa/post-install-verifier-contract.sh'
@@ -21,7 +22,7 @@ on:
   workflow_dispatch:
     inputs:
       source_sha:
-        description: 'Optional successful Core ISO source SHA; gate scripts use the dispatched ref'
+        description: 'Optional Core ISO source SHA; must match the selected ref'
         required: false
         type: string
 
@@ -50,6 +51,9 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$PR_HEAD_SHA"
 
+      - name: Verify installer package recovery contract
+        run: python3 -m unittest discover -s qa -p 'test_installer_package_retries.py' -q
+
       - name: Parse pinned pearOS revision
         id: lock
         shell: bash
@@ -70,19 +74,20 @@ jobs:
         run: |
           set -euo pipefail
 
-          target_sha="$REQUESTED_SOURCE_SHA"
+          checkout_sha=$(git rev-parse HEAD)
+          target_sha="$checkout_sha"
           required_event=''
           if [[ "$GITHUB_EVENT_NAME" == 'pull_request' ]]; then
             target_sha="$PR_HEAD_SHA"
             required_event='pull_request'
+          elif [[ -n "$REQUESTED_SOURCE_SHA" && "$REQUESTED_SOURCE_SHA" != "$checkout_sha" ]]; then
+            echo 'Requested Core ISO SHA must match the dispatched checkout' >&2
+            exit 5
           fi
-          if [[ "$GITHUB_EVENT_NAME" == 'pull_request' || -n "$target_sha" ]]; then
-            [[ "$target_sha" =~ ^[0-9a-f]{40}$ ]] || { echo 'Invalid Core ISO source SHA' >&2; exit 5; }
-          fi
+          [[ "$target_sha" =~ ^[0-9a-f]{40}$ ]] || { echo 'Invalid Core ISO source SHA' >&2; exit 5; }
 
           # A PR must use the ISO built from its exact head, even while that
-          # producer is still running. Dispatch may select a requested SHA or
-          # the most recent successful build with a live expected artifact.
+          # producer is still running. Dispatch is bound to its selected ref.
           for attempt in $(seq 1 360); do
             uri="/repos/${GITHUB_REPOSITORY}/actions/workflows/core-iso-build.yml/runs?per_page=100"
             if [[ -n "$target_sha" ]]; then

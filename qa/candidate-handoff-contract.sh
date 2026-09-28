@@ -11,6 +11,8 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 upstream_sha=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+installer_sha="$(sed -n 's/^REF=//p' "$repo_root/upstream/installer.lock" | tr -d '\r')"
+[[ "$installer_sha" =~ ^[0-9a-f]{40}$ ]]
 iso_name=Xodus-reference-fixture.iso
 export FIXTURE_DIR="$tmp/remote"
 mkdir -p "$FIXTURE_DIR" "$tmp/bin"
@@ -24,9 +26,10 @@ make_core() {
   digest="${digest%% *}"
   printf '%s  pearos-iso/%s\n' "$digest" "$iso_name" > "$iso_dir/xodus-reference.sha256"
   cat > "$iso_dir/xodus-reference.manifest" <<EOF
-schema=1
+schema=2
 xodus_source_commit=$sha
 upstream_commit=$upstream_sha
+installer_commit=$installer_sha
 iso_filename=$iso_name
 iso_sha256=$digest
 EOF
@@ -161,6 +164,16 @@ make_core "$tmp/wrong-producer" ''
 cp "$FIXTURE_DIR/qualification/hardware-candidate.json" "$tmp/wrong-producer/"
 sed -i "s/xodus_source_commit=$sha/xodus_source_commit=$upstream_sha/" "$tmp/wrong-producer/xodus-reference.manifest"
 reject 'wrong producer source SHA' bash "$writer" --verify-bundle "$tmp/wrong-producer"
+
+make_core "$tmp/wrong-installer" ''
+cp "$FIXTURE_DIR/qualification/hardware-candidate.json" "$tmp/wrong-installer/"
+sed -i "s/installer_commit=$installer_sha/installer_commit=cccccccccccccccccccccccccccccccccccccccc/" "$tmp/wrong-installer/xodus-reference.manifest"
+reject 'wrong producer installer SHA' bash "$writer" --verify-bundle "$tmp/wrong-installer"
+
+make_core "$tmp/old-producer-schema" ''
+cp "$FIXTURE_DIR/qualification/hardware-candidate.json" "$tmp/old-producer-schema/"
+sed -i 's/^schema=2$/schema=1/' "$tmp/old-producer-schema/xodus-reference.manifest"
+reject 'old producer manifest schema' bash "$writer" --verify-bundle "$tmp/old-producer-schema"
 
 make_core "$tmp/wrong-artifact" ''
 make_manifest "$tmp/wrong-artifact/hardware-candidate.json"

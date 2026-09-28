@@ -80,13 +80,39 @@ iso_name="pearOS-NiceC0re"
 iso_label="pearOS_NiceC0re_$(date +%Y%m)"
 iso_publisher="The Pear Project <https://pearos.xyz>"
 iso_application="pearOS Live Session"
+file_permissions=()
 EOF
 echo 'pearOS-Live-System' >"$fixture/pear/airootfs/etc/hostname"
 : >"$fixture/pear/airootfs/etc/motd"
+cat >"$fixture/build-binary" <<'EOF'
+#!/usr/bin/env bash
+_make_custom_airootfs() {
+    # Clone pearOS-installer from GitHub instead of using local files
+    git clone --depth 1 https://github.com/pearOS-archlinux/pearOS-installer.git "${pacstrap_dir}/usr/share/pearOS-installer" || _msg_error "Failed to clone pearOS-installer from GitHub" 1
+}
+EOF
 bash "$repo_root/overlay/apply-xodus-identity.sh" "$fixture" >/dev/null
 test -x "$fixture/pear/airootfs/usr/lib/xodus/xodus-live-desktop-probe"
 test -f "$fixture/pear/airootfs/usr/lib/systemd/system/xodus-live-desktop-probe.service"
 test "$(readlink "$fixture/pear/airootfs/etc/systemd/system/graphical.target.wants/xodus-live-desktop-probe.service")" = \
   /usr/lib/systemd/system/xodus-live-desktop-probe.service
+
+# The pinned builder discards modes when copying airootfs. Confirm its
+# file_permissions pass will restore every shipped Xodus executable.
+(
+  declare -A file_permissions=()
+  source "$fixture/pear/profiledef.sh"
+  for name in \
+    xodus-hardware-live-evidence xodus-x1-nuc-preflight \
+    xodus-build-info-verify xodus-first-boot xodus-ai-first-boot \
+    xodus-ai-runtime-preflight.py xodus-live-desktop-probe; do
+    test -f "$fixture/pear/airootfs/usr/lib/xodus/$name"
+    test "${file_permissions[/usr/lib/xodus/$name]:-}" = '0:0:755'
+  done
+  if test -f "$fixture/pear/airootfs/usr/lib/xodus/xodus-ai-select.py"; then
+    test "${file_permissions[/usr/lib/xodus/xodus-ai-select.py]:-}" = '0:0:755'
+  fi
+  test -z "${file_permissions[/usr/lib/xodus/build-info]:-}"
+)
 
 echo 'PASS: live desktop probe predicate and ISO overlay installation'
