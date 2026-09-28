@@ -105,8 +105,8 @@ jobs:
         run: |
           set -euo pipefail
           workflow=.github/workflows/core-iso-build.yml
-          test "$(grep -Fc 'XODUS_SOURCE_COMMIT:' "$workflow")" -eq 2
-          test "$(grep -Fc 'github.event.pull_request.head.sha || github.sha' "$workflow")" -eq 3
+          test "$(grep -Fc 'XODUS_SOURCE_COMMIT:' "$workflow")" -eq 3
+          test "$(grep -Fc 'github.event.pull_request.head.sha || github.sha' "$workflow")" -eq 4
           grep -Fq 'test "$(git rev-parse HEAD)" = "$XODUS_SOURCE_COMMIT"' "$workflow"
           grep -Fq 'xodus_source_commit=$XODUS_SOURCE_COMMIT' "$workflow"
           grep -Fq 'installer_commit=$XODUS_INSTALLER_COMMIT' "$workflow"
