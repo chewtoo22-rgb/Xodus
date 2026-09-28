@@ -24,9 +24,16 @@ _make_custom_airootfs() {
     git clone --depth 1 https://github.com/pearOS-archlinux/pearOS-installer.git "${pacstrap_dir}/usr/share/pearOS-installer" || _msg_error "Failed to clone pearOS-installer from GitHub" 1
 }
 _make_pkglist() { :; }
-_make_image() {
+_build_iso_base() {
     _run_once _make_customize_airootfs
     _run_once _make_pkglist
+    if [[ "${buildmode}" == 'netboot' ]]; then
+        _run_once _make_boot_on_iso9660
+    else
+        _run_once _make_bootmodes
+    fi
+    _run_once _cleanup_pacstrap_dir
+    _run_once _prepare_airootfs_image
 }
 EOF
 }
@@ -42,9 +49,30 @@ from pathlib import Path
 import sys
 source = Path(sys.argv[1]).read_text()
 assert source.count('_apply_xodus_visible_identity() {') == 1
-assert source.count('    _run_once _make_customize_airootfs\n    _run_once _apply_xodus_visible_identity\n    _run_once _make_pkglist') == 1
+assert source.count('    _run_once _make_customize_airootfs\n    _run_once _apply_xodus_visible_identity') == 1
+assert source.count('    _run_once _cleanup_pacstrap_dir\n    _run_once _make_pkglist\n    _run_once _prepare_airootfs_image') == 1
 assert source.count('bash "$helper" "${pacstrap_dir}" || _msg_error') == 1
 PY
+
+# Upstream cleanup removes optional packages after constructing the live root.
+# The ISO pkglist must reflect that final state before image creation.
+bash -s -- "$builder" "$tmp/packages" "$tmp/pkglist" <<'BASH'
+set -euo pipefail
+source "$1"
+packages=$2
+pkglist=$3
+_run_once() { "$1"; }
+_make_customize_airootfs() { :; }
+_apply_xodus_visible_identity() { :; }
+_make_bootmodes() { :; }
+_cleanup_pacstrap_dir() { printf 'base\n' > "$packages"; }
+_make_pkglist() { cp "$packages" "$pkglist"; }
+_prepare_airootfs_image() { :; }
+printf 'base\nkinfocenter\n' > "$packages"
+buildmode=iso
+_build_iso_base
+BASH
+test "$(cat "$tmp/pkglist")" = base
 
 live="$tmp/live"
 for home in etc/skel home/liveuser; do
@@ -101,7 +129,15 @@ if bash "$overlay" "$tmp/source-drift" >"$tmp/source-drift.log" 2>&1; then
   echo 'overlay accepted missing upstream build hook anchor' >&2
   exit 1
 fi
-grep -Fq 'pinned upstream live identity hook layout changed' "$tmp/source-drift.log"
+grep -Fq 'pinned upstream live identity/package-list layout changed' "$tmp/source-drift.log"
+
+make_source_fixture "$tmp/order-drift"
+sed -i '/_run_once _cleanup_pacstrap_dir/d' "$tmp/order-drift/build-binary"
+if bash "$overlay" "$tmp/order-drift" >"$tmp/order-drift.log" 2>&1; then
+  echo 'overlay accepted changed upstream package cleanup order' >&2
+  exit 1
+fi
+grep -Fq 'pinned upstream live identity/package-list layout changed' "$tmp/order-drift.log"
 
 cp -a "$tmp/original" "$tmp/bad-config"
 sed -i '0,/dark-mode.jpg/s/dark-mode.jpg/new-default.jpg/' \

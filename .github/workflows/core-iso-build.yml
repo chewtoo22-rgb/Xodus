@@ -215,6 +215,13 @@ jobs:
               (( ${#efi_images[@]} == 1 )) || { echo "Expected one EFI boot image" >&2; exit 1; }
               mcopy -i "${efi_images[0]}" ::/EFI/BOOT/BOOTx64.EFI /build/xodus-ploader-firmware.efi
               cmp /build/pear/efiboot/ploader/ploader_x64.efi /build/xodus-ploader-firmware.efi
+
+              # mktemp leaves work/tmp.* owned by container root with mode 0700.
+              # Give the checkout owner access to this exact retained tree so
+              # the host inventory can inspect it without opening its mode.
+              staging_dir=${efi_images[0]%/efiboot.img}
+              test -d "$staging_dir" && test ! -L "$staging_dir"
+              chown --reference=/build "$staging_dir"
             '
 
       - name: Inventory staged ISO payload

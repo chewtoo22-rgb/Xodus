@@ -68,10 +68,21 @@ new = '''    git init -q "${pacstrap_dir}/usr/share/pearOS-installer" || _msg_er
     [[ "$(git -C "${pacstrap_dir}/usr/share/pearOS-installer" rev-parse HEAD)" == "@COMMIT@" ]] || _msg_error "pearOS-installer commit does not match the lock" 1
     [[ "$(git -C "${pacstrap_dir}/usr/share/pearOS-installer" rev-parse HEAD:system_install/setup)" == "@BLOB@" ]] || _msg_error "pearOS-installer setup blob does not match the lock" 1'''
 new = new.replace('@COMMIT@', commit).replace('@BLOB@', setup_blob)
-hook_anchor = '    _run_once _make_customize_airootfs\n    _run_once _make_pkglist'
+# The pinned builder writes its ISO pkglist before cleanup removes optional
+# packages. Move the list after cleanup, but before squashfs/ISO creation, so
+# it describes the installed package database in the finished live image.
+build_order_anchor = '''    _run_once _make_customize_airootfs
+    _run_once _make_pkglist
+    if [[ "${buildmode}" == 'netboot' ]]; then
+        _run_once _make_boot_on_iso9660
+    else
+        _run_once _make_bootmodes
+    fi
+    _run_once _cleanup_pacstrap_dir
+    _run_once _prepare_airootfs_image'''
 hook_definition_anchor = '_make_pkglist() {'
-if source.count(hook_anchor) != 1 or source.count(hook_definition_anchor) != 1:
-    raise SystemExit('pinned upstream live identity hook layout changed')
+if source.count(build_order_anchor) != 1 or source.count(hook_definition_anchor) != 1:
+    raise SystemExit('pinned upstream live identity/package-list layout changed')
 hook_definition = '''_apply_xodus_visible_identity() {
     local helper="${profile}/xodus-apply-visible-identity.sh"
     [[ -f "$helper" ]] || _msg_error "Xodus visible identity hook is missing" 1
@@ -82,8 +93,17 @@ hook_definition = '''_apply_xodus_visible_identity() {
 source = source.replace(old, new)
 source = source.replace(hook_definition_anchor, hook_definition + hook_definition_anchor)
 source = source.replace(
-    hook_anchor,
-    '    _run_once _make_customize_airootfs\n    _run_once _apply_xodus_visible_identity\n    _run_once _make_pkglist',
+    build_order_anchor,
+    '''    _run_once _make_customize_airootfs
+    _run_once _apply_xodus_visible_identity
+    if [[ "${buildmode}" == 'netboot' ]]; then
+        _run_once _make_boot_on_iso9660
+    else
+        _run_once _make_bootmodes
+    fi
+    _run_once _cleanup_pacstrap_dir
+    _run_once _make_pkglist
+    _run_once _prepare_airootfs_image''',
 )
 builder.write_text(source)
 PY
