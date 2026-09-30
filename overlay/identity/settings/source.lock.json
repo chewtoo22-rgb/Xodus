@@ -1,0 +1,9 @@
+{
+  "repository": "https://github.com/pearOS-archlinux/pkgbuilds.git",
+  "commit": "3a11d7e153753eee80f532213d5983de41e26c99",
+  "settings_tree": "a6c54e679c5a31999c8de5a5bf37208f1c89e877",
+  "settings_package": "system-settings",
+  "settings_version": "26.7.0-1",
+  "overview_package": "system-overview",
+  "overview_version": "26.3-1"
+}

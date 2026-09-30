@@ -11,6 +11,8 @@ live_root=${1:-}
 # profile is copied. Validate every expected upstream shape before writing.
 python3 - "$live_root" <<'PY'
 from pathlib import Path
+import stat
+import subprocess
 import sys
 
 root = Path(sys.argv[1]).resolve(strict=True)
@@ -32,6 +34,13 @@ for asset in (wallpaper, app_icon):
         if handle.read(8) != b'\x89PNG\r\n\x1a\n':
             raise SystemExit(f'Xodus artwork is not a PNG: {asset.relative_to(root)}')
 
+welcome = checked_file('usr/lib/xodus/xodus-welcome')
+if welcome.open('rb').read(4) != b'\x7fELF':
+    raise SystemExit('Xodus Welcome is not an ELF executable')
+if not stat.S_IMODE(welcome.stat().st_mode) & 0o111:
+    raise SystemExit('Xodus Welcome is not executable')
+checked_file('usr/bin/pearos-welcome')
+
 old_image = 'Image=file:///usr/share/extras/wallpapers/Default/dark-mode.jpg'
 new_image = 'Image=file:///usr/share/wallpapers/Xodus/xodus-wallpaper.png'
 desktop_old = {
@@ -47,6 +56,67 @@ desktop_new = {
     'Icon': '/usr/share/pixmaps/xodus-app-icon.png',
 }
 updates = {}
+
+
+def old_welcome(relative: str, required: bool = True) -> Path | None:
+    path = root / relative
+    if not path.exists() and not path.is_symlink():
+        if required:
+            raise SystemExit(f'upstream Welcome entry is missing: {relative}')
+        return None
+    path = checked_file(relative)
+    lines = path.read_text(encoding='utf-8').splitlines()
+    for expected in ('[Desktop Entry]', 'Type=Application', 'Name=Welcome',
+                     'Exec=pearos-welcome', 'Icon=/usr/share/pixmaps/welcome.png',
+                     'Comment=pearOS - Welcome App'):
+        if lines.count(expected) != 1:
+            raise SystemExit(f'upstream Welcome entry changed: {relative}: {expected}')
+    if any(line.startswith(('Name[', 'GenericName[', 'Comment[',
+                            'Exec[', 'TryExec=')) for line in lines):
+        raise SystemExit(f'unreviewed upstream Welcome override: {relative}')
+    return path
+
+
+menu = old_welcome('usr/share/applications/welcome.desktop')
+skel_autostart = old_welcome('etc/skel/.config/autostart/welcome.desktop')
+live_autostart = old_welcome('home/liveuser/.config/autostart/welcome.desktop', False)
+for directory in ('usr/share/applications', 'etc/skel/.config/autostart',
+                  'home/liveuser/.config/autostart'):
+    for entry in (root / directory).glob('*.desktop'):
+        if entry in (menu, skel_autostart, live_autostart):
+            continue
+        if entry.is_symlink() or not entry.is_file():
+            continue
+        if 'pearos-welcome' in entry.read_text(encoding='utf-8'):
+            raise SystemExit(f'unreviewed upstream Welcome launcher: {entry.relative_to(root)}')
+
+mask = '[Desktop Entry]\nHidden=true\n'
+for path in (menu, skel_autostart):
+    updates[path] = mask
+live_autostart = root / 'home/liveuser/.config/autostart/welcome.desktop'
+updates[live_autostart] = mask
+menu_entry = '''[Desktop Entry]
+Type=Application
+Name=Xodus Welcome
+GenericName=Welcome to Xodus
+Comment=Start exploring the Xodus desktop
+Exec=/usr/lib/xodus/xodus-welcome
+Icon=/usr/share/pixmaps/xodus-app-icon.png
+Terminal=false
+Categories=System;
+StartupNotify=true
+'''
+autostart_entry = menu_entry + 'OnlyShowIn=KDE;\nX-KDE-autostart-phase=2\n'
+updates[root / 'usr/share/applications/xodus-welcome.desktop'] = menu_entry
+updates[root / 'etc/skel/.config/autostart/xodus-welcome.desktop'] = autostart_entry
+updates[root / 'home/liveuser/.config/autostart/xodus-welcome.desktop'] = autostart_entry
+
+for relative in ('usr/share/applications/xodus-welcome.desktop',
+                 'etc/skel/.config/autostart/xodus-welcome.desktop',
+                 'home/liveuser/.config/autostart/xodus-welcome.desktop'):
+    path = root / relative
+    if path.exists() or path.is_symlink():
+        raise SystemExit(f'Xodus Welcome entry already exists in upstream root: {relative}')
 
 
 def split_line(line: str) -> tuple[str, str]:
@@ -97,8 +167,31 @@ for home in ('etc/skel', 'home/liveuser'):
         updated_lines.append(line)
     updates[path] = ''.join(updated_lines)
 
+# Check the binary against the live root's actual Qt libraries and render the
+# window offscreen. Nothing in the root is changed until every check passes.
+ldd = subprocess.run(
+    ['arch-chroot', str(root), '/usr/bin/ldd', '/usr/lib/xodus/xodus-welcome'],
+    capture_output=True, text=True, timeout=30, check=False,
+)
+ldd_output = ldd.stdout + ldd.stderr
+required_libraries = ('libQt5Widgets.so.5', 'libQt5Gui.so.5', 'libQt5Core.so.5')
+if ldd.returncode or 'not found' in ldd_output or any(
+    library not in ldd_output for library in required_libraries
+):
+    raise SystemExit(f'Xodus Welcome is incompatible with the live root:\n{ldd_output}')
+self_test = subprocess.run(
+    ['arch-chroot', str(root), '/usr/bin/env', 'LD_BIND_NOW=1',
+     'QT_QPA_PLATFORM=offscreen', 'QT_STYLE_OVERRIDE=Fusion',
+     '/usr/lib/xodus/xodus-welcome', '--self-test'],
+    capture_output=True, text=True, timeout=30, check=False,
+)
+if self_test.returncode:
+    raise SystemExit('Xodus Welcome cannot start in the live root:\n'
+                     + self_test.stdout + self_test.stderr)
+
 for path, updated in updates.items():
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(updated.encode('utf-8'))
 
-print('Applied Xodus visible identity to live Plasma configs and installer launchers')
+print('Applied Xodus wallpaper, installer launcher, and native Welcome identity')
 PY

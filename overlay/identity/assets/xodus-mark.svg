@@ -1,16 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
   <title id="title">Xodus mark</title>
-  <desc id="desc">A geometric X formed from two crossing paths with a small diamond of open space at its center.</desc>
+  <desc id="desc">The geometric Xodus X in luminous white and violet.</desc>
   <defs>
     <linearGradient id="signal" x1="0" y1="0" x2="1" y2="1" gradientUnits="objectBoundingBox">
-      <stop offset="0" stop-color="#75F2EF"/>
-      <stop offset="0.46" stop-color="#49B8E9"/>
-      <stop offset="1" stop-color="#AD85F5"/>
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="0.46" stop-color="#EAD6FC"/>
+      <stop offset="1" stop-color="#A65BDE"/>
     </linearGradient>
     <linearGradient id="edge" x1="0" y1="0" x2="1" y2="1" gradientUnits="objectBoundingBox">
-      <stop offset="0" stop-color="#D5FFFF" stop-opacity=".74"/>
-      <stop offset=".56" stop-color="#B6E8FF" stop-opacity=".16"/>
-      <stop offset="1" stop-color="#F3D9FF" stop-opacity=".43"/>
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity=".92"/>
+      <stop offset=".56" stop-color="#D6A9F5" stop-opacity=".54"/>
+      <stop offset="1" stop-color="#743BA8" stop-opacity=".7"/>
     </linearGradient>
   </defs>
   <path fill="url(#signal)" fill-rule="evenodd" d="M70 84h116l70 97 70-97h116L321 250l121 178H326l-70-104-70 104H70l121-178L70 84Zm186 142-22 30 22 30 22-30-22-30Z"/>

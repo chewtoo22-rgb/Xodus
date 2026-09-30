@@ -85,8 +85,19 @@ if source.count(build_order_anchor) != 1 or source.count(hook_definition_anchor)
     raise SystemExit('pinned upstream live identity/package-list layout changed')
 hook_definition = '''_apply_xodus_visible_identity() {
     local helper="${profile}/xodus-apply-visible-identity.sh"
+    local welcome_builder="${profile}/xodus-build-welcome.sh"
+    local settings_builder="${profile}/xodus-settings/build-settings.sh"
+    local shell_helper="${profile}/xodus-apply-shell-identity.sh"
     [[ -f "$helper" ]] || _msg_error "Xodus visible identity hook is missing" 1
+    [[ -f "$welcome_builder" ]] || _msg_error "Xodus Welcome builder is missing" 1
+    [[ -f "$settings_builder" && -f "$shell_helper" ]] || _msg_error "Xodus Settings or shell helper is missing" 1
+    pacman -S --needed --noconfirm qt5-base pkgconf || _msg_error "Xodus Welcome build dependencies are unavailable" 1
+    pacman -S --needed --noconfirm cmake ninja qt6-base qt6-declarative qt6-5compat qt6-shadertools qt6-svg libx11 || _msg_error "Xodus Settings build dependencies are unavailable" 1
+    bash "$settings_builder" "${profile}" "${pacstrap_dir}" || _msg_error "Xodus Settings build failed" 1
+    bash "$welcome_builder" "${profile}" "${pacstrap_dir}" || _msg_error "Xodus Welcome build failed" 1
     bash "$helper" "${pacstrap_dir}" || _msg_error "Xodus visible identity hook failed" 1
+    bash "$shell_helper" "${pacstrap_dir}" "${profile}/xodus-shell" || _msg_error "Xodus desktop shell identity failed" 1
+    python3 "${profile}/xodus-boot-contract/verify-boot-identity.py" --live-root "${pacstrap_dir}" || _msg_error "Xodus staged boot identity verification failed" 1
 }
 
 '''
@@ -116,15 +127,51 @@ grep -Fq '    _run_once _apply_xodus_visible_identity' "$builder"
 # live-user creation. It edits the packaged Plasma and installer files inside
 # pacstrap_dir, where the profile overlay alone cannot reach them.
 visible_identity_hook="$script_dir/identity/apply-visible-identity.sh"
+welcome_builder="$script_dir/identity/welcome/build-welcome.sh"
+welcome_source="$script_dir/identity/welcome/xodus-welcome.cpp"
 wallpaper_source="$script_dir/identity/assets/xodus-wallpaper.png"
 app_icon_source="$script_dir/identity/assets/xodus-app-icon.png"
-[[ -f "$visible_identity_hook" && -s "$wallpaper_source" && -s "$app_icon_source" ]] || {
-  echo 'Xodus visible identity hook or artwork is missing' >&2
+[[ -f "$visible_identity_hook" && -f "$welcome_builder" && -f "$welcome_source" &&
+   -s "$wallpaper_source" && -s "$app_icon_source" ]] || {
+  echo 'Xodus visible identity hook, Welcome source, or artwork is missing' >&2
   exit 66
 }
 install -Dm0644 "$visible_identity_hook" "$root/pear/xodus-apply-visible-identity.sh"
+install -Dm0644 "$welcome_builder" "$root/pear/xodus-build-welcome.sh"
+install -Dm0644 "$welcome_source" "$root/pear/xodus-welcome.cpp"
 install -Dm0644 "$wallpaper_source" "$root/pear/airootfs/usr/share/wallpapers/Xodus/xodus-wallpaper.png"
 install -Dm0644 "$app_icon_source" "$root/pear/airootfs/usr/share/pixmaps/xodus-app-icon.png"
+
+shell_identity_hook="$script_dir/identity/apply-shell-identity.sh"
+[[ -f "$shell_identity_hook" && ! -L "$shell_identity_hook" ]] || exit 66
+install -Dm0644 "$shell_identity_hook" "$root/pear/xodus-apply-shell-identity.sh"
+for component in shell settings; do
+  payload="$script_dir/identity/$component"
+  destination="$root/pear/xodus-$component"
+  [[ -d "$payload" && ! -L "$payload" && ! -e "$destination" && ! -L "$destination" ]] || {
+    echo "Xodus $component source payload is missing or already staged" >&2
+    exit 66
+  }
+  cp -a "$payload" "$destination"
+done
+
+# Apply the audited boot visuals before customize_airootfs.sh selects Plymouth
+# and regenerates the initramfs. The helper validates every pinned-source
+# anchor and the approved-video asset hashes before changing the source tree.
+boot_identity_helper="$script_dir/identity/boot/apply-boot-identity.py"
+[[ -f "$boot_identity_helper" && ! -L "$boot_identity_helper" ]] || {
+  echo 'Xodus boot identity helper is missing or unsafe' >&2
+  exit 66
+}
+python3 "$boot_identity_helper" "$root"
+python3 "$script_dir/identity/boot/verify-boot-identity.py" --source-root "$root"
+boot_contract_dir="$root/pear/xodus-boot-contract"
+install -d "$boot_contract_dir/source"
+for name in verify-boot-identity.py xodus.script xodus.plymouth grub-theme.txt; do
+  install -m0644 "$script_dir/identity/boot/$name" "$boot_contract_dir/$name"
+done
+install -m0644 "$script_dir/identity/boot/source/assets.sha256" "$boot_contract_dir/source/assets.sha256"
+install -m0644 "$repo_root/qa/verify-built-boot.sh" "$root/pear/xodus-verify-built-boot.sh"
 
 # Fail closed if the pinned upstream shape drifts. This prevents a partially
 # branded image from silently shipping after an upstream layout change.

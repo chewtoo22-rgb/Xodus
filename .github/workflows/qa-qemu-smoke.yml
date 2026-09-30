@@ -60,6 +60,7 @@ jobs:
           bash -n qa/qemu-smoke.sh overlay/live-desktop/xodus-live-desktop-probe overlay/apply-xodus-identity.sh
           bash qa/test-live-desktop-probe.sh
           python3 qa/test_qemu_smoke.py
+          python3 qa/test_core_run_resolution.py
 
       - name: Parse pinned pearOS revision
         id: lock
@@ -114,7 +115,7 @@ jobs:
                 for appearance_attempt in $(seq 1 12); do
                   live=$(gh api -H 'Accept: application/vnd.github+json' \
                     "/repos/${GITHUB_REPOSITORY}/actions/workflows/core-iso-build.yml/runs?per_page=50" \
-                    | jq -r --arg sha "$target_sha" '.workflow_runs[] | select(.head_sha == $sha and .status != "completed") | .id' \
+                    | jq -r --arg sha "$target_sha" '.workflow_runs[] | select(.head_sha == $sha and .event == "pull_request") | .id' \
                     | head -n1)
                   if [[ -n "$live" ]]; then break; fi
                   row=$(resolve_success_for_sha "$target_sha")
@@ -124,21 +125,27 @@ jobs:
                 done
 
                 if [[ -z "$row" && -n "$live" ]]; then
-                  echo "Core ISO run $live for $target_sha is still active; waiting for artifact producer"
+                  echo "Waiting for exact-head Core ISO run $live for $target_sha"
                   for attempt in $(seq 1 75); do
-                    state=$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/$live" | jq -r '[.status,.conclusion] | @tsv')
-                    IFS=$'\t' read -r status conclusion <<< "$state"
+                    state=$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/$live" | jq -r '[.status,.conclusion,.head_sha] | @tsv')
+                    IFS=$'\t' read -r status conclusion observed_sha <<< "$state"
+                    if [[ "$observed_sha" != "$target_sha" ]]; then
+                      echo "Core ISO run $live has unexpected source $observed_sha" >&2
+                      exit 7
+                    fi
                     echo "producer status: $status ${conclusion:-} (poll $attempt/75)"
                     if [[ "$status" == 'completed' ]]; then
                       if [[ "$conclusion" != 'success' ]]; then
                         echo "Matching Core ISO producer completed with $conclusion" >&2
                         exit 6
                       fi
+                      # The completed run endpoint is authoritative here. The
+                      # status=success list may lag behind it briefly.
+                      row=$(printf '%s\t%s' "$live" "$target_sha")
                       break
                     fi
                     sleep 20
                   done
-                  row=$(resolve_success_for_sha "$target_sha")
                 fi
               fi
             fi
@@ -212,6 +219,7 @@ jobs:
         shell: bash
         env:
           BOOT_SECONDS: 600
+          BOOT_CAPTURE_INTERVAL: 2
         run: |
           chmod +x qa/qemu-smoke.sh
           qa/qemu-smoke.sh '${{ steps.image.outputs.iso }}' qa-artifacts

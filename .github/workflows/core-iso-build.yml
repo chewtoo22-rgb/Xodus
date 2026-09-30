@@ -152,7 +152,7 @@ jobs:
               pacman -Syu --noconfirm
               pacman -S --needed --noconfirm \
                 arch-install-scripts mtools squashfs-tools xorriso e2fsprogs \
-                git pv erofs-utils gnupg dosfstools syslinux python
+                git pv erofs-utils gnupg dosfstools syslinux python mkinitcpio
 
               # Reproduce pearOS upstream CI trust bootstrap. The ISO profile
               # consumes pearOS, inled, and CachyOS repositories, so a fresh
@@ -215,6 +215,8 @@ jobs:
               (( ${#efi_images[@]} == 1 )) || { echo "Expected one EFI boot image" >&2; exit 1; }
               mcopy -i "${efi_images[0]}" ::/EFI/BOOT/BOOTx64.EFI /build/xodus-ploader-firmware.efi
               cmp /build/pear/efiboot/ploader/ploader_x64.efi /build/xodus-ploader-firmware.efi
+              bash /build/pear/xodus-verify-built-boot.sh /build "${efi_images[0]}" \
+                | tee /build/xodus-boot-payload-verification.txt
 
               # mktemp leaves work/tmp.* owned by container root with mode 0700.
               # Give the checkout owner access to this exact retained tree so
@@ -293,6 +295,7 @@ jobs:
             pearos-iso/xodus-payload-inventory.json
             pearos-iso/xodus-package-license-inventory.tsv
             pearos-iso/xodus-asset-hashes.tsv
+            pearos-iso/xodus-boot-payload-verification.txt
             pearos-iso/xodus-build-attempt-*.log
           if-no-files-found: error
           compression-level: 0
@@ -314,5 +317,6 @@ jobs:
             disk-usage.txt
             build-files.txt
             pearos-iso/xodus-build-attempt-*.log
+            pearos-iso/xodus-boot-payload-verification.txt
           if-no-files-found: ignore
           retention-days: 7

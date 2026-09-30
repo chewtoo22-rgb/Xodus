@@ -2,3 +2,13 @@
 *.service text eol=lf
 overlay/first-boot/xodus-* text eol=lf
 overlay/live-desktop/xodus-live-desktop-probe text eol=lf
+overlay/identity/boot/*.py text eol=lf
+overlay/identity/boot/*.script text eol=lf
+overlay/identity/boot/*.plymouth text eol=lf
+overlay/identity/boot/*.txt text eol=lf
+overlay/identity/boot/source/*.py text eol=lf
+overlay/identity/boot/source/*.sha256 text eol=lf
+qa/boot_identity_fixture.py text eol=lf
+qa/test_boot_identity.py text eol=lf
+qa/plymouth-script-contract.c text eol=lf
+qa/fixtures/boot-source.json text eol=lf

@@ -1,6 +1,6 @@
 # Xodus M1 visual identity
 
-The first Xodus desktop artwork uses a calm midnight field and a geometric X with an open diamond at its center. The right side carries the signal; the left and middle stay quiet for windows, desktop icons, and readable labels. The palette is navy (`#071322`, `#0B1B2F`), cyan (`#75F2EF`), blue (`#49B8E9`), violet (`#AD85F5`), and a small amber accent (`#E9BD82`).
+The Xodus desktop artwork now follows the user-supplied 10-second boot sequence: near-black (`#050508`), a dark X silhouette, purple backlight, and restrained white highlights. The geometric X keeps its open diamond. Its focal point stays on the right; the left and middle remain clear for windows, desktop icons, and readable labels. The standalone mark and application tile use white-to-violet accents so they remain legible at small sizes.
 
 ## Assets
 
@@ -21,8 +21,8 @@ The SVG files are the sources of record. The PNGs are deployment exports. The sh
 - Use `xodus-mark.svg` without a tile on dark backgrounds. Use the application tile on light or visually busy backgrounds.
 - Keep the visible X clear of labels and controls. Do not stretch either icon nonproportionally.
 
-The left and middle 60% of the exported wallpaper were sampled against `#F4F8FF` text and measured at approximately 15.5:1 to 17.4:1 contrast. This describes the current image at those sampled points; deployment should still use Plasma's normal text shadow for desktop labels.
+The left and middle 60% of the exported wallpaper were sampled on a 5 × 5 grid against `#F4F8FF` text and measured at 17.17:1 to 18.96:1 contrast. This describes those sample points; deployment should still use Plasma's normal text shadow for desktop labels.
 
 ## Export and review
 
-The PNGs were rendered from the SVGs with Google Chrome 153.0.8010.53 in headless mode. The wallpaper was fitted into a 2560 × 1440 viewport before capture. The application icon was captured directly from its SVG at 512 × 512 with a transparent browser background. Both source SVGs parse as XML. The wallpaper was visually inspected at 1920 × 1080 and 2560 × 1440, and the icon was checked at 128, 64, and 32 pixels on both light and dark backgrounds. The SVG source should be re-exported if its design changes.
+The PNGs were rendered from the SVGs with the bundled Node `sharp` renderer: wallpaper at 2560 × 1440 and application icon at 512 × 512. Both source SVGs parse as XML. The wallpaper and icon were visually inspected after export; the icon remains readable at small sizes. Re-export the PNGs if their SVG sources change.

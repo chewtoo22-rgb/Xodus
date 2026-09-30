@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -129,6 +130,48 @@ def verify_pkglist(path: Path, packages: dict[str, tuple[str, tuple[str, ...]]])
     require(listed == from_db, "staged pkglist differs from installed pacman desc records")
 
 
+def verify_welcome_payload(xodus_root: Path, stage: Path) -> None:
+    """Gate the M1 Welcome files only when this source checkout ships them."""
+    source = xodus_root / "overlay/identity/welcome/xodus-welcome.cpp"
+    if not source.exists() and not source.is_symlink():
+        return
+    require(source.is_file() and not source.is_symlink(),
+            "Xodus Welcome source is not a regular file")
+
+    binary = stage / "usr/lib/xodus/xodus-welcome"
+    require(binary.is_file() and not binary.is_symlink(),
+            "staged Xodus Welcome executable is missing or unsafe")
+    with binary.open("rb") as stream:
+        require(stream.read(4) == b"\x7fELF",
+                "staged Xodus Welcome is not an ELF executable")
+    require(stat.S_IMODE(binary.stat().st_mode) == 0o755,
+            "staged Xodus Welcome must have mode 0755")
+
+    for relative in ("usr/share/applications/welcome.desktop",
+                     "etc/skel/.config/autostart/welcome.desktop",
+                     "home/liveuser/.config/autostart/welcome.desktop"):
+        path = stage / relative
+        require(path.is_file() and not path.is_symlink() and
+                path.read_text(encoding="utf-8").splitlines() ==
+                ["[Desktop Entry]", "Hidden=true"],
+                f"upstream Welcome entry is not masked: {relative}")
+
+    for relative in ("usr/share/applications/xodus-welcome.desktop",
+                     "etc/skel/.config/autostart/xodus-welcome.desktop",
+                     "home/liveuser/.config/autostart/xodus-welcome.desktop"):
+        path = stage / relative
+        require(path.is_file() and not path.is_symlink(),
+                f"Xodus Welcome launcher is missing or unsafe: {relative}")
+        lines = path.read_text(encoding="utf-8").splitlines()
+        require(lines.count("Name=Xodus Welcome") == 1 and
+                lines.count("Exec=/usr/lib/xodus/xodus-welcome") == 1 and
+                not any("pearos" in line.lower() for line in lines),
+                f"Xodus Welcome launcher has wrong identity: {relative}")
+        if relative != "usr/share/applications/xodus-welcome.desktop":
+            require(lines.count("OnlyShowIn=KDE;") == 1,
+                    f"Xodus Welcome autostart is not KDE-scoped: {relative}")
+
+
 def asset_categories(relative: Path) -> tuple[str, ...]:
     parts = tuple(part.lower() for part in relative.parts)
     name = parts[-1]
@@ -194,6 +237,7 @@ def build_inventory(xodus_root: Path, upstream_dir: Path, output_dir: Path,
     pkglist = work / "iso/arch/pkglist.x86_64.txt"
     packages = installed_packages(stage)
     verify_pkglist(pkglist, packages)
+    verify_welcome_payload(xodus_root, stage)
 
     iso = unique_path(sorted(upstream_dir.glob("Xodus-reference-*.iso")), "built ISO")
     require(iso.is_file() and iso.stat().st_size > 0, "built ISO is empty or missing")

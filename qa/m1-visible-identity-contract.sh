@@ -36,14 +36,43 @@ _build_iso_base() {
     _run_once _prepare_airootfs_image
 }
 EOF
+  python3 "$repo_root/qa/boot_identity_fixture.py" "$source_root"
 }
 
 make_source_fixture "$tmp/source"
 bash "$overlay" "$tmp/source" >/dev/null
 builder="$tmp/source/build-binary"
 hook="$tmp/source/pear/xodus-apply-visible-identity.sh"
+welcome_builder="$tmp/source/pear/xodus-build-welcome.sh"
+welcome_source="$tmp/source/pear/xodus-welcome.cpp"
 bash -n "$builder"
 bash -n "$hook"
+bash -n "$welcome_builder"
+cmp "$repo_root/overlay/identity/welcome/xodus-welcome.cpp" "$welcome_source"
+grep -Fq 'pacman -S --needed --noconfirm qt5-base pkgconf' "$builder"
+grep -Fq 'bash "$welcome_builder" "${profile}" "${pacstrap_dir}"' "$builder"
+mkdir -p "$tmp/mock-tools" "$tmp/mock-live"
+cat > "$tmp/mock-tools/pkg-config" <<'EOF'
+#!/usr/bin/env bash
+[[ "$*" == '--atleast-version=5.15 Qt5Widgets' ||
+   "$*" == '--cflags --libs Qt5Widgets' ]]
+EOF
+cat > "$tmp/mock-tools/c++" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+for ((i = 1; i <= $#; i++)); do
+  if [[ "${!i}" == -o ]]; then
+    next=$((i + 1))
+    printf '\177ELF\002\001\001\000' > "${!next}"
+    exit 0
+  fi
+done
+exit 88
+EOF
+chmod 0755 "$tmp/mock-tools/pkg-config" "$tmp/mock-tools/c++"
+PATH="$tmp/mock-tools:$PATH" bash "$welcome_builder" "$tmp/source/pear" "$tmp/mock-live"
+test -x "$tmp/mock-live/usr/lib/xodus/xodus-welcome"
+test ! -e "$tmp/source/pear/airootfs/usr/lib/xodus/xodus-welcome"
 python3 - "$builder" <<'PY'
 from pathlib import Path
 import sys
@@ -103,6 +132,45 @@ cp "$tmp/source/pear/airootfs/usr/share/pixmaps/xodus-app-icon.png" \
   "$live/usr/share/pixmaps/xodus-app-icon.png"
 cmp "$repo_root/overlay/identity/assets/xodus-wallpaper.png" "$live/usr/share/wallpapers/Xodus/xodus-wallpaper.png"
 cmp "$repo_root/overlay/identity/assets/xodus-app-icon.png" "$live/usr/share/pixmaps/xodus-app-icon.png"
+mkdir -p "$live/usr/lib/xodus" "$live/usr/bin" \
+  "$live/usr/share/applications" "$live/etc/skel/.config/autostart" \
+  "$live/home/liveuser/.config/autostart"
+printf '\177ELF\002\001\001\000' > "$live/usr/lib/xodus/xodus-welcome"
+chmod 0755 "$live/usr/lib/xodus/xodus-welcome"
+printf '#!/bin/sh\nexit 0\n' > "$live/usr/bin/pearos-welcome"
+cat > "$live/usr/share/applications/welcome.desktop" <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Welcome
+Exec=pearos-welcome
+Icon=/usr/share/pixmaps/welcome.png
+Comment=pearOS - Welcome App
+EOF
+cp "$live/usr/share/applications/welcome.desktop" \
+  "$live/etc/skel/.config/autostart/welcome.desktop"
+cp "$live/usr/share/applications/welcome.desktop" \
+  "$live/home/liveuser/.config/autostart/welcome.desktop"
+mkdir -p "$tmp/fakebin"
+cat > "$tmp/fakebin/arch-chroot" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$XODUS_TEST_CHROOT_LOG"
+if [[ "$2" == /usr/bin/ldd ]]; then
+  if [[ "${XODUS_TEST_ABI_FAIL:-0}" == 1 ]]; then
+    echo 'libQt5Widgets.so.5 => not found'
+  else
+    printf '%s\n' 'libQt5Widgets.so.5 => /usr/lib/libQt5Widgets.so.5' \
+      'libQt5Gui.so.5 => /usr/lib/libQt5Gui.so.5' \
+      'libQt5Core.so.5 => /usr/lib/libQt5Core.so.5'
+  fi
+elif [[ "$2" != /usr/bin/env || "${@: -2:1}" != /usr/lib/xodus/xodus-welcome ||
+        "${@: -1}" != --self-test ]]; then
+  exit 88
+fi
+EOF
+chmod 0755 "$tmp/fakebin/arch-chroot"
+export XODUS_TEST_CHROOT_LOG="$tmp/chroot-calls"
+export PATH="$tmp/fakebin:$PATH"
 cp -a "$live" "$tmp/original"
 
 bash "$hook" "$live" >/dev/null
@@ -120,6 +188,21 @@ for home in etc/skel home/liveuser; do
   grep -Fxq 'Exec=bash bin_install' "$launcher"
   grep -Fxq 'X-Upstream-Credit=pearOS' "$launcher"
 done
+for home in etc/skel home/liveuser; do
+  autostart="$live/$home/.config/autostart"
+  grep -Fxq 'Hidden=true' "$autostart/welcome.desktop"
+  grep -Fxq 'Exec=/usr/lib/xodus/xodus-welcome' "$autostart/xodus-welcome.desktop"
+  grep -Fxq 'OnlyShowIn=KDE;' "$autostart/xodus-welcome.desktop"
+done
+grep -Fxq 'Hidden=true' "$live/usr/share/applications/welcome.desktop"
+grep -Fxq 'Exec=/usr/lib/xodus/xodus-welcome' \
+  "$live/usr/share/applications/xodus-welcome.desktop"
+! grep -Eiq 'pearOS|pearos' "$live/usr/share/applications/xodus-welcome.desktop" \
+  "$live/etc/skel/.config/autostart/xodus-welcome.desktop" \
+  "$live/home/liveuser/.config/autostart/xodus-welcome.desktop"
+test "$(wc -l < "$XODUS_TEST_CHROOT_LOG")" -eq 2
+grep -Fq '/usr/bin/ldd /usr/lib/xodus/xodus-welcome' "$XODUS_TEST_CHROOT_LOG"
+grep -Fq '/usr/lib/xodus/xodus-welcome --self-test' "$XODUS_TEST_CHROOT_LOG"
 
 # A changed source layout aborts the overlay rather than silently skipping the
 # build hook. A changed live config aborts before modifying any other file.
@@ -160,5 +243,25 @@ if bash "$hook" "$tmp/bad-launcher" >"$tmp/bad-launcher.log" 2>&1; then
 fi
 grep -Fq 'unexpected installer desktop entry' "$tmp/bad-launcher.log"
 diff -qr "$tmp/bad-launcher-before" "$tmp/bad-launcher"
+
+cp -a "$tmp/original" "$tmp/bad-welcome"
+sed -i 's/Exec=pearos-welcome/Exec=other-welcome/' \
+  "$tmp/bad-welcome/usr/share/applications/welcome.desktop"
+cp -a "$tmp/bad-welcome" "$tmp/bad-welcome-before"
+if bash "$hook" "$tmp/bad-welcome" >"$tmp/bad-welcome.log" 2>&1; then
+  echo 'identity hook accepted changed upstream Welcome entry' >&2
+  exit 1
+fi
+grep -Fq 'upstream Welcome entry changed' "$tmp/bad-welcome.log"
+diff -qr "$tmp/bad-welcome-before" "$tmp/bad-welcome"
+
+cp -a "$tmp/original" "$tmp/bad-abi"
+cp -a "$tmp/bad-abi" "$tmp/bad-abi-before"
+if XODUS_TEST_ABI_FAIL=1 bash "$hook" "$tmp/bad-abi" >"$tmp/bad-abi.log" 2>&1; then
+  echo 'identity hook accepted missing Welcome Qt libraries' >&2
+  exit 1
+fi
+grep -Fq 'Xodus Welcome is incompatible with the live root' "$tmp/bad-abi.log"
+diff -qr "$tmp/bad-abi-before" "$tmp/bad-abi"
 
 echo 'M1 visible identity hook contract: PASS'

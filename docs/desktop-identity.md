@@ -46,3 +46,11 @@ A successful Desktop Identity M0 candidate must:
 3. embed the Xodus ISO metadata, hostname, MOTD, and provenance file;
 4. retain upstream attribution;
 5. pass the updated QEMU/OVMF gate on the same current `main` commit with retained positive graphical-session evidence. The historical watchdog-only result does not satisfy this item.
+
+## M1 Welcome replacement
+
+The M1 overlay builds an original Qt5 Widgets Xodus Welcome window in the Arch ISO builder. The live-root hook checks the binary against the actual live-root Qt libraries and renders it offscreen before changing desktop entries. The finished image must carry `/usr/lib/xodus/xodus-welcome` as an executable in the squashfs.
+
+The overlay masks the upstream Welcome menu and autostart entries, adds the Xodus menu entry, and installs Xodus autostart entries for both the live user and `/etc/skel` for installed users. The window uses the Xodus charcoal, purple, and white identity. It offers an installer button only in an archiso live session, and pressing the button merely opens the existing installer. Installed sessions show Files and Settings without an installer action. Upstream package and source attribution remain in package records and project documentation rather than in the Welcome UI.
+
+`qa/m1-visible-identity-contract.sh` checks the expected upstream launcher shape, both autostart paths, fail-closed behavior on drift, the staged Welcome executable mode, and rejection of missing Qt libraries. The post-build payload inventory also rejects a missing, non-executable, or incompletely rebranded Welcome in the retained live root. A current-head ISO build and graphical boot still need to prove the actual compiled window appears on screen.

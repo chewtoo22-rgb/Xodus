@@ -4,11 +4,13 @@
 
 ## Status
 
-**M0 — First Blood: desktop boot proof pending**
+**M0 — First Blood: live-image VM gate achieved. M1 graphical redesign is in progress.**
 
 Xodus begins with the parts pearOS already does well: a polished KDE/Wayland desktop, installer and ISO tooling, system settings, visual effects, and a cohesive desktop experience. From there, Xodus will progressively replace pearOS identity and add its own system intelligence, gaming stack, recovery/update model, and desktop UX.
 
-The pearOS ISO source is pinned, the Xodus identity overlay is applied before the Arch build, and GitHub Actions builds an ISO and runs QEMU/OVMF QA. Earlier matching-commit green runs establish that the pipeline has built an image and kept a VM running; the old QEMU watchdog did not prove that a graphical desktop appeared. M0 remains open until a fresh build and QA run on the current `main` commit retain evidence of the desktop session. See the [M0 gate](docs/ROADMAP.md) and [ISO build notes](docs/core-iso.md).
+The M0 live-image gate passed on `main` commit `bf7e4d41e8107a947aeed5e790b05630bfc61c6f`: [Core ISO Build](https://github.com/chewtoo22-rgb/Xodus/actions/runs/36490232271), [QA QEMU Boot Smoke](https://github.com/chewtoo22-rgb/Xodus/actions/runs/36491257156), and [Hardware Candidate Gate](https://github.com/chewtoo22-rgb/Xodus/actions/runs/36492042191) all succeeded for that source revision. QA verified the ISO checksum, observed the desktop readiness signal, and retained a fresh frame that was reviewed. The qualification is **live-boot-only**. See the [M0 evidence record](docs/core-iso.md#m0-completion-record) and [remaining roadmap](docs/ROADMAP.md).
+
+M1 must replace the remaining visible pearOS identity across the graphical boot sequence, login and lock screens, desktop shell, Welcome, settings, About, and installer. The supplied new boot video is the boot reference. This full redesign remains unfinished.
 
 ## Goals
 
@@ -56,7 +58,7 @@ Xodus will preserve all applicable upstream licenses, notices, source obligation
 
 ## Release blockers
 
-A public release is not cleared. The graphical VM boot gate still needs a fresh passing artifact; [upstream component licensing and redistribution review](docs/UPSTREAM_REDISTRIBUTION_REVIEW.md) is open; the Arch container and rolling package inputs are not locked for bitwise reproducibility; and physical live boot, installation, and recovery/rollback have not been validated on the target hardware.
+A public release is not cleared. The full graphical redesign is unfinished; [upstream component licensing and redistribution review](docs/UPSTREAM_REDISTRIBUTION_REVIEW.md) is open; the Arch container and rolling package inputs are not locked for bitwise reproducibility; and physical live boot, installation, and recovery/rollback have not been validated on the target hardware. Each new candidate source revision must pass fresh build, QA, and qualification gates.
 
 ---
 

@@ -41,6 +41,7 @@ _build_iso_base() {
     _run_once _prepare_airootfs_image
 }
 EOF
+  python3 "$repo_root/qa/boot_identity_fixture.py" "$root"
 }
 
 make_fixture "$tmp/good"

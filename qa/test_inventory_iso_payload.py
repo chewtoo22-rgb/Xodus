@@ -77,6 +77,32 @@ class PayloadInventoryTest(unittest.TestCase):
         (self.upstream / "xodus-ploader-firmware.efi").write_bytes(source_efi.read_bytes())
         (self.upstream / "Xodus-reference-fixture.iso").write_bytes(b"synthetic ISO")
 
+    def enable_welcome(self) -> Path:
+        source = self.xodus / "overlay/identity/welcome/xodus-welcome.cpp"
+        source.parent.mkdir(parents=True)
+        source.write_text("// fixture\n", encoding="utf-8")
+        root = self.work / "x86_64/airootfs"
+        binary = root / "usr/lib/xodus/xodus-welcome"
+        binary.parent.mkdir(parents=True)
+        binary.write_bytes(b"\x7fELF\x02\x01\x01\0")
+        binary.chmod(0o755)
+        for relative in ("usr/share/applications/welcome.desktop",
+                         "etc/skel/.config/autostart/welcome.desktop",
+                         "home/liveuser/.config/autostart/welcome.desktop"):
+            path = root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("[Desktop Entry]\nHidden=true\n", encoding="utf-8")
+        for relative in ("usr/share/applications/xodus-welcome.desktop",
+                         "etc/skel/.config/autostart/xodus-welcome.desktop",
+                         "home/liveuser/.config/autostart/xodus-welcome.desktop"):
+            path = root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            autostart = "OnlyShowIn=KDE;\n" if ".config/autostart/" in relative else ""
+            path.write_text("[Desktop Entry]\nName=Xodus Welcome\n"
+                            "Exec=/usr/lib/xodus/xodus-welcome\n" + autostart,
+                            encoding="utf-8")
+        return binary
+
     def run_inventory(self) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             [sys.executable, str(SCRIPT), "--xodus-root", str(self.xodus),
@@ -141,6 +167,32 @@ class PayloadInventoryTest(unittest.TestCase):
         result = self.run_inventory()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("does not match requested source commit", result.stderr)
+
+    def test_accepts_staged_m1_welcome(self) -> None:
+        self.enable_welcome()
+        result = self.run_inventory()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_rejects_non_executable_m1_welcome(self) -> None:
+        binary = self.enable_welcome()
+        binary.chmod(0o644)
+        result = self.run_inventory()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("must have mode 0755", result.stderr)
+
+    def test_rejects_missing_m1_welcome(self) -> None:
+        self.enable_welcome().unlink()
+        result = self.run_inventory()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("staged Xodus Welcome executable is missing", result.stderr)
+
+    def test_rejects_unmasked_upstream_welcome(self) -> None:
+        self.enable_welcome()
+        old = self.work / "x86_64/airootfs/usr/share/applications/welcome.desktop"
+        old.write_text("[Desktop Entry]\nExec=pearos-welcome\n", encoding="utf-8")
+        result = self.run_inventory()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("upstream Welcome entry is not masked", result.stderr)
 
 
 if __name__ == "__main__":
