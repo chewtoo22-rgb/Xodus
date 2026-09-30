@@ -37,6 +37,10 @@ class SettingsIdentityTests(unittest.TestCase):
         self.license.write_text('GNU Public Licence V3 or newer\n')
         self.mode = 'pass'
         self.commands = []
+        release = self.root / 'usr/lib/os-release'
+        release.parent.mkdir(parents=True, exist_ok=True)
+        release.write_text((REPO / 'overlay/identity/settings/upstream-os-release').read_text())
+        (self.root / 'etc').mkdir()
 
     def tearDown(self):
         self.temporary.cleanup()
@@ -45,7 +49,7 @@ class SettingsIdentityTests(unittest.TestCase):
         self.commands.append(args)
         if '/usr/bin/pacman' in args:
             package = args[-1]
-            version = '26.7.0-1' if package == 'system-settings' else '26.3-1'
+            version = {'system-settings': '26.7.0-1', 'system-overview': '26.3-1', 'filesystem': '2026.09.18-1'}[package]
             if self.mode == 'version':
                 version = '99.0-1'
             return subprocess.CompletedProcess(args, 0, package + ' ' + version + '\n', '')
@@ -70,6 +74,8 @@ class SettingsIdentityTests(unittest.TestCase):
         self.assertIn('/usr/lib/xodus/xodus-settings --about "$@"', about)
         self.assertIn('pearOS System Settings', (self.root / 'usr/share/licenses/xodus-settings/NOTICE').read_text())
         self.assertTrue(any('--about' in args and '--self-test' in args for args in self.commands))
+        self.assertEqual(identity.release_fields((self.root / 'usr/lib/os-release').read_text())['NAME'], 'Xodus')
+        self.assertEqual((self.root / 'etc/os-release').readlink().as_posix(), '../usr/lib/os-release')
 
     def test_wrong_package_version_is_rejected_before_writes(self):
         self.mode = 'version'
@@ -102,6 +108,57 @@ class SettingsIdentityTests(unittest.TestCase):
         path.unlink()
         path.symlink_to(self.binary)
         with self.assertRaisesRegex(SystemExit, 'symlink'):
+            self.apply()
+
+    def test_absolute_guest_release_symlink_never_follows_host_etc(self):
+        (self.root / 'etc/os-release').symlink_to('/usr/lib/os-release')
+        self.apply()
+        self.assertEqual(identity.release_fields((self.root / 'usr/lib/os-release').read_text())['ID'], 'xodus')
+
+    def test_release_path_escape_is_rejected_before_writes(self):
+        (self.root / 'etc/os-release').symlink_to('../../outside')
+        original = (self.root / 'usr/lib/os-release').read_bytes()
+        with self.assertRaisesRegex(SystemExit, 'Unreviewed guest'):
+            self.apply()
+        self.assertEqual((self.root / 'usr/lib/os-release').read_bytes(), original)
+        self.assertEqual(self.launcher.read_bytes(), self.original)
+
+    def test_release_source_drift_is_rejected(self):
+        release = self.root / 'usr/lib/os-release'
+        release.write_text(release.read_text().replace('VERSION="26.9"', 'VERSION="99.1"'))
+        with self.assertRaisesRegex(SystemExit, 'source changed'):
+            self.apply()
+
+    def test_real_builder_image_version_is_preserved(self):
+        release = self.root / 'usr/lib/os-release'
+        release.write_text(release.read_text().replace('IMAGE_ID=pearos-nicec0re', 'IMAGE_ID=Xodus').replace('IMAGE_VERSION=26.9', 'IMAGE_VERSION=2026.09'))
+        self.apply()
+        fields = identity.release_fields(release.read_text())
+        self.assertEqual(fields['IMAGE_VERSION'], '2026.09')
+        self.assertEqual(fields['VERSION'], '26.9')
+        self.assertEqual(fields['BUILD_ID'], 'rolling')
+
+    def test_separate_release_files_must_agree_before_writes(self):
+        release = self.root / 'etc/os-release'
+        release.write_text((self.root / 'usr/lib/os-release').read_text().replace('IMAGE_VERSION=26.9', 'IMAGE_VERSION=2026.09'))
+        original = (self.root / 'usr/lib/os-release').read_bytes()
+        with self.assertRaisesRegex(SystemExit, 'files disagree'):
+            self.apply()
+        self.assertEqual((self.root / 'usr/lib/os-release').read_bytes(), original)
+        self.assertFalse((self.root / 'usr/lib/xodus/upstream-os-release').exists())
+
+    def test_guest_release_link_loop_is_rejected(self):
+        release = self.root / 'usr/lib/os-release'
+        release.unlink()
+        release.symlink_to('/etc/os-release')
+        (self.root / 'etc/os-release').symlink_to('../usr/lib/os-release')
+        with self.assertRaisesRegex(SystemExit, 'symlink loop'):
+            self.apply()
+
+    def test_invalid_builder_month_is_rejected(self):
+        release = self.root / 'usr/lib/os-release'
+        release.write_text(release.read_text().replace('IMAGE_VERSION=26.9', 'IMAGE_VERSION=2026.13'))
+        with self.assertRaisesRegex(SystemExit, 'image provenance changed'):
             self.apply()
 
 

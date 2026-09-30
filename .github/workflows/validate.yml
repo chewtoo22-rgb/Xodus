@@ -53,3 +53,34 @@ jobs:
             echo "Checking $name ($branch)"
             git ls-remote --exit-code --heads "$url" "$branch" >/dev/null
           done < upstream/pearos-repos.txt
+
+  graphical-identity-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Install selective image inspection tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends squashfs-tools
+
+      - name: Verify graphical payload and extraction rejection contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          for pattern in test_boot_identity.py test_settings_identity.py test_graphical_identity.py test_verify_built_boot.py test_inventory_iso_payload.py test_identity_payload_extract_paths.py; do
+            python3 -m unittest discover -s qa -p "$pattern" -q
+          done
+          bash qa/m1-visible-identity-contract.sh
+
+      - name: Audit original installer and verify graphical derivation
+        shell: bash
+        run: |
+          set -euo pipefail
+          original="$RUNNER_TEMP/xodus-identity-original-installer"
+          bash scripts/audit-installer-driver.sh upstream/installer.lock "$original"
+          python3 qa/installed-identity-contract.py --original-root "$original"
+          python3 qa/installer-frontend-identity-contract.py "$original"

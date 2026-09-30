@@ -103,6 +103,7 @@ _build_iso_base() {
     _run_once _prepare_airootfs_image
 }
 EOF
+python3 "$repo_root/qa/boot_identity_fixture.py" "$fixture"
 bash "$repo_root/overlay/apply-xodus-identity.sh" "$fixture" >/dev/null
 test -x "$fixture/pear/airootfs/usr/lib/xodus/xodus-live-desktop-probe"
 test -f "$fixture/pear/airootfs/usr/lib/systemd/system/xodus-live-desktop-probe.service"

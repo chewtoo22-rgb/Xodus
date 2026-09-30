@@ -3,10 +3,12 @@
 
 Run on Linux with Python 3.14 (tarfile's zstd support). Supply the original
 pearos-settings, pearos-dock and pearos-notch archives as positional arguments.
+Pass --filesystem to verify the real filesystem package's SDDM defaults too.
 Only fixture text is extracted; no package binary or script is executed.
 """
 from pathlib import Path
 import argparse
+import configparser
 import hashlib
 import json
 import shutil
@@ -16,11 +18,37 @@ import tempfile
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('packages', nargs=3, type=Path)
+parser.add_argument('--filesystem', type=Path)
 args = parser.parse_args()
 repo = Path(__file__).resolve().parents[1]
 helper = repo / 'overlay/identity/apply-shell-identity.sh'
 versions = {'pearos-settings': '26.7.0-4', 'pearos-dock': '26.6.10-5',
             'pearos-notch': '26.6.1-1'}
+filesystem_version = '2026.09.18-1'
+filesystem_sha256 = '439086aa2dd9eac6bf6db1bfd166456bbcc2e71ee952ddca0660652f2b230180'
+# Exact file bytes from filesystem 2026.09.18-1. Keep this fixture even when
+# the archive is not supplied so the package-created conflict is exercised.
+kde_settings = b'''[Autologin]
+Relogin=true
+Session=plasma
+User=liveuser
+
+[General]
+HaltCommand=/usr/bin/systemctl poweroff
+RebootCommand=/usr/bin/systemctl reboot
+
+[Theme]
+Current=pearOS-dark
+
+[Users]
+MaximumUid=60513
+MinimumUid=1000
+
+[Session]
+Session=plasma.desktop
+'''
+kde_settings_sha256 = '332ac97e235f032d53102f294eb744b98ed59f463811fdad2f41c9cc27cb0e4f'
+assert hashlib.sha256(kde_settings).hexdigest() == kde_settings_sha256
 
 
 def snapshot(root):
@@ -70,6 +98,17 @@ with tempfile.TemporaryDirectory(prefix='xodus-shell-contract-') as temporary:
     sddm.mkdir(parents=True)
     autologin = '[Autologin]\nRelogin=true\nSession=plasma\nUser=liveuser\n'
     (sddm / 'autologin.conf').write_text(autologin)
+    (sddm / 'kde_settings.conf').write_bytes(kde_settings)
+    if args.filesystem:
+        assert hashlib.sha256(args.filesystem.read_bytes()).hexdigest() == filesystem_sha256
+        with tarfile.open(args.filesystem) as archive:
+            info = dict(line.split(' = ', 1) for line in
+                        archive.extractfile('.PKGINFO').read().decode().splitlines()
+                        if line.startswith(('pkgname = ', 'pkgver = ')))
+            assert info == {'pkgname': 'filesystem', 'pkgver': filesystem_version}, info
+            assert archive.extractfile('etc/sddm.conf.d/kde_settings.conf').read() == kde_settings
+            (original / 'etc/sddm.conf').write_bytes(archive.extractfile('etc/sddm.conf').read())
+        print(f'filesystem {filesystem_version} sha256={filesystem_sha256}')
     for source_name, destination in (
         ('xodus-wallpaper.png', 'usr/share/wallpapers/Xodus/xodus-wallpaper.png'),
         ('xodus-app-icon.png', 'usr/share/pixmaps/xodus-app-icon.png'),
@@ -107,11 +146,34 @@ with tempfile.TemporaryDirectory(prefix='xodus-shell-contract-') as temporary:
     assert 'unreviewed SDDM theme selection' in result.stderr
     assert snapshot(conflict) == before
 
+    # The known filename is insufficient to authorize other theme settings or
+    # account changes. The reviewed whole-file hash must match before writes.
+    for name, old, new in (('theme-drift', b'Current=pearOS-dark', b'Current=breeze'),
+                           ('account-drift', b'User=liveuser', b'User=other')):
+        drift = base / name
+        shutil.copytree(original, drift)
+        path = drift / 'etc/sddm.conf.d/kde_settings.conf'
+        path.write_bytes(path.read_bytes().replace(old, new))
+        before = snapshot(drift)
+        result = apply(drift, False)
+        assert 'unreviewed SDDM theme selection' in result.stderr, result.stderr
+        assert snapshot(drift) == before
+
     good = base / 'good'
     shutil.copytree(original, good)
     result = apply(good, True)
     assert (good / 'etc/sddm.conf.d/autologin.conf').read_text() == autologin
     assert (good / 'etc/sddm.conf.d/20-xodus-theme.conf').read_text() == '[Theme]\nCurrent=Xodus\n'
+    assert (good / 'etc/sddm.conf.d/kde_settings.conf').read_bytes() == kde_settings.replace(b'Current=pearOS-dark\n', b'')
+    if args.filesystem:
+        assert (good / 'etc/sddm.conf').read_bytes() == (original / 'etc/sddm.conf').read_bytes()
+    config = configparser.ConfigParser()
+    config.read(sorted((good / 'etc/sddm.conf.d').glob('*.conf')))
+    if (good / 'etc/sddm.conf').exists():
+        config.read(good / 'etc/sddm.conf')
+    assert config['Theme']['Current'] == 'Xodus'
+    assert config['Autologin']['User'] == 'liveuser'
+    assert config['Users']['MinimumUid'] == '1000'
     for home in ('etc/skel', 'home/liveuser'):
         lock = (good / home / '.config/kscreenlockerrc').read_text()
         assert lock.count('/usr/share/wallpapers/Xodus/xodus-wallpaper.png') == 2
@@ -138,4 +200,4 @@ with tempfile.TemporaryDirectory(prefix='xodus-shell-contract-') as temporary:
     assert (good / 'usr/share/licenses/xodus-shell/LICENSE').is_file()
     assert 'Name=Xodus' in (good / 'usr/share/color-schemes/Xodus.colors').read_text()
     print(result.stdout.strip())
-    print('Shell package contract: PASS (real archives, drift, localization, conflict, output)')
+    print('Shell package contract: PASS (real archives, drift, localization, SDDM precedence and preserved accounts, output)')

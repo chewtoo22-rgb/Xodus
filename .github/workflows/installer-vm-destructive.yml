@@ -11,6 +11,8 @@ on:
       - 'scripts/patch-installer-xodus-payload.py'
       - 'scripts/patch-installer-package-retries.py'
       - 'qa/test_installer_package_retries.py'
+      - 'overlay/identity/**'
+      - 'overlay/apply-xodus-identity.sh'
       - 'upstream/installer.lock'
       - 'qa/post-install-uefi-smoke.sh'
       - 'qa/post-install-verifier-contract.sh'

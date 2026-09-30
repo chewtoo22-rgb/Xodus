@@ -51,12 +51,12 @@ installer_setup_blob="${installer_entries[3]#SETUP_BLOB=}"
   exit 66
 }
 command -v python3 >/dev/null 2>&1 || { echo "python3 is required to pin the installer source" >&2; exit 66; }
-python3 - "$builder" "$installer_commit" "$installer_setup_blob" <<'PY'
+python3 - "$builder" "$installer_commit" "$installer_setup_blob" "$xodus_source_commit" <<'PY'
 from pathlib import Path
 import sys
 
 builder = Path(sys.argv[1])
-commit, setup_blob = sys.argv[2:]
+commit, setup_blob, xodus_source = sys.argv[2:]
 source = builder.read_text()
 old = '    git clone --depth 1 https://github.com/pearOS-archlinux/pearOS-installer.git "${pacstrap_dir}/usr/share/pearOS-installer" || _msg_error "Failed to clone pearOS-installer from GitHub" 1'
 if source.count(old) != 1 or source.count('    # Clone pearOS-installer from GitHub instead of using local files') != 1:
@@ -97,10 +97,20 @@ hook_definition = '''_apply_xodus_visible_identity() {
     bash "$welcome_builder" "${profile}" "${pacstrap_dir}" || _msg_error "Xodus Welcome build failed" 1
     bash "$helper" "${pacstrap_dir}" || _msg_error "Xodus visible identity hook failed" 1
     bash "$shell_helper" "${pacstrap_dir}" "${profile}/xodus-shell" || _msg_error "Xodus desktop shell identity failed" 1
+    python3 "${profile}/xodus-installer/apply-installer-identity.py" "${pacstrap_dir}/usr/share/pearOS-installer" || _msg_error "Xodus installer frontend identity failed" 1
+    python3 "${profile}/xodus-installer/apply-calamares-identity.py" "${pacstrap_dir}" || _msg_error "Xodus Calamares identity failed" 1
+    install -Dm0755 "${profile}/xodus-installed/identity-payload.py" "${pacstrap_dir}/usr/lib/xodus/xodus-identity-payload" || _msg_error "Xodus identity transfer helper is missing" 1
+    install -Dm0755 "${profile}/xodus-installed/restore-user-identity.py" "${pacstrap_dir}/usr/lib/xodus/xodus-restore-user-identity" || _msg_error "Xodus first-login identity helper is missing" 1
+    python3 "${profile}/xodus-installed/derive-installer-identity.py" \\
+        --apply-installer "${pacstrap_dir}/usr/share/pearOS-installer" \\
+        --original-root "${pacstrap_dir}/usr/share/pearOS-installer" \\
+        --source-commit @XODUS_SOURCE@ --build-info "${pacstrap_dir}/usr/lib/xodus/build-info" || _msg_error "Xodus installer identity derivation failed" 1
     python3 "${profile}/xodus-boot-contract/verify-boot-identity.py" --live-root "${pacstrap_dir}" || _msg_error "Xodus staged boot identity verification failed" 1
+    python3 "${profile}/xodus-graphical-contract/qa/verify-graphical-identity.py" "${pacstrap_dir}" --repo-root "${profile}/xodus-graphical-contract" || _msg_error "Xodus staged graphical identity verification failed" 1
+    python3 "${profile}/xodus-installed/identity-payload.py" capture "${pacstrap_dir}" || _msg_error "Xodus graphical identity capture failed" 1
 }
 
-'''
+'''.replace('@XODUS_SOURCE@', xodus_source)
 source = source.replace(old, new)
 source = source.replace(hook_definition_anchor, hook_definition + hook_definition_anchor)
 source = source.replace(
@@ -145,7 +155,7 @@ install -Dm0644 "$app_icon_source" "$root/pear/airootfs/usr/share/pixmaps/xodus-
 shell_identity_hook="$script_dir/identity/apply-shell-identity.sh"
 [[ -f "$shell_identity_hook" && ! -L "$shell_identity_hook" ]] || exit 66
 install -Dm0644 "$shell_identity_hook" "$root/pear/xodus-apply-shell-identity.sh"
-for component in shell settings; do
+for component in shell settings installer installed; do
   payload="$script_dir/identity/$component"
   destination="$root/pear/xodus-$component"
   [[ -d "$payload" && ! -L "$payload" && ! -e "$destination" && ! -L "$destination" ]] || {
@@ -153,6 +163,21 @@ for component in shell settings; do
     exit 66
   }
   cp -a "$payload" "$destination"
+done
+
+# Carry the retained graphical contract and its minimal source references into
+# the build container. Keep repository-relative paths for exact byte checks.
+graphical_checker="$repo_root/qa/verify-graphical-identity.py"
+graphical_contract_dir="$root/pear/xodus-graphical-contract"
+[[ -f "$graphical_checker" && ! -L "$graphical_checker" &&
+   ! -e "$graphical_contract_dir" && ! -L "$graphical_contract_dir" ]] || exit 66
+install -Dm0644 "$graphical_checker" "$graphical_contract_dir/qa/verify-graphical-identity.py"
+mapfile -t graphical_refs < <(python3 "$graphical_checker" --list-reference-files)
+(( ${#graphical_refs[@]} > 0 )) || exit 66
+for reference in "${graphical_refs[@]}"; do
+  [[ "$reference" == overlay/identity/* && "$reference" != *..* &&
+     -f "$repo_root/$reference" && ! -L "$repo_root/$reference" ]] || exit 66
+  install -Dm0644 "$repo_root/$reference" "$graphical_contract_dir/$reference"
 done
 
 # Apply the audited boot visuals before customize_airootfs.sh selects Plymouth

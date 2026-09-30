@@ -7,7 +7,7 @@ terminal-font: "Terminus Regular 14"
 
 + label {
   text = "Xodus"
-  font = "Poppins Regular 38"
+  font = "Poppins Regular 48"
   color = "#EEE8FF"
   left = 12%
   top = 15%

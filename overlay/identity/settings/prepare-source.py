@@ -51,7 +51,10 @@ def prepare(vendor, destination, overlay):
                         '    // Honor the desktop platform and the offscreen build acceptance check.', "platform")
     main = replace_once(main, 'setOrganizationName("PearOS")', 'setOrganizationName("Xodus")', "organization")
     main = replace_once(main, 'setApplicationName("systemsettings1")', 'setApplicationName("xodus-settings")', "application")
-    main = replace_once(main, 'setDesktopFileName("pearos-systemsettings")', 'setDesktopFileName("xodus-settings")', "desktop ID")
+    # Dock pins and the installed .desktop launcher retain this stable internal
+    # ID. App name and StartupWMClass carry the visible Xodus identity.
+    if main.count('setDesktopFileName("pearos-systemsettings")') != 1:
+        raise SystemExit("Settings source layout changed: desktop ID")
     main = replace_once(main, '    engine.loadFromModule("PearOSSettings", "Main");',
         '''    ctx->setContextProperty("XodusInitialPage", app.arguments().contains("--about") ? 28 : 4);
     engine.loadFromModule("XodusSettings", "Main");''', "entrypoint")

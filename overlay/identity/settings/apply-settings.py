@@ -4,13 +4,114 @@ import argparse
 import json
 import os
 from pathlib import Path
+import posixpath
+import re
+import shlex
 import shutil
 import subprocess
+
+
+def release_path(root, relative):
+    """Resolve only guest os-release symlinks, never an absolute host target."""
+    current = '/' + relative.lstrip('/')
+    for _ in range(8):
+        current = posixpath.normpath(current)
+        if current not in ('/etc/os-release', '/usr/lib/os-release'):
+            raise SystemExit('Unreviewed guest os-release target: ' + current)
+        path = root / current.lstrip('/')
+        for parent in path.parents:
+            if parent == root:
+                break
+            if parent.is_symlink():
+                raise SystemExit('Unsafe os-release parent: ' + current)
+        if path.is_symlink():
+            link = os.readlink(path)
+            current = link if link.startswith('/') else posixpath.join(posixpath.dirname(current), link)
+            continue
+        if not path.is_file():
+            raise SystemExit('Missing guest os-release: ' + current)
+        return path
+    raise SystemExit('Guest os-release symlink loop')
+
+
+def release_fields(contents):
+    fields = {}
+    for line in contents.splitlines():
+        if not line or line.startswith('#'):
+            continue
+        match = re.fullmatch(r'([A-Z][A-Z0-9_]*)=(.*)', line)
+        if not match or match[1] in fields or any(c in match[2] for c in ('$','`')):
+            raise SystemExit('Invalid or duplicate os-release field')
+        try:
+            values = shlex.split(match[2])
+        except ValueError as exc:
+            raise SystemExit('Invalid os-release quoting') from exc
+        if len(values) != 1:
+            raise SystemExit('Invalid os-release value')
+        fields[match[1]] = values[0]
+    return fields
+
+
+def apply_release_identity(root, overlay):
+    baseline = release_fields((overlay / 'upstream-os-release').read_text())
+    library_release = release_path(root, 'usr/lib/os-release')
+    etc_release = root / 'etc/os-release'
+    paths = [library_release]
+    if etc_release.exists() or etc_release.is_symlink():
+        etc_resolved = release_path(root, 'etc/os-release')
+        if etc_resolved not in paths:
+            paths.append(etc_resolved)
+    elif (root / 'etc').is_symlink() or not (root / 'etc').is_dir():
+        raise SystemExit('Unsafe os-release /etc directory')
+    project = 'https://github.com/chewtoo22-rgb/Xodus'
+    changed = {'NAME': 'Xodus', 'PRETTY_NAME': 'Xodus', 'ID': 'xodus', 'ID_LIKE': 'arch',
+               'LOGO': 'xodus-app-icon', 'ANSI_COLOR': '38;2;173;133;245',
+               'HOME_URL': project, 'DOCUMENTATION_URL': project + '/tree/main/docs',
+               'SUPPORT_URL': project + '/issues', 'BUG_REPORT_URL': project + '/issues',
+               'IMAGE_ID': 'xodus'}
+    updates = []
+    for path in paths:
+        original = path.read_text()
+        values = release_fields(original)
+        if values.keys() != baseline.keys():
+            raise SystemExit('Filesystem os-release field layout changed')
+        for key, value in baseline.items():
+            if key in ('IMAGE_ID', 'IMAGE_VERSION'):
+                continue
+            if values[key] != value:
+                raise SystemExit('Filesystem os-release source changed: ' + key)
+        # The pinned ISO builder replaces these two package fields before the
+        # identity hook. Keep its real image version in the final release data.
+        if values['IMAGE_ID'] not in ('pearos-nicec0re', 'Xodus') or not re.fullmatch(r'(?:26\.9|[0-9]{4}\.(?:0[1-9]|1[0-2]))', values['IMAGE_VERSION']):
+            raise SystemExit('Filesystem os-release image provenance changed')
+        values.update(changed)
+        updated = ''.join(key + '=' + json.dumps(value) + '\n' for key, value in values.items())
+        updates.append((path, original, updated))
+    if any(release_fields(original) != release_fields(updates[0][1]) for _, original, _ in updates[1:]):
+        raise SystemExit('Guest os-release files disagree before identity staging')
+    provenance = root / 'usr/lib/xodus'
+    for parent in (provenance, *provenance.parents):
+        if parent == root:
+            break
+        if parent.is_symlink():
+            raise SystemExit('Unsafe release provenance path')
+    for name in ('upstream-os-release', 'upstream-etc-os-release', 'release-source.json'):
+        if (provenance / name).exists() or (provenance / name).is_symlink():
+            raise SystemExit('Release provenance already staged: ' + name)
+    provenance.mkdir(parents=True, exist_ok=True)
+    for index, (path, original, updated) in enumerate(updates):
+        (provenance / ('upstream-os-release' if index == 0 else 'upstream-etc-os-release')).write_text(original, newline='\n')
+        path.write_text(updated, newline='\n')
+    lock = json.loads((overlay / 'release-source.lock.json').read_text())
+    (provenance / 'release-source.json').write_text(json.dumps(lock, indent=2) + '\n', newline='\n')
+    if not etc_release.exists() and not etc_release.is_symlink():
+        etc_release.symlink_to('../usr/lib/os-release')
 
 
 def apply(root, binary, license_file):
     overlay = Path(__file__).resolve().parent
     lock = json.loads((overlay / "source.lock.json").read_text())
+    release_lock = json.loads((overlay / 'release-source.lock.json').read_text())
     root = root.resolve(strict=True)
     if root == Path("/"):
         raise SystemExit("Refusing the host root")
@@ -21,7 +122,8 @@ def apply(root, binary, license_file):
         return path
     # Both compatibility entrypoints belong to audited installed packages.
     for package, version in ((lock['settings_package'], lock['settings_version']),
-                             (lock['overview_package'], lock['overview_version'])):
+                             (lock['overview_package'], lock['overview_version']),
+                             (release_lock['package'], release_lock['version'])):
         result = subprocess.run(['arch-chroot', str(root), '/usr/bin/pacman', '-Q', package],
                                 capture_output=True, text=True, timeout=30)
         if result.returncode or result.stdout.strip() != package + ' ' + version:
@@ -46,6 +148,9 @@ def apply(root, binary, license_file):
         raise SystemExit('Compiled Xodus Settings is not an ELF file')
     if license_file.is_symlink() or not license_file.is_file():
         raise SystemExit('Settings source license is missing')
+    # SystemInfo reads /etc/os-release; adapt the package-created release file
+    # before the real About render so every settings page sees Xodus identity.
+    apply_release_identity(root, overlay)
     executable.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(binary, executable)
     executable.chmod(0o755)

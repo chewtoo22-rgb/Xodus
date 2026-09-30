@@ -16,6 +16,7 @@ import re
 import stat
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -172,6 +173,47 @@ def verify_welcome_payload(xodus_root: Path, stage: Path) -> None:
                     f"Xodus Welcome autostart is not KDE-scoped: {relative}")
 
 
+def verify_graphical_payload(xodus_root: Path, stage: Path,
+                             upstream_dir: Path) -> tuple[dict, bytes, str]:
+    """Bind actual retained bytes to the produced squashfs verification."""
+    checker = xodus_root / "qa/verify-graphical-identity.py"
+    require(checker.is_file() and not checker.is_symlink(),
+            "retained graphical payload checker is missing or unsafe")
+    with tempfile.TemporaryDirectory(prefix="xodus-graphical-inventory-") as temporary:
+        report = Path(temporary) / "report.json"
+        try:
+            result = subprocess.run(
+                [sys.executable, str(checker), str(stage), "--repo-root", str(xodus_root),
+                 "--output", str(report)], capture_output=True, text=True, timeout=120,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise InventoryError("cannot run retained graphical payload checker") from exc
+        require(result.returncode == 0,
+                "retained graphical payload failed: " + (result.stderr or result.stdout).strip())
+        require(report.is_file() and not report.is_symlink(),
+                "retained graphical payload checker did not write its report")
+        report_bytes = report.read_bytes()
+    produced = upstream_dir / "xodus-graphical-payload-verification.json"
+    require(produced.is_file() and not produced.is_symlink(),
+            "produced ISO graphical verification report is missing or unsafe")
+    try:
+        document = json.loads(report_bytes)
+        produced_document = json.loads(produced.read_bytes())
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise InventoryError("invalid graphical payload verification report") from exc
+    require(isinstance(document, dict) and document.get("schema_version") == 1 and
+            document.get("graphical_identity") == "pass" and
+            isinstance(document.get("files"), dict) and bool(document["files"]),
+            "graphical payload report has an invalid schema or status")
+    require(all(isinstance(name, str) and isinstance(digest, str) and
+                bool(re.fullmatch(r"[0-9a-f]{64}", digest))
+                for name, digest in document["files"].items()),
+            "graphical payload report contains invalid file hashes")
+    require(document == produced_document,
+            "retained graphical payload differs from produced ISO squashfs")
+    return document, report_bytes, sha256_file(produced)
+
+
 def asset_categories(relative: Path) -> tuple[str, ...]:
     parts = tuple(part.lower() for part in relative.parts)
     name = parts[-1]
@@ -238,6 +280,8 @@ def build_inventory(xodus_root: Path, upstream_dir: Path, output_dir: Path,
     packages = installed_packages(stage)
     verify_pkglist(pkglist, packages)
     verify_welcome_payload(xodus_root, stage)
+    graphical_report, graphical_bytes, produced_graphical_digest = verify_graphical_payload(
+        xodus_root, stage, upstream_dir)
 
     iso = unique_path(sorted(upstream_dir.glob("Xodus-reference-*.iso")), "built ISO")
     require(iso.is_file() and iso.stat().st_size > 0, "built ISO is empty or missing")
@@ -260,6 +304,8 @@ def build_inventory(xodus_root: Path, upstream_dir: Path, output_dir: Path,
     package_path = output_dir / "xodus-package-license-inventory.tsv"
     asset_path = output_dir / "xodus-asset-hashes.tsv"
     manifest_path = output_dir / "xodus-payload-inventory.json"
+    graphical_path = output_dir / "xodus-retained-graphical-payload-verification.json"
+    graphical_path.write_bytes(graphical_bytes)
     package_rows = [
         (name, version, "; ".join(licenses) if licenses else "UNDECLARED")
         for name, (version, licenses) in sorted(packages.items())
@@ -292,6 +338,10 @@ def build_inventory(xodus_root: Path, upstream_dir: Path, output_dir: Path,
         "ploader_efi_sha256": source_efi_digest,
         "package_inventory_sha256": sha256_file(package_path),
         "asset_inventory_sha256": sha256_file(asset_path),
+        "graphical_identity": graphical_report,
+        "graphical_identity_report": graphical_path.name,
+        "graphical_identity_report_sha256": sha256_file(graphical_path),
+        "produced_iso_graphical_identity_report_sha256": produced_graphical_digest,
         "scope": "retained live root and staged boot tree; not legal clearance",
     }
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")

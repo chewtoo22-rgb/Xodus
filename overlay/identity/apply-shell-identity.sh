@@ -14,6 +14,7 @@ live_root=${1:-}
 shell_payload=${2:-$(dirname "${BASH_SOURCE[0]}")/shell}
 python3 - "$live_root" "$shell_payload" <<'PY'
 from pathlib import Path
+import hashlib
 import json
 import re
 import sys
@@ -208,8 +209,19 @@ for candidate in (root / 'etc/sddm.conf', *sddm_config_dir.glob('*.conf')):
     if candidate.exists() or candidate.is_symlink():
         if candidate.is_symlink() or not candidate.is_file():
             raise SystemExit(f'unsafe SDDM config: {candidate}')
-        if re.search(r'^\s*Current\s*=', candidate.read_text(), re.M):
-            raise SystemExit(f'unreviewed SDDM theme selection: {candidate}')
+        contents = candidate.read_bytes().decode('utf-8')
+        if re.search(r'^\s*Current\s*=', contents, re.M):
+            # filesystem 2026.09.18-1 installs this KDE drop-in after our
+            # numeric drop-in in SDDM's lexical load order. Remove its reviewed
+            # Theme Current entry only; preserve Autologin, Users and Session
+            # bytes. Every other selection or changed package input is rejected.
+            reviewed = sddm_config_dir / 'kde_settings.conf'
+            reviewed_hash = '332ac97e235f032d53102f294eb744b98ed59f463811fdad2f41c9cc27cb0e4f'
+            if (candidate != reviewed
+                    or hashlib.sha256(candidate.read_bytes()).hexdigest() != reviewed_hash
+                    or contents.count('[Theme]\nCurrent=pearOS-dark\n') != 1):
+                raise SystemExit(f'unreviewed SDDM theme selection: {candidate}')
+            updates[candidate] = contents.replace('Current=pearOS-dark\n', '', 1)
 sddm_selection = sddm_config_dir / '20-xodus-theme.conf'
 if sddm_selection.exists() or sddm_selection.is_symlink():
     raise SystemExit('Xodus SDDM selection already exists')

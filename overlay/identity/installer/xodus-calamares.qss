@@ -1,0 +1,21 @@
+/* Xodus Calamares presentation. Installer controls retain their stock behavior. */
+QWidget { color: #F5F1FC; background-color: #111018; font-family: "Noto Sans"; font-size: 14px; }
+QLabel { background: transparent; }
+QFrame, QGroupBox { border-color: #393044; }
+QPushButton, QToolButton { color: #FFFFFF; background: #45324F; border: 1px solid #806192;
+  border-radius: 8px; min-height: 28px; padding: 7px 14px; }
+QPushButton:hover, QToolButton:hover { background: #644079; border-color: #BC96D9; }
+QPushButton:disabled, QToolButton:disabled { color: #A49AAE; background: #272031; border-color: #393044; }
+QPushButton:focus, QToolButton:focus, QLineEdit:focus, QComboBox:focus { border: 2px solid #B69BFA; }
+QLineEdit, QComboBox, QSpinBox, QTextEdit, QPlainTextEdit, QListView, QTreeView, QTableView {
+  color: #F5F1FC; background: #0C0A12; border: 1px solid #5A456B; border-radius: 6px; padding: 5px;
+  selection-background-color: #4E346B; selection-color: #FFFFFF; }
+QComboBox QAbstractItemView { color: #F5F1FC; background: #111018; selection-background-color: #4E346B; }
+QHeaderView::section { color: #F5F1FC; background: #201829; border: 1px solid #393044; padding: 7px; }
+QProgressBar { color: #FFFFFF; background: #272031; border: 1px solid #5A456B; border-radius: 6px; text-align: center; }
+QProgressBar::chunk { background: #8060B2; border-radius: 5px; }
+QScrollBar { background: #111018; }
+QScrollBar::handle { background: #625372; border-radius: 5px; min-height: 24px; min-width: 24px; }
+QScrollBar::add-line, QScrollBar::sub-line { border: none; background: #111018; }
+QTabBar::tab { background: #201829; color: #C4BACE; padding: 9px 14px; border: 1px solid #393044; }
+QTabBar::tab:selected { background: #45324F; color: #FFFFFF; }

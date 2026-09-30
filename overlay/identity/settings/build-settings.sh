@@ -12,7 +12,7 @@ live_root=${2:-}
 }
 overlay="$profile/xodus-settings"
 [[ -d "$overlay" && ! -L "$overlay" ]] || exit 65
-for source in source.lock.json prepare-source.py apply-settings.py; do
+for source in source.lock.json release-source.lock.json upstream-os-release prepare-source.py apply-settings.py; do
   [[ -f "$overlay/$source" && ! -L "$overlay/$source" ]] || exit 65
 done
 command -v git >/dev/null

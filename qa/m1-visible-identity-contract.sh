@@ -2,7 +2,11 @@
 set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
-overlay="$repo_root/overlay/apply-xodus-identity.sh"
+overlay=${XODUS_TEST_IDENTITY_OVERLAY:-"$repo_root/overlay/apply-xodus-identity.sh"}
+[[ -f "$overlay" && ! -L "$overlay" ]]
+# Every derivation and captured live payload must carry the same exact source.
+export XODUS_SOURCE_COMMIT=0123456789abcdef0123456789abcdef01234567
+export XODUS_UPSTREAM_COMMIT=89abcdef0123456789abcdef0123456789abcdef
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
@@ -49,6 +53,44 @@ bash -n "$builder"
 bash -n "$hook"
 bash -n "$welcome_builder"
 cmp "$repo_root/overlay/identity/welcome/xodus-welcome.cpp" "$welcome_source"
+python3 - "$repo_root" "$tmp/source/pear" "$builder" "$XODUS_SOURCE_COMMIT" <<'PY'
+from pathlib import Path
+import subprocess
+import sys
+
+repo, profile, builder = map(Path, sys.argv[1:4])
+source_commit = sys.argv[4]
+for component in ('shell', 'settings', 'installer', 'installed'):
+    directory = repo / 'overlay/identity' / component
+    staged = profile / ('xodus-' + component)
+    assert staged.is_dir() and not staged.is_symlink(), 'missing staged component: ' + component
+    originals = [path for path in directory.rglob('*') if path.is_file()
+                 and '__pycache__' not in path.parts and path.suffix != '.pyc']
+    assert originals, 'empty source component: ' + component
+    for path in originals:
+        target = staged / path.relative_to(directory)
+        assert target.is_file() and not target.is_symlink(), 'unsafe/missing staged source: ' + str(target)
+        assert target.read_bytes() == path.read_bytes(), 'changed staged source: ' + str(target)
+shell = profile / 'xodus-apply-shell-identity.sh'
+assert shell.read_bytes() == (repo / 'overlay/identity/apply-shell-identity.sh').read_bytes()
+checker = repo / 'qa/verify-graphical-identity.py'
+graphical = profile / 'xodus-graphical-contract'
+assert (graphical / 'qa/verify-graphical-identity.py').read_bytes() == checker.read_bytes()
+references = subprocess.check_output([sys.executable, str(checker), '--list-reference-files'], text=True).splitlines()
+assert len(references) == 11 and len(set(references)) == 11
+expected = {'qa/verify-graphical-identity.py', *references}
+actual = {path.relative_to(graphical).as_posix() for path in graphical.rglob('*') if path.is_file()}
+assert actual == expected, 'staged graphical reference inventory differs'
+for relative in references:
+    assert (graphical / relative).read_bytes() == (repo / relative).read_bytes(), relative
+text = builder.read_text()
+assert text.count('--source-commit ' + source_commit + ' --build-info') == 1, 'installer derivation source differs'
+assert '@XODUS_SOURCE@' not in text
+info = (profile / 'airootfs/usr/lib/xodus/build-info').read_text().splitlines()
+assert info.count('XODUS_SOURCE_COMMIT=' + source_commit) == 1, 'live provenance source differs'
+for helper in ('xodus-identity-payload', 'xodus-restore-user-identity'):
+    assert not (profile / 'airootfs/usr/lib/xodus' / helper).exists(), 'late helper incorrectly staged before customize'
+PY
 grep -Fq 'pacman -S --needed --noconfirm qt5-base pkgconf' "$builder"
 grep -Fq 'bash "$welcome_builder" "${profile}" "${pacstrap_dir}"' "$builder"
 mkdir -p "$tmp/mock-tools" "$tmp/mock-live"
@@ -82,6 +124,8 @@ assert source.count('    _run_once _make_customize_airootfs\n    _run_once _appl
 assert source.count('    _run_once _cleanup_pacstrap_dir\n    _run_once _make_pkglist\n    _run_once _prepare_airootfs_image') == 1
 assert source.count('bash "$helper" "${pacstrap_dir}" || _msg_error') == 1
 PY
+python3 "$repo_root/qa/generated_identity_hook_fixture.py" "$builder" \
+  "$tmp/source/pear" "$tmp/generated-hook" "$XODUS_SOURCE_COMMIT"
 
 # Upstream cleanup removes optional packages after constructing the live root.
 # The ISO pkglist must reflect that final state before image creation.

@@ -11,6 +11,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from graphical_payload_fixture import make_graphical_fixture
+
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/inventory-iso-payload.py"
 
@@ -38,6 +40,8 @@ class PayloadInventoryTest(unittest.TestCase):
         self.upstream = base / "upstream-src"
         self.xodus = base / "xodus"
         self.output = base / "inventory"
+        self.work = self.upstream / "work/tmp.fixture"
+        make_graphical_fixture(self.xodus, self.work / "x86_64/airootfs")
         source_efi = self.upstream / "pear/efiboot/ploader/ploader_x64.efi"
         source_efi.parent.mkdir(parents=True)
         source_efi.write_bytes(b"pinned prebuilt EFI fixture\0")
@@ -56,7 +60,6 @@ class PayloadInventoryTest(unittest.TestCase):
         )
         self.source_commit = commit(self.xodus)
 
-        self.work = self.upstream / "work/tmp.fixture"
         root = self.work / "x86_64/airootfs"
         desc = root / "var/lib/pacman/local/example-1.2-3/desc"
         desc.parent.mkdir(parents=True)
@@ -76,6 +79,12 @@ class PayloadInventoryTest(unittest.TestCase):
         staged_efi.write_bytes(source_efi.read_bytes())
         (self.upstream / "xodus-ploader-firmware.efi").write_bytes(source_efi.read_bytes())
         (self.upstream / "Xodus-reference-fixture.iso").write_bytes(b"synthetic ISO")
+        subprocess.run(
+            [sys.executable, str(self.xodus / "qa/verify-graphical-identity.py"), str(root),
+             "--repo-root", str(self.xodus), "--output",
+             str(self.upstream / "xodus-graphical-payload-verification.json")],
+            check=True, capture_output=True, text=True,
+        )
 
     def enable_welcome(self) -> Path:
         source = self.xodus / "overlay/identity/welcome/xodus-welcome.cpp"
@@ -83,24 +92,6 @@ class PayloadInventoryTest(unittest.TestCase):
         source.write_text("// fixture\n", encoding="utf-8")
         root = self.work / "x86_64/airootfs"
         binary = root / "usr/lib/xodus/xodus-welcome"
-        binary.parent.mkdir(parents=True)
-        binary.write_bytes(b"\x7fELF\x02\x01\x01\0")
-        binary.chmod(0o755)
-        for relative in ("usr/share/applications/welcome.desktop",
-                         "etc/skel/.config/autostart/welcome.desktop",
-                         "home/liveuser/.config/autostart/welcome.desktop"):
-            path = root / relative
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text("[Desktop Entry]\nHidden=true\n", encoding="utf-8")
-        for relative in ("usr/share/applications/xodus-welcome.desktop",
-                         "etc/skel/.config/autostart/xodus-welcome.desktop",
-                         "home/liveuser/.config/autostart/xodus-welcome.desktop"):
-            path = root / relative
-            path.parent.mkdir(parents=True, exist_ok=True)
-            autostart = "OnlyShowIn=KDE;\n" if ".config/autostart/" in relative else ""
-            path.write_text("[Desktop Entry]\nName=Xodus Welcome\n"
-                            "Exec=/usr/lib/xodus/xodus-welcome\n" + autostart,
-                            encoding="utf-8")
         return binary
 
     def run_inventory(self) -> subprocess.CompletedProcess[str]:
@@ -117,12 +108,18 @@ class PayloadInventoryTest(unittest.TestCase):
         manifest_path = self.output / "xodus-payload-inventory.json"
         package_path = self.output / "xodus-package-license-inventory.tsv"
         asset_path = self.output / "xodus-asset-hashes.tsv"
+        graphical_path = self.output / "xodus-retained-graphical-payload-verification.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         self.assertEqual(manifest["xodus_source_commit"], self.source_commit)
         self.assertEqual(manifest["iso_sha256"], hashlib.sha256(b"synthetic ISO").hexdigest())
         self.assertEqual(manifest["package_count"], 1)
-        self.assertEqual(manifest["license_text_entry_count"], 1)
-        self.assertEqual(manifest["wallpaper_entry_count"], 1)
+        self.assertEqual(manifest["license_text_entry_count"], 5)
+        self.assertEqual(manifest["wallpaper_entry_count"], 2)
+        self.assertEqual(manifest["graphical_identity"]["graphical_identity"], "pass")
+        self.assertEqual(manifest["graphical_identity_report_sha256"],
+                         hashlib.sha256(graphical_path.read_bytes()).hexdigest())
+        self.assertEqual(manifest["graphical_identity"],
+                         json.loads(graphical_path.read_text(encoding="utf-8")))
         with package_path.open(newline="", encoding="utf-8") as stream:
             rows = list(csv.DictReader(stream, delimiter="\t"))
         self.assertEqual(rows, [{"package": "example", "version": "1.2-3",
@@ -132,10 +129,10 @@ class PayloadInventoryTest(unittest.TestCase):
         self.assertEqual({row["category"] for row in assets},
                          {"license_text", "wallpaper", "ploader_source", "ploader_staged",
                           "ploader_firmware"})
-        first = [path.read_bytes() for path in (manifest_path, package_path, asset_path)]
+        first = [path.read_bytes() for path in (manifest_path, package_path, asset_path, graphical_path)]
         self.assertEqual(self.run_inventory().returncode, 0)
         self.assertEqual(first, [path.read_bytes() for path in
-                                 (manifest_path, package_path, asset_path)])
+                                 (manifest_path, package_path, asset_path, graphical_path)])
 
     def test_rejects_package_list_drift(self) -> None:
         (self.work / "iso/arch/pkglist.x86_64.txt").write_text("example 2.0-1\n",
@@ -193,6 +190,42 @@ class PayloadInventoryTest(unittest.TestCase):
         result = self.run_inventory()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("upstream Welcome entry is not masked", result.stderr)
+
+    def test_rejects_missing_graphical_checker(self) -> None:
+        (self.xodus / "qa/verify-graphical-identity.py").unlink()
+        result = self.run_inventory()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("graphical payload checker is missing", result.stderr)
+        self.assertFalse((self.output / "xodus-payload-inventory.json").exists())
+
+    def test_rejects_altered_retained_graphics(self) -> None:
+        wallpaper = self.work / "x86_64/airootfs/usr/share/wallpapers/Xodus/xodus-wallpaper.png"
+        wallpaper.write_bytes(b"changed after build")
+        result = self.run_inventory()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Graphical bytes differ", result.stderr)
+
+    def test_rejects_missing_produced_graphical_evidence(self) -> None:
+        (self.upstream / "xodus-graphical-payload-verification.json").unlink()
+        result = self.run_inventory()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("produced ISO graphical verification report is missing", result.stderr)
+
+    def test_rejects_native_app_that_differs_from_produced_iso(self) -> None:
+        native = self.work / "x86_64/airootfs/usr/lib/xodus/xodus-settings"
+        # Still satisfies the native ELF header and executable contract; only
+        # binding to the produced squashfs report detects these changed bytes.
+        native.write_bytes(native.read_bytes() + b"changed retained program")
+        result = self.run_inventory()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("differs from produced ISO squashfs", result.stderr)
+
+    def test_rejects_competing_login_selection(self) -> None:
+        selection = self.work / "x86_64/airootfs/etc/sddm.conf.d/99-other.conf"
+        selection.write_text("[Theme]\nCurrent=pearOS\n", encoding="utf-8")
+        result = self.run_inventory()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Competing SDDM", result.stderr)
 
 
 if __name__ == "__main__":

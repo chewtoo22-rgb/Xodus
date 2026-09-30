@@ -241,6 +241,8 @@ jobs:
           test -s pearos-iso/xodus-payload-inventory.json
           test -s pearos-iso/xodus-package-license-inventory.tsv
           test -s pearos-iso/xodus-asset-hashes.tsv
+          test -s pearos-iso/xodus-graphical-payload-verification.json
+          test -s pearos-iso/xodus-retained-graphical-payload-verification.json
 
       - name: Verify produced image and write provenance manifest
         id: artifact
@@ -296,6 +298,8 @@ jobs:
             pearos-iso/xodus-package-license-inventory.tsv
             pearos-iso/xodus-asset-hashes.tsv
             pearos-iso/xodus-boot-payload-verification.txt
+            pearos-iso/xodus-graphical-payload-verification.json
+            pearos-iso/xodus-retained-graphical-payload-verification.json
             pearos-iso/xodus-build-attempt-*.log
           if-no-files-found: error
           compression-level: 0
@@ -318,5 +322,7 @@ jobs:
             build-files.txt
             pearos-iso/xodus-build-attempt-*.log
             pearos-iso/xodus-boot-payload-verification.txt
+            pearos-iso/xodus-graphical-payload-verification.json
+            pearos-iso/xodus-retained-graphical-payload-verification.json
           if-no-files-found: ignore
           retention-days: 7

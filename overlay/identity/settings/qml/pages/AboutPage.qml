@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 import "../components"
 
@@ -16,7 +17,7 @@ PageBase {
             Column {
                 Layout.fillWidth: true; spacing: 8
                 Text { text: "XODUS"; font.pixelSize: 30; font.letterSpacing: 5; font.weight: Font.DemiBold; color: Theme.textPrimary }
-                Text { text: SysInfo.osVersion || "X1"; font.pixelSize: 15; color: Theme.accent }
+                Text { text: "Rolling release" + (SysInfo.osVersion ? " · base " + SysInfo.osVersion : ""); font.pixelSize: 15; color: Theme.accent }
                 Text { text: "Your desktop. Your direction."; font.pixelSize: 13; color: Theme.textSecondary }
             }
         }
@@ -62,7 +63,26 @@ PageBase {
     Spacer { height: 24 }
     Text {
         width: parent.width
-        text: "Built with open source software. License notices are installed in /usr/share/licenses/xodus-settings."
+        text: "Built with open source software."
         color: Theme.textTertiary; font.pixelSize: 11; wrapMode: Text.WordWrap
+    }
+    Spacer { height: 8 }
+    Button {
+        id: licensesButton
+        text: "View licenses →"
+        font.pixelSize: 12
+        padding: 9
+        Accessible.name: "View open source licenses"
+        contentItem: Text {
+            text: licensesButton.text; font: licensesButton.font
+            color: Theme.accent
+            verticalAlignment: Text.AlignVCenter
+        }
+        background: Rectangle {
+            radius: 6; color: licensesButton.hovered ? Theme.hoverBg : "transparent"
+            border.width: licensesButton.activeFocus ? 1 : 0
+            border.color: Theme.accent
+        }
+        onClicked: Qt.openUrlExternally("file:///usr/share/licenses/xodus-settings")
     }
 }
