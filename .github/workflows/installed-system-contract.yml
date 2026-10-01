@@ -45,7 +45,9 @@ jobs:
           mkdir -p \
             "$root/etc/systemd/system/multi-user.target.wants" \
             "$root/usr/lib/systemd/system" \
+            "$root/usr/lib/xodus" \
             "$root/usr/bin" \
+            "$root/var/lib/xodus/first-boot" \
             "$root/boot" \
             "$root/etc"
           printf 'NAME=Xodus\n' > "$root/etc/os-release"
@@ -55,11 +57,29 @@ jobs:
           touch "$root/boot/vmlinuz-test"
           printf '[Unit]\nDescription=SDDM\n' > "$root/usr/lib/systemd/system/sddm.service"
           printf '[Unit]\nDescription=NetworkManager\n' > "$root/usr/lib/systemd/system/NetworkManager.service"
+          printf '#!/usr/bin/env bash\nexit 0\n' > "$root/usr/lib/xodus/xodus-first-boot"
+          chmod +x "$root/usr/lib/xodus/xodus-first-boot"
+          printf '[Unit]\nDescription=Xodus first boot\n' > "$root/usr/lib/systemd/system/xodus-first-boot.service"
           ln -s /usr/lib/systemd/system/sddm.service "$root/etc/systemd/system/display-manager.service"
           ln -s /usr/lib/systemd/system/NetworkManager.service "$root/etc/systemd/system/multi-user.target.wants/NetworkManager.service"
+          ln -s /usr/lib/systemd/system/xodus-first-boot.service "$root/etc/systemd/system/multi-user.target.wants/xodus-first-boot.service"
           bash qa/installed-system-contract.sh "$root" "$out"
           grep -Fxq 'installed_system_contract=pass' "$out/installed-system-contract.txt"
+          grep -Fxq 'first_boot_service=installed_enabled_pending' "$out/installed-system-contract.txt"
           grep -Fxq 'hardware_runtime_claim=not_automatic' "$out/installed-system-contract.txt"
+
+      - name: Reject pre-completed first-boot image
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/good-root"
+          out="$RUNNER_TEMP/precompleted-evidence"
+          printf 'schema=1\n' > "$root/var/lib/xodus/first-boot/complete"
+          set +e
+          bash qa/installed-system-contract.sh "$root" "$out"
+          rc=$?
+          set -e
+          test "$rc" -ne 0
+          test ! -f "$out/installed-system-contract.txt"
 
       - name: Read-only policy
         run: |
