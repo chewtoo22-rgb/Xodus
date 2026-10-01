@@ -59,13 +59,54 @@ class ArenaProfileContractTests(unittest.TestCase):
         with self.assertRaises(mod.ArenaProfileError):
             mod.admit_profile(raw)
 
+    def test_quiet_cannot_escalate_cpu_policy(self):
+        raw = self.base("quiet")
+        raw["cpu_governor"] = "performance"
+        with self.assertRaisesRegex(mod.ArenaProfileError, "conflicts with quiet profile"):
+            mod.admit_profile(raw)
+
+    def test_quiet_cannot_escalate_gpu_policy(self):
+        raw = self.base("quiet")
+        raw["gpu_policy"] = "performance"
+        with self.assertRaisesRegex(mod.ArenaProfileError, "conflicts with quiet profile"):
+            mod.admit_profile(raw)
+
+    def test_quiet_cannot_enable_low_latency_audio(self):
+        raw = self.base("quiet")
+        raw["audio_low_latency"] = True
+        with self.assertRaisesRegex(mod.ArenaProfileError, "conflicts with quiet profile"):
+            mod.admit_profile(raw)
+
+    def test_balanced_cannot_disable_ai_yield(self):
+        raw = self.base("balanced")
+        raw["local_ai_yield"] = False
+        with self.assertRaisesRegex(mod.ArenaProfileError, "conflicts with balanced profile"):
+            mod.admit_profile(raw)
+
     def test_performance_cannot_disable_ai_yield(self):
         raw = self.base("performance")
         raw["local_ai_yield"] = False
-        with self.assertRaises(mod.ArenaProfileError):
+        with self.assertRaisesRegex(mod.ArenaProfileError, "conflicts with performance profile"):
             mod.admit_profile(raw)
 
-    def test_quiet_profile_may_override_within_bounds(self):
+    def test_balanced_cannot_masquerade_as_powersave(self):
+        raw = self.base("balanced")
+        raw["cpu_governor"] = "powersave"
+        with self.assertRaisesRegex(mod.ArenaProfileError, "conflicts with balanced profile"):
+            mod.admit_profile(raw)
+
+    def test_matching_identity_fields_are_accepted(self):
+        raw = self.base("performance")
+        raw.update(
+            cpu_governor="performance",
+            gpu_policy="performance",
+            audio_low_latency=True,
+            local_ai_yield=True,
+        )
+        admitted = mod.admit_profile(raw)
+        self.assertEqual(admitted.profile, "performance")
+
+    def test_quiet_profile_may_tune_frame_rate_within_bounds(self):
         raw = self.base("quiet")
         raw.update(frame_limit_hz=45, display_refresh_hz=60)
         admitted = mod.admit_profile(raw)

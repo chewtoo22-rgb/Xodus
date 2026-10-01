@@ -50,6 +50,12 @@ PROFILE_DEFAULTS = {
         "local_ai_yield": True,
     },
 }
+PROFILE_IDENTITY_FIELDS = (
+    "cpu_governor",
+    "gpu_policy",
+    "audio_low_latency",
+    "local_ai_yield",
+)
 CPU_GOVERNORS = {"powersave", "schedutil", "performance"}
 GPU_POLICIES = {"powersave", "auto", "performance"}
 PROFILE_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
@@ -85,6 +91,19 @@ def _bounded_int(name: str, value: Any, minimum: int, maximum: int) -> int:
     return value
 
 
+def _require_profile_identity(name: str, raw: Mapping[str, Any], defaults: Mapping[str, Any]) -> None:
+    """Prevent overrides from turning a named profile into a contradictory policy.
+
+    Frame/refresh tuning remains adjustable within the global safety bounds, but
+    policy-defining fields are part of the profile identity and must match the
+    reviewed defaults exactly.
+    """
+
+    for field in PROFILE_IDENTITY_FIELDS:
+        if field in raw and raw[field] != defaults[field]:
+            raise ArenaProfileError(f"{field} conflicts with {name} profile")
+
+
 def admit_profile(raw: Mapping[str, Any]) -> ArenaProfile:
     if not isinstance(raw, Mapping):
         raise ArenaProfileError("profile must be an object")
@@ -102,7 +121,10 @@ def admit_profile(raw: Mapping[str, Any]) -> ArenaProfile:
     if name not in PROFILE_DEFAULTS:
         raise ArenaProfileError("unsupported profile")
 
-    values = dict(PROFILE_DEFAULTS[name])
+    defaults = PROFILE_DEFAULTS[name]
+    _require_profile_identity(name, raw, defaults)
+
+    values = dict(defaults)
     for key in values:
         if key in raw:
             values[key] = raw[key]
@@ -123,10 +145,6 @@ def admit_profile(raw: Mapping[str, Any]) -> ArenaProfile:
     ai_yield = values["local_ai_yield"]
     if not isinstance(audio, bool) or not isinstance(ai_yield, bool):
         raise ArenaProfileError("boolean policy fields must be booleans")
-
-    # Arena performance mode must never compete with local inference by default.
-    if name == "performance" and not ai_yield:
-        raise ArenaProfileError("performance profile must yield local AI workload")
 
     return ArenaProfile(
         schema_version=SCHEMA_VERSION,
