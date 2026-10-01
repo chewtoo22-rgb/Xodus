@@ -49,7 +49,7 @@ class SettingsIdentityTests(unittest.TestCase):
         self.commands.append(args)
         if '/usr/bin/pacman' in args:
             package = args[-1]
-            version = {'system-settings': '26.7.0-1', 'system-overview': '26.3-1', 'filesystem': '2026.09.18-1'}[package]
+            version = {'system-settings': '26.7.0-1', 'system-overview': '26.3-1', 'filesystem': '2026.10.01-1'}[package]
             if self.mode == 'version':
                 version = '99.0-1'
             return subprocess.CompletedProcess(args, 0, package + ' ' + version + '\n', '')
@@ -125,22 +125,22 @@ class SettingsIdentityTests(unittest.TestCase):
 
     def test_release_source_drift_is_rejected(self):
         release = self.root / 'usr/lib/os-release'
-        release.write_text(release.read_text().replace('VERSION="26.9"', 'VERSION="99.1"'))
+        release.write_text(release.read_text().replace('VERSION="26.10"', 'VERSION="99.1"'))
         with self.assertRaisesRegex(SystemExit, 'source changed'):
             self.apply()
 
     def test_real_builder_image_version_is_preserved(self):
         release = self.root / 'usr/lib/os-release'
-        release.write_text(release.read_text().replace('IMAGE_ID=pearos-nicec0re', 'IMAGE_ID=Xodus-reference').replace('IMAGE_VERSION=26.9', 'IMAGE_VERSION=2026.10'))
+        release.write_text(release.read_text().replace('IMAGE_ID=pearos-nicec0re', 'IMAGE_ID=Xodus-reference').replace('IMAGE_VERSION=26.10', 'IMAGE_VERSION=2026.10'))
         self.apply()
         fields = identity.release_fields(release.read_text())
         self.assertEqual(fields['IMAGE_VERSION'], '2026.10')
-        self.assertEqual(fields['VERSION'], '26.9')
+        self.assertEqual(fields['VERSION'], '26.10')
         self.assertEqual(fields['BUILD_ID'], 'rolling')
 
     def test_separate_release_files_must_agree_before_writes(self):
         release = self.root / 'etc/os-release'
-        release.write_text((self.root / 'usr/lib/os-release').read_text().replace('IMAGE_VERSION=26.9', 'IMAGE_VERSION=2026.09'))
+        release.write_text((self.root / 'usr/lib/os-release').read_text().replace('IMAGE_VERSION=26.10', 'IMAGE_VERSION=2026.09'))
         original = (self.root / 'usr/lib/os-release').read_bytes()
         with self.assertRaisesRegex(SystemExit, 'files disagree'):
             self.apply()
@@ -166,7 +166,7 @@ class SettingsIdentityTests(unittest.TestCase):
 
     def test_invalid_builder_month_is_rejected(self):
         release = self.root / 'usr/lib/os-release'
-        release.write_text(release.read_text().replace('IMAGE_VERSION=26.9', 'IMAGE_VERSION=2026.13'))
+        release.write_text(release.read_text().replace('IMAGE_VERSION=26.10', 'IMAGE_VERSION=2026.13'))
         with self.assertRaisesRegex(SystemExit, 'image provenance changed'):
             self.apply()
 

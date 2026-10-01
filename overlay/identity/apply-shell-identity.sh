@@ -159,6 +159,14 @@ for home in ('etc/skel', 'home/liveuser'):
         lines[index] = 'panelWidgets=' + json.dumps(
             widgets, ensure_ascii=False, separators=(',', ':')) + newline
         updates[path] = ''.join(lines)
+        # The active title-bar applet has its own renderer, independent of
+        # KWin decoration. Use its supported Breeze enum and standard order.
+        replace_line(relative, 'widgetButtonsIconsTheme=Aurorae', 'widgetButtonsIconsTheme=Breeze')
+        replace_line(relative, 'widgetButtonsAuroraeTheme=pearOS-dark', 'widgetButtonsAuroraeTheme=')
+        replace_line(relative, 'widgetElements=windowCloseButton,windowMinimizeButton,windowMaximizeButton',
+                     'widgetElements=windowMinimizeButton,windowMaximizeButton,windowCloseButton')
+        replace_line(relative, 'windowTitleUndefined=<b>Finder</b>    Files  Edit  View  Windows  Help',
+                     'windowTitleUndefined=Xodus')
 
     replace(config + 'filer-topbar-appletsrc',
             'noActivityText=Pinder  Pinder\\s', 'noActivityText=Xodus\\s')

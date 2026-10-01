@@ -36,7 +36,7 @@ if action in ('settings', 'welcome'):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(b'\x7fELF disposable generated-hook app')
     path.chmod(0o755)
-elif action in ('visible', 'calamares'):
+elif action in ('visible', 'calamares', 'toolkit', 'desktop', 'control-center', 'dock'):
     assert args == [str(live)]
 elif action == 'shell':
     assert args == [str(live), str(profile / 'xodus-shell')]
@@ -63,6 +63,8 @@ elif action == 'graphical-validation':
 elif action == 'capture':
     assert args == ['capture', str(live)]
     assert (live / 'usr/share/pearOS-installer/frontend-applied').exists()
+elif action == 'desktop-dependencies':
+    assert args == [str(live), 'pacman', '-S', '--needed', '--noconfirm', 'breeze', 'breeze5', 'breeze-icons', 'breeze-cursors', 'qt6-tools']
 elif action not in ('qt5-dependencies', 'qt6-dependencies'):
     raise AssertionError('unexpected helper invocation: ' + action)
 '''
@@ -102,6 +104,10 @@ def run(builder, source_profile, scratch, source):
                      'xodus-apply-visible-identity.sh': 'visible',
                      'xodus-apply-shell-identity.sh': 'shell'}
     python_helpers = {'xodus-installer/apply-installer-identity.py': 'frontend',
+                      'xodus-toolkit/apply-toolkit-identity.py': 'toolkit',
+                      'xodus-desktop/apply-desktop-identity.py': 'desktop',
+                      'xodus-control-center/apply-control-center-identity.py': 'control-center',
+                      'xodus-dock/apply-dock-identity.py': 'dock',
                       'xodus-installer/apply-calamares-identity.py': 'calamares',
                       'xodus-installed/derive-installer-identity.py': 'backend',
                       'xodus-installed/identity-payload.py': 'capture',
@@ -120,11 +126,14 @@ def run(builder, source_profile, scratch, source):
     pacman = tools / 'pacman'
     pacman.write_text('#!/bin/bash\nexec python3 "$XODUS_TEST_STUB" dependencies "$@"\n')
     pacman.chmod(0o755)
+    chroot = tools / 'arch-chroot'
+    chroot.write_text('#!/bin/bash\nexec python3 "$XODUS_TEST_STUB" desktop-dependencies "$@"\n')
+    chroot.chmod(0o755)
     before_boot = ['customize', 'qt5-dependencies', 'qt6-dependencies', 'settings', 'welcome',
-                   'visible', 'shell', 'frontend', 'calamares', 'backend', 'boot-validation',
+                   'visible', 'shell', 'desktop-dependencies', 'toolkit', 'desktop', 'control-center', 'dock', 'frontend', 'calamares', 'backend', 'boot-validation',
                    'graphical-validation', 'capture']
     cases = [('iso', None), ('netboot', None), ('iso', 'frontend'),
-             ('iso', 'boot-validation'), ('iso', 'graphical-validation')]
+             ('iso', 'boot-validation'), ('iso', 'graphical-validation'), ('iso', 'toolkit'), ('iso', 'desktop'), ('iso', 'control-center'), ('iso', 'dock')]
     for index, (mode, failure) in enumerate(cases):
         live = scratch / ('live-' + str(index))
         info = live / 'usr/lib/xodus/build-info'

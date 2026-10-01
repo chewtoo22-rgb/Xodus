@@ -113,7 +113,7 @@ class PayloadInventoryTest(unittest.TestCase):
         self.assertEqual(manifest["xodus_source_commit"], self.source_commit)
         self.assertEqual(manifest["iso_sha256"], hashlib.sha256(b"synthetic ISO").hexdigest())
         self.assertEqual(manifest["package_count"], 1)
-        self.assertEqual(manifest["license_text_entry_count"], 5)
+        self.assertGreater(manifest["license_text_entry_count"], 5)
         self.assertEqual(manifest["wallpaper_entry_count"], 2)
         self.assertEqual(manifest["graphical_identity"]["graphical_identity"], "pass")
         self.assertEqual(manifest["graphical_identity_report_sha256"],
@@ -126,6 +126,9 @@ class PayloadInventoryTest(unittest.TestCase):
                                  "declared_licenses": "MIT"}])
         with asset_path.open(newline="", encoding="utf-8") as stream:
             assets = list(csv.DictReader(stream, delimiter="\t"))
+        self.assertEqual(manifest["license_text_entry_count"],
+                         sum(row["category"] == "license_text" for row in assets))
+        self.assertTrue(any('xodus-dock/upstream-skins/' in row['path'] for row in assets))
         self.assertEqual({row["category"] for row in assets},
                          {"license_text", "wallpaper", "ploader_source", "ploader_staged",
                           "ploader_firmware"})

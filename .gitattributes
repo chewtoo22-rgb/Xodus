@@ -12,3 +12,6 @@ qa/boot_identity_fixture.py text eol=lf
 qa/test_boot_identity.py text eol=lf
 qa/plymouth-script-contract.c text eol=lf
 qa/fixtures/boot-source.json text eol=lf
+overlay/identity/toolkit/** text eol=lf
+overlay/identity/desktop/** text eol=lf
+qa/fixtures/desktop-identity/** text eol=lf

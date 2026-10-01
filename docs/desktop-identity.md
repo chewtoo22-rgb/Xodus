@@ -57,6 +57,39 @@ The overlay masks the upstream Welcome menu and autostart entries, adds the Xodu
 
 ## M1 graphical payload
 
+### Desktop components and installed persistence
+
+The M1 hook applies original Xodus GTK2/3/4 themes, Konsole palettes, Control
+Center controls, and Light/Dark dock skins after the reviewed base shell pass.
+KDE Breeze supplies supported window controls, icons and cursors. Both live and
+installed defaults use the Xodus color tables, Noto typography, standard button
+order and Plasma's default desktop style. The active application-title-bar
+applet also selects its native Breeze renderer independently of KWin.
+
+The builder and derived installer retain the two KDE assets formerly removed
+by upstream cleanup. Runtime package dependencies are installed explicitly.
+The closed installed identity payload transfers all component providers,
+artwork, switcher scripts and user defaults after package cleanup. It checks
+the target's dependencies before writes. Only the exact 27 reviewed old dock
+skin files may be removed from the selectable skin directory; their original
+bytes remain under the Xodus dock license directory. An altered file, extra
+entry, symlink, incomplete skin directory or forged source receipt aborts
+before deletion or transfer.
+
+The retained-image gate checks component output against trusted source locks
+and artwork, independently of image-created provenance receipts. It inspects
+the entire Control Center and dock skin trees to reject extra providers or
+old selectable skins. CI's fixtures use SHA256-pinned package archives;
+controlled dependency and native ELF stand-ins test rejection behavior only.
+Actual compiled UI, produced ISO and installed VM gates remain required.
+
+Local verification on 2026-10-01 passed the real package contracts, 22
+disposable installation/first-login tests, 16 retained graphical tests, six
+actual squashfs extraction tests and 15 inventory tests. Native Control Center
+and dock interactions and Settings Appearance rendering also passed locally.
+This is source and local evidence; M1 is still a draft pending current-source
+ISO/VM evidence and completion of the bundled application redesign.
+
 M1 carries the user-selected boot master under `overlay/identity/boot/source/`.
 Its 241 silent Plymouth frames, GRUB/Ploader/Syslinux artwork and Xodus boot
 labels are checked in the source profile and the actual produced ISO, FAT EFI

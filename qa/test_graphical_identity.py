@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from graphical_component_fixture import populate
 
 REPO = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('graphical_identity', REPO / 'qa/verify-graphical-identity.py')
@@ -64,6 +65,9 @@ class RetainedGraphicalIdentityTests(unittest.TestCase):
                 self.write(directory + '/welcome.desktop', b'[Desktop Entry]\nHidden=true\n')
             config = home + '/.config/'
             desktop = ('Image=file://' + gate.WALLPAPER + '\n') * 2 + 'PreviewImage=' + gate.WALLPAPER + '\nnoActivityText=Xodus\\s\npanelWidgets=' + json.dumps(widgets) + '\n'
+            desktop += ('widgetButtonsIconsTheme=Breeze\nwidgetButtonsAuroraeTheme=\n'
+                        'widgetElements=windowMinimizeButton,windowMaximizeButton,windowCloseButton\n'
+                        'windowTitleUndefined=Xodus\n')
             for name in ('plasma-org.kde.plasma.desktop-appletsrc', 'plasma-org.kde.plasma.desktop-appletsrc.bak'):
                 self.write(config + name, desktop.encode())
             self.write(config + 'kscreenlockerrc', ('Image=' + gate.WALLPAPER + '\nPreviewImage=' + gate.WALLPAPER + '\n').encode())
@@ -74,6 +78,7 @@ class RetainedGraphicalIdentityTests(unittest.TestCase):
             self.write('usr/share/plasma/look-and-feel/' + variant + '/metadata.json', json.dumps({'KPlugin': {'Name': name, 'Description': 'Xodus Plasma session splash'}}).encode())
         self.write('usr/lib/os-release', (self.reference / 'overlay/identity/settings/upstream-os-release').read_bytes())
         settings.apply_release_identity(self.root, self.reference / 'overlay/identity/settings')
+        populate(self.root, self.reference, REPO)
 
     def write(self, relative, contents, mode=0o644):
         path = self.root / relative
@@ -139,6 +144,12 @@ class RetainedGraphicalIdentityTests(unittest.TestCase):
         with self.assertRaisesRegex(gate.IdentityError, 'Graphical selection'):
             self.verify()
 
+    def test_active_panel_cannot_restore_traffic_light_controls(self):
+        path = self.root / 'home/liveuser/.config/plasma-org.kde.plasma.desktop-appletsrc'
+        path.write_text(path.read_text().replace('widgetButtonsIconsTheme=Breeze', 'widgetButtonsIconsTheme=Aurorae'))
+        with self.assertRaisesRegex(gate.IdentityError, 'Graphical selection'):
+            self.verify()
+
     def test_release_absolute_link_stays_inside_guest(self):
         link = self.root / 'etc/os-release'
         link.unlink()
@@ -151,15 +162,15 @@ class RetainedGraphicalIdentityTests(unittest.TestCase):
 
     def test_altered_base_version_fails(self):
         path = self.root / 'usr/lib/os-release'
-        path.write_text(path.read_text().replace('VERSION="26.9"', 'VERSION="99.0"'))
+        path.write_text(path.read_text().replace('VERSION="26.10"', 'VERSION="99.0"'))
         with self.assertRaisesRegex(gate.IdentityError, 'release identity differs'):
             self.verify()
 
     def test_real_filename_image_provenance_is_accepted(self):
         original = self.root / 'usr/lib/xodus/upstream-os-release'
-        original.write_text(original.read_text().replace('IMAGE_ID=pearos-nicec0re', 'IMAGE_ID=Xodus-reference').replace('IMAGE_VERSION=26.9', 'IMAGE_VERSION=2026.10'))
+        original.write_text(original.read_text().replace('IMAGE_ID=pearos-nicec0re', 'IMAGE_ID=Xodus-reference').replace('IMAGE_VERSION=26.10', 'IMAGE_VERSION=2026.10'))
         release = self.root / 'usr/lib/os-release'
-        release.write_text(release.read_text().replace('IMAGE_VERSION="26.9"', 'IMAGE_VERSION="2026.10"'))
+        release.write_text(release.read_text().replace('IMAGE_VERSION="26.10"', 'IMAGE_VERSION="2026.10"'))
         self.assertEqual(self.verify()['graphical_identity'], 'pass')
 
     def test_unreviewed_filename_image_provenance_fails(self):
@@ -170,7 +181,7 @@ class RetainedGraphicalIdentityTests(unittest.TestCase):
 
     def test_forged_separate_base_provenance_fails(self):
         original = (self.root / 'usr/lib/xodus/upstream-os-release').read_text()
-        self.write('usr/lib/xodus/upstream-etc-os-release', original.replace('VERSION="26.9"', 'VERSION="99.1"').encode())
+        self.write('usr/lib/xodus/upstream-etc-os-release', original.replace('VERSION="26.10"', 'VERSION="99.1"').encode())
         with self.assertRaisesRegex(gate.IdentityError, 'files disagree'):
             self.verify()
 

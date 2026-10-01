@@ -25,6 +25,14 @@ def make_fixture(root: Path) -> None:
     root = root.resolve()
     if root == Path(root.anchor):
         raise ValueError("expected disposable fixture root")
+    builder = root / 'build-binary'
+    if builder.is_file():
+        text = builder.read_text()
+        paths = ('usr/share/plasma/look-and-feel/org.kde.breezedark.desktop', 'usr/share/icons/breeze-dark')
+        if all(path not in text for path in paths):
+            text += '\n_xodus_fixture_dependency_cleanup() {\n    :\n' + ''.join(
+                '    rm -rf "${pacstrap_dir}/' + path + '"\n' for path in paths) + '}\n'
+            builder.write_text(text, newline='\n')
     for relative in files:
         if ".." in PurePosixPath(relative).parts or not relative.startswith("pear/"):
             raise ValueError("unsafe fixture path")

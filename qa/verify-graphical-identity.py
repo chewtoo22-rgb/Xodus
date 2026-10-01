@@ -2,6 +2,7 @@
 """Validate graphical payload retained in a staged or extracted Xodus root."""
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -10,6 +11,45 @@ import re
 import shlex
 import stat
 import sys
+
+
+COMPONENT_HELPERS = {'desktop': 'apply-desktop-identity.py', 'toolkit': 'apply-toolkit-identity.py',
+                     'control-center': 'apply-control-center-identity.py', 'dock': 'apply-dock-identity.py'}
+
+
+def component_helpers(repo):
+    result = {}
+    for name, filename in COMPONENT_HELPERS.items():
+        path = repo / 'overlay/identity' / name / filename
+        spec = importlib.util.spec_from_file_location('xodus_graphical_' + name.replace('-', '_'), path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        result[name] = module
+    return result
+
+
+SOURCE_REPO = Path(__file__).resolve().parents[1]
+COMPONENTS = component_helpers(SOURCE_REPO)
+COMPONENT_REFERENCES = set()
+COMPONENT_PATHS = set()
+for component, module in COMPONENTS.items():
+    directory = SOURCE_REPO / 'overlay/identity' / component
+    references = getattr(module, 'REFERENCE_FILES', None)
+    if references is None:
+        references = [path.relative_to(SOURCE_REPO).as_posix() for path in directory.rglob('*')
+                      if path.is_file() and '__pycache__' not in path.parts and path.suffix != '.pyc']
+    for reference in references:
+        COMPONENT_REFERENCES.add(reference if reference.startswith('overlay/') else 'overlay/identity/' + component + '/' + reference)
+    COMPONENT_PATHS.update(module.TRANSFER_FILES)
+    for relative in getattr(module, 'USER_CONFIGS', ()):
+        if relative.startswith('.'):
+            COMPONENT_PATHS.update(home + '/' + relative for home in ('etc/skel', 'home/liveuser'))
+        else:
+            COMPONENT_PATHS.add(relative)
+    COMPONENT_PATHS.update(getattr(module, 'SCAN_DIRS', ()))
+COMPONENT_PATHS.add('usr/share/plasma/plasmoids/PearControlCentre')
+COMPONENT_PATHS.add('usr/share/plasma/plasmoids/PearDock/contents/skins')
 
 
 ASSET_FILES = {
@@ -39,11 +79,11 @@ REFERENCE_FILES = sorted(set(ASSET_FILES.values()) | set(TEXT_FILES.values()) | 
     'overlay/identity/settings/source.lock.json',
     'overlay/identity/settings/release-source.lock.json',
     'overlay/identity/settings/upstream-os-release',
-})
+} | COMPONENT_REFERENCES)
 # Keep all SDDM configuration entries so a competing late theme cannot be
 # hidden by extracting only the Xodus drop-in. These paths are relative to the
 # squashfs root and may be supplied directly to unsquashfs.
-EXTRACTION_PATHS = sorted(set(ASSET_FILES) | set(TEXT_FILES) | {
+EXTRACTION_PATHS = sorted(set(ASSET_FILES) | set(TEXT_FILES) | COMPONENT_PATHS | {
     'usr/lib/xodus/xodus-welcome', 'usr/lib/xodus/xodus-settings',
     'usr/lib/xodus/settings-source.json', 'usr/lib/xodus/release-source.json',
     'usr/lib/xodus/upstream-os-release', 'usr/lib/xodus/upstream-etc-os-release',
@@ -194,7 +234,7 @@ def verify(root, repo):
     original = fields(text('usr/lib/xodus/upstream-os-release'))
     if original.keys() != baseline.keys() or any(original[key] != value for key, value in baseline.items() if key not in ('IMAGE_ID', 'IMAGE_VERSION')):
         raise IdentityError('Retained base release provenance differs from audited source')
-    if original['IMAGE_ID'] not in ('pearos-nicec0re', 'Xodus', 'Xodus-reference') or not re.fullmatch(r'(?:26\.9|[0-9]{4}\.(?:0[1-9]|1[0-2]))', original['IMAGE_VERSION']):
+    if original['IMAGE_ID'] not in ('pearos-nicec0re', 'Xodus', 'Xodus-reference') or not re.fullmatch(r'(?:' + re.escape(baseline['IMAGE_VERSION']) + r'|[0-9]{4}\.(?:0[1-9]|1[0-2]))', original['IMAGE_VERSION']):
         raise IdentityError('Retained image release provenance differs')
     separate_release = root / 'usr/lib/xodus/upstream-etc-os-release'
     if separate_release.exists() or separate_release.is_symlink():
@@ -227,6 +267,10 @@ def verify(root, repo):
             line_count(relative, contents, 'Image=file://' + WALLPAPER, 2)
             line_count(relative, contents, 'PreviewImage=' + WALLPAPER)
             line_count(relative, contents, 'noActivityText=Xodus\\s')
+            for selection in ('widgetButtonsIconsTheme=Breeze', 'widgetButtonsAuroraeTheme=',
+                              'widgetElements=windowMinimizeButton,windowMaximizeButton,windowCloseButton',
+                              'windowTitleUndefined=Xodus'):
+                line_count(relative, contents, selection)
             if re.search(r'(?:Image|PreviewImage)=.*(?:pearOS|dark-mode\.jpg)', contents):
                 raise IdentityError('Residual desktop wallpaper: ' + relative)
             inventory = [line.split('=', 1)[1] for line in contents.splitlines() if line.startswith('panelWidgets=')]
@@ -279,6 +323,22 @@ def verify(root, repo):
             raise IdentityError('Session splash identity differs: ' + relative)
         if document['KPlugin'].get('Description') != 'Xodus Plasma session splash':
             raise IdentityError('Session splash description differs: ' + relative)
+
+    for name, module in component_helpers(repo).items():
+        try:
+            result = module.verify(root, repo / 'overlay/identity' / name)
+        except (SystemExit, ValueError, OSError, KeyError) as exc:
+            raise IdentityError('Retained ' + name + ' identity differs: ' + str(exc)) from exc
+        paths = set(module.TRANSFER_FILES)
+        if name == 'desktop':
+            paths.update(result)
+        for relative in getattr(module, 'USER_CONFIGS', ()):
+            if relative.startswith('.'):
+                paths.update(home + '/' + relative for home in ('etc/skel', 'home/liveuser'))
+            else:
+                paths.add(relative)
+        for relative in sorted(paths):
+            regular(relative)
 
     # Hash actual retained bytes for the evidence report. This attests to the
     # inspected payload, separately from the source assertions above.

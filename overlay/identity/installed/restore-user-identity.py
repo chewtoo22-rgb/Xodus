@@ -14,13 +14,31 @@ from pathlib import Path
 import subprocess
 
 SKEL = (
-    '.config/kscreenlockerrc', '.config/kdeglobals', '.config/ksplashrc',
+    '.config/autostart/pearos-notch.desktop',
+    '.config/autostart/welcome.desktop',
+    '.config/autostart/xodus-welcome.desktop',
+    '.config/filer-topbar-appletsrc',
+    '.config/gtk-3.0/colors.css',
+    '.config/gtk-3.0/gtk.css',
+    '.config/gtk-3.0/settings.ini',
+    '.config/gtk-4.0/colors.css',
+    '.config/gtk-4.0/gtk.css',
+    '.config/gtk-4.0/settings.ini',
+    '.config/kcminputrc',
+    '.config/kdeglobals',
+    '.config/kscreenlockerrc',
+    '.config/ksplashrc',
+    '.config/kwinrc',
     '.config/plasma-org.kde.plasma.desktop-appletsrc',
     '.config/plasma-org.kde.plasma.desktop-appletsrc.bak',
-    '.config/filer-topbar-appletsrc', '.config/autostart/pearos-notch.desktop',
-    '.config/autostart/welcome.desktop', '.config/autostart/xodus-welcome.desktop',
+    '.config/plasmarc',
+    '.gtkrc-2.0',
+    '.local/share/konsole/Fancy Blur.colorscheme',
+    '.local/share/konsole/pearOS Fancy.profile',
+    '.local/share/konsole/pearOS Normal.profile',
+    '.themes/pearOS-Dark/index.theme',
+    '.themes/pearOS-Light/index.theme',
 )
-
 
 def fail(message):
     raise ValueError('Xodus first-login identity: ' + message)

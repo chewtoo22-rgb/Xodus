@@ -56,25 +56,44 @@ jobs:
 
   graphical-identity-contract:
     runs-on: ubuntu-latest
+    env:
+      XODUS_GUI_PACKAGE_DIR: ${{ github.workspace }}/.qa-gui-packages
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
       - name: Install selective image inspection tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends squashfs-tools
+          sudo apt-get install -y --no-install-recommends squashfs-tools zstd
+
+      - name: Fetch hash-pinned GUI contract inputs
+        run: python3 qa/fetch-gui-contract-packages.py "$XODUS_GUI_PACKAGE_DIR"
 
       - name: Verify graphical payload and extraction rejection contracts
         shell: bash
         run: |
           set -euo pipefail
-          for pattern in test_boot_identity.py test_settings_identity.py test_graphical_identity.py test_verify_built_boot.py test_inventory_iso_payload.py test_identity_payload_extract_paths.py; do
+          for pattern in test_boot_identity.py test_settings_identity.py test_desktop_identity.py test_dock_identity.py test_dock_settings_source.py test_graphical_identity.py test_verify_built_boot.py test_inventory_iso_payload.py test_identity_payload_extract_paths.py; do
             python3 -m unittest discover -s qa -p "$pattern" -q
           done
           bash qa/m1-visible-identity-contract.sh
+          python3 qa/toolkit-identity-contract.py \
+            --package "$XODUS_GUI_PACKAGE_DIR/pearos-settings-26.7.0-4.pkg.tar.zst" \
+            --switcher-package "$XODUS_GUI_PACKAGE_DIR/system-settings-26.7.0-1.pkg.tar.zst" -q
+          python3 qa/control-center-package-contract.py "$XODUS_GUI_PACKAGE_DIR/pearos-settings-26.7.0-4.pkg.tar.zst"
+          python3 qa/dock-identity-package-contract.py "$XODUS_GUI_PACKAGE_DIR/pearos-dock-26.6.10-5.pkg.tar.zst"
+          python3 qa/shell-identity-package-contract.py \
+            "$XODUS_GUI_PACKAGE_DIR/pearos-settings-26.7.0-4.pkg.tar.zst" \
+            "$XODUS_GUI_PACKAGE_DIR/pearos-dock-26.6.10-5.pkg.tar.zst" \
+            "$XODUS_GUI_PACKAGE_DIR/pearos-notch-26.6.1-1.pkg.tar.zst" \
+            --filesystem "$XODUS_GUI_PACKAGE_DIR/$(python3 -c 'import json; p=json.load(open("overlay/identity/settings/release-source.lock.json")); print("filesystem-"+p["version"]+".pkg.tar.zst")')"
 
       - name: Audit original installer and verify graphical derivation
         shell: bash

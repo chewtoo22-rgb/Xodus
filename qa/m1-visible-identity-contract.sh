@@ -60,7 +60,7 @@ import sys
 
 repo, profile, builder = map(Path, sys.argv[1:4])
 source_commit = sys.argv[4]
-for component in ('shell', 'settings', 'installer', 'installed'):
+for component in ('shell', 'settings', 'installer', 'installed', 'toolkit', 'desktop', 'control-center', 'dock'):
     directory = repo / 'overlay/identity' / component
     staged = profile / ('xodus-' + component)
     assert staged.is_dir() and not staged.is_symlink(), 'missing staged component: ' + component
@@ -77,7 +77,9 @@ checker = repo / 'qa/verify-graphical-identity.py'
 graphical = profile / 'xodus-graphical-contract'
 assert (graphical / 'qa/verify-graphical-identity.py').read_bytes() == checker.read_bytes()
 references = subprocess.check_output([sys.executable, str(checker), '--list-reference-files'], text=True).splitlines()
-assert len(references) == 11 and len(set(references)) == 11
+assert len(references) > 11 and len(set(references)) == len(references)
+for component in ('toolkit', 'desktop', 'control-center', 'dock'):
+    assert any(path.startswith('overlay/identity/' + component + '/') for path in references), component
 expected = {'qa/verify-graphical-identity.py', *references}
 actual = {path.relative_to(graphical).as_posix() for path in graphical.rglob('*') if path.is_file()}
 assert actual == expected, 'staged graphical reference inventory differs'
@@ -123,6 +125,8 @@ assert source.count('_apply_xodus_visible_identity() {') == 1
 assert source.count('    _run_once _make_customize_airootfs\n    _run_once _apply_xodus_visible_identity') == 1
 assert source.count('    _run_once _cleanup_pacstrap_dir\n    _run_once _make_pkglist\n    _run_once _prepare_airootfs_image') == 1
 assert source.count('bash "$helper" "${pacstrap_dir}" || _msg_error') == 1
+for relative in ('usr/share/plasma/look-and-feel/org.kde.breezedark.desktop', 'usr/share/icons/breeze-dark'):
+    assert 'rm -rf "${pacstrap_dir}/' + relative + '"' not in source, 'active KDE dependency is deleted'
 PY
 python3 "$repo_root/qa/generated_identity_hook_fixture.py" "$builder" \
   "$tmp/source/pear" "$tmp/generated-hook" "$XODUS_SOURCE_COMMIT"

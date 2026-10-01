@@ -58,6 +58,14 @@ import sys
 builder = Path(sys.argv[1])
 commit, setup_blob, xodus_source = sys.argv[2:]
 source = builder.read_text()
+# These KDE assets are now active Xodus dependencies. Retain only the two
+# reviewed paths that the pinned cleanup previously treated as unused.
+for relative in ('usr/share/plasma/look-and-feel/org.kde.breezedark.desktop',
+                 'usr/share/icons/breeze-dark'):
+    deletion = '    rm -rf "${pacstrap_dir}/' + relative + '"\n'
+    if source.count(deletion) != 1:
+        raise SystemExit('pinned Breeze cleanup layout changed: ' + relative)
+    source = source.replace(deletion, '    # Xodus retains active KDE dependency: ' + relative + '\n', 1)
 old = '    git clone --depth 1 https://github.com/pearOS-archlinux/pearOS-installer.git "${pacstrap_dir}/usr/share/pearOS-installer" || _msg_error "Failed to clone pearOS-installer from GitHub" 1'
 if source.count(old) != 1 or source.count('    # Clone pearOS-installer from GitHub instead of using local files') != 1:
     raise SystemExit('pinned upstream installer clone layout changed')
@@ -97,6 +105,11 @@ hook_definition = '''_apply_xodus_visible_identity() {
     bash "$welcome_builder" "${profile}" "${pacstrap_dir}" || _msg_error "Xodus Welcome build failed" 1
     bash "$helper" "${pacstrap_dir}" || _msg_error "Xodus visible identity hook failed" 1
     bash "$shell_helper" "${pacstrap_dir}" "${profile}/xodus-shell" || _msg_error "Xodus desktop shell identity failed" 1
+    arch-chroot "${pacstrap_dir}" pacman -S --needed --noconfirm breeze breeze5 breeze-icons breeze-cursors qt6-tools || _msg_error "Xodus desktop controls are unavailable" 1
+    python3 "${profile}/xodus-toolkit/apply-toolkit-identity.py" "${pacstrap_dir}" || _msg_error "Xodus toolkit identity failed" 1
+    python3 "${profile}/xodus-desktop/apply-desktop-identity.py" "${pacstrap_dir}" || _msg_error "Xodus desktop defaults failed" 1
+    python3 "${profile}/xodus-control-center/apply-control-center-identity.py" "${pacstrap_dir}" || _msg_error "Xodus Control Center identity failed" 1
+    python3 "${profile}/xodus-dock/apply-dock-identity.py" "${pacstrap_dir}" || _msg_error "Xodus Dock identity failed" 1
     python3 "${profile}/xodus-installer/apply-installer-identity.py" "${pacstrap_dir}/usr/share/pearOS-installer" || _msg_error "Xodus installer frontend identity failed" 1
     python3 "${profile}/xodus-installer/apply-calamares-identity.py" "${pacstrap_dir}" || _msg_error "Xodus Calamares identity failed" 1
     install -Dm0755 "${profile}/xodus-installed/identity-payload.py" "${pacstrap_dir}/usr/lib/xodus/xodus-identity-payload" || _msg_error "Xodus identity transfer helper is missing" 1
@@ -155,14 +168,17 @@ install -Dm0644 "$app_icon_source" "$root/pear/airootfs/usr/share/pixmaps/xodus-
 shell_identity_hook="$script_dir/identity/apply-shell-identity.sh"
 [[ -f "$shell_identity_hook" && ! -L "$shell_identity_hook" ]] || exit 66
 install -Dm0644 "$shell_identity_hook" "$root/pear/xodus-apply-shell-identity.sh"
-for component in shell settings installer installed; do
+for component in shell settings installer installed toolkit desktop control-center dock; do
   payload="$script_dir/identity/$component"
   destination="$root/pear/xodus-$component"
   [[ -d "$payload" && ! -L "$payload" && ! -e "$destination" && ! -L "$destination" ]] || {
     echo "Xodus $component source payload is missing or already staged" >&2
     exit 66
   }
-  cp -a "$payload" "$destination"
+  python3 - "$payload" "$destination" <<'PY'
+import shutil, sys
+shutil.copytree(sys.argv[1], sys.argv[2], ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+PY
 done
 
 # Carry the retained graphical contract and its minimal source references into

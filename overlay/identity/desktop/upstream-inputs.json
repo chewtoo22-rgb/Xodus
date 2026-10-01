@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "package": "pearos-settings 26.7.0-4",
+  "archive_sha256": "d2f993265cea5d7dffb8d3557ee9768e98bc796f95e907cb05840cb5a8b241e9",
+  "kdeglobals_stage": "after apply-shell-identity.sh",
+  "files": {
+    "kdeglobals": "189cfd3a4b444ee886f7fce7324fa4d3c880fbf11d4c10dead73f41eddb5b790",
+    "kwinrc": "31779d1801e29412ccfabbcd7399c2973e29747ec4ef56ec31641dd28d0574d2",
+    "kcminputrc": "0c9e788b1224c30ff58f2d1f41fcef58c49fd61b4e53e61c1458e714591e88d1",
+    "plasmarc": "a04ad87db5cba7b563956e3ba80b9adf9a96a0e322c91a8faf6042d5d59e9ec4"
+  }
+}

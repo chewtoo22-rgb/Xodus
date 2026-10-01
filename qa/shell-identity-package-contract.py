@@ -24,8 +24,9 @@ repo = Path(__file__).resolve().parents[1]
 helper = repo / 'overlay/identity/apply-shell-identity.sh'
 versions = {'pearos-settings': '26.7.0-4', 'pearos-dock': '26.6.10-5',
             'pearos-notch': '26.6.1-1'}
-filesystem_version = '2026.09.18-1'
-filesystem_sha256 = '439086aa2dd9eac6bf6db1bfd166456bbcc2e71ee952ddca0660652f2b230180'
+release_lock = json.loads((repo / 'overlay/identity/settings/release-source.lock.json').read_text())
+filesystem_version = release_lock['version']
+filesystem_sha256 = release_lock['package_sha256']
 # Exact file bytes from filesystem 2026.09.18-1. Keep this fixture even when
 # the archive is not supplied so the package-created conflict is exercised.
 kde_settings = b'''[Autologin]
@@ -162,6 +163,12 @@ with tempfile.TemporaryDirectory(prefix='xodus-shell-contract-') as temporary:
     good = base / 'good'
     shutil.copytree(original, good)
     result = apply(good, True)
+    # Desktop defaults are admitted only after the real base-shell transform.
+    # Bind every checked-in input fixture to this exact audited package output.
+    for name in ('kdeglobals', 'kwinrc', 'kcminputrc', 'plasmarc'):
+        expected = (repo / 'qa/fixtures/desktop-identity' / name).read_bytes()
+        assert (good / 'etc/skel/.config' / name).read_bytes() == expected, name
+        assert (good / 'home/liveuser/.config' / name).read_bytes() == expected, name
     assert (good / 'etc/sddm.conf.d/autologin.conf').read_text() == autologin
     assert (good / 'etc/sddm.conf.d/20-xodus-theme.conf').read_text() == '[Theme]\nCurrent=Xodus\n'
     assert (good / 'etc/sddm.conf.d/kde_settings.conf').read_bytes() == kde_settings.replace(b'Current=pearOS-dark\n', b'')

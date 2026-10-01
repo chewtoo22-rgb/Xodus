@@ -80,6 +80,10 @@ def exact(text, old, new, label):
 
 def derive(raw, source):
     setup = raw['system_install/setup'].decode('utf-8')
+    setup = exact(setup, "    'breeze-gtk'\n", "    'breeze-gtk'\n    'breeze'\n    'breeze5'\n    'breeze-icons'\n    'breeze-cursors'\n    'qt6-tools'\n", 'Xodus desktop dependencies')
+    for relative in ('usr/share/plasma/look-and-feel/org.kde.breezedark.desktop', 'usr/share/icons/breeze-dark'):
+        setup = exact(setup, '    rm -rf /mnt/' + relative + ' || true\n',
+                      '    # Xodus retains active KDE dependency: ' + relative + '\n', 'retain installed KDE dependency ' + relative)
     payload = '/usr/lib/xodus/xodus-identity-payload'
     invocation = f'python3 {payload} install --source-root / --target-root /mnt --expected-source {source}'
     preflight = f'''  # Check the reviewed live identity before any destructive operation.

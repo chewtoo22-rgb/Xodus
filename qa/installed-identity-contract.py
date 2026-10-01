@@ -23,6 +23,7 @@ REPO = Path(__file__).resolve().parents[1]
 HERE = REPO / 'overlay/identity/installed'
 SOURCE = 'b' * 40
 ORIGINAL_ROOT = None
+_OLD_DOCK_BYTES = None
 
 
 def module(name, path):
@@ -45,6 +46,32 @@ def write(root, relative, data, mode=0o644):
     return path
 
 
+def old_dock_bytes():
+    global _OLD_DOCK_BYTES
+    if _OLD_DOCK_BYTES is None:
+        directory = os.environ.get('XODUS_GUI_PACKAGE_DIR')
+        if not directory:
+            raise ValueError('Set XODUS_GUI_PACKAGE_DIR for the reviewed installed Dock contract')
+        archive = Path(directory) / 'pearos-dock-26.6.10-5.pkg.tar.zst'
+        if (archive.is_symlink() or not archive.is_file() or hashlib.sha256(archive.read_bytes()).hexdigest() !=
+                '662cda638466461cd0a5d5c58385bb85308b4ecfa15306d6d26e173579bbfac5'):
+            raise ValueError('Installed Dock fixture archive differs from its reviewed pin')
+        with tempfile.TemporaryDirectory(prefix='xodus-reviewed-dock-package-') as temporary:
+            root = Path(temporary)
+            members = [payload.DOCK_SKINS + '/' + relative for relative in payload.DOCK_UPSTREAM_SKIN_HASHES]
+            subprocess.run(['tar', '--zstd', '--no-same-owner', '-xf', str(archive), '-C', str(root), *members], check=True)
+            _OLD_DOCK_BYTES = {relative: (root / payload.DOCK_SKINS / relative).read_bytes()
+                               for relative in payload.DOCK_UPSTREAM_SKIN_HASHES}
+        if {relative: hashlib.sha256(data).hexdigest() for relative, data in _OLD_DOCK_BYTES.items()} != payload.DOCK_UPSTREAM_SKIN_HASHES:
+            raise ValueError('Installed Dock fixture source files differ from their reviewed pins')
+    return _OLD_DOCK_BYTES
+
+
+def seed_old_dock(root):
+    for relative, data in old_dock_bytes().items():
+        write(root, payload.DOCK_SKINS + '/' + relative, data)
+
+
 def make_live(root):
     for relative in set(payload.FIXED) | payload.BOOT_REQUIRED:
         data = b'reviewed identity fixture\n'
@@ -64,6 +91,8 @@ def make_live(root):
     }
     for relative, data in markers.items():
         write(root, relative, data)
+    for relative, data in old_dock_bytes().items():
+        write(root, 'usr/share/licenses/xodus-dock/upstream-skins/' + relative, data)
     payload.capture(root)
 
 
@@ -79,6 +108,12 @@ def make_target(root):
     write(root, 'etc/sudoers', 'keep-target-account-policy\n')
     write(root, 'usr/lib/xodus/build-info', 'keep-target-provenance\n')
     write(root, 'home/default/Documents/keep.txt', 'User content\n')
+    for relative in payload.RUNTIME_DEPENDENCIES:
+        write(root, relative, b'Controlled stock Breeze dependency fixture\n')
+    write(root, payload.DECORATION_PATHS[-1], b'Controlled stock Breeze decoration fixture\n')
+    write(root, 'usr/lib/qt6/bin/qdbus', '#!/bin/sh\nexit 0\n', 0o755)
+    (root / 'usr/bin').mkdir(parents=True, exist_ok=True)
+    (root / 'usr/bin/qdbus6').symlink_to('../lib/qt6/bin/qdbus')
 
 
 class PayloadContract(unittest.TestCase):
@@ -116,6 +151,96 @@ class PayloadContract(unittest.TestCase):
         self.assertEqual((self.target / 'usr/lib/xodus/build-info').read_text(), 'keep-target-provenance\n')
         self.assertEqual((self.target / 'home/default/Documents/keep.txt').read_text(), 'User content\n')
         self.assertEqual((self.target / 'usr/lib/xodus/xodus-settings').stat().st_mode & 0o777, 0o755)
+        for relative in payload.COMPONENT_EXECUTABLES:
+            self.assertEqual((self.target / relative).stat().st_mode & 0o777, 0o755)
+
+    def test_reviewed_old_dock_skins_removed_and_originals_retained(self):
+        seed_old_dock(self.target)
+        self.install()
+        skins = self.target / payload.DOCK_SKINS
+        self.assertEqual(sorted(path.name for path in skins.iterdir()), ['Xodus Dark', 'Xodus Light'])
+        for relative, expected in payload.DOCK_UPSTREAM_SKIN_HASHES.items():
+            self.assertFalse((skins / relative).exists())
+            retained = self.target / 'usr/share/licenses/xodus-dock/upstream-skins' / relative
+            self.assertEqual(hashlib.sha256(retained.read_bytes()).hexdigest(), expected)
+        self.install()  # A verified completed target has no old package skins.
+
+    def test_old_dock_drift_extra_file_and_incomplete_tree_reject_before_transfer(self):
+        for mutation in ('changed', 'extra', 'missing', 'empty-directory'):
+            with self.subTest(mutation=mutation):
+                target = self.base / ('target-' + mutation)
+                target.mkdir()
+                make_target(target)
+                seed_old_dock(target)
+                original = target / payload.DOCK_SKINS / 'Tahoe/Config.qml'
+                if mutation == 'changed':
+                    original.write_bytes(b'unreviewed skin\n')
+                elif mutation == 'extra':
+                    write(target, payload.DOCK_SKINS + '/Tahoe/extra.qml', 'unreviewed code\n')
+                elif mutation == 'missing':
+                    original.unlink()
+                else:
+                    (target / payload.DOCK_SKINS / 'Unreviewed').mkdir()
+                snapshot = {path.relative_to(target).as_posix(): path.read_bytes() for path in target.rglob('*')
+                            if path.is_file() and not path.is_symlink()}
+                with self.assertRaisesRegex(ValueError, 'Dock skin'):
+                    with mock.patch.object(payload, 'runtime_check'):
+                        payload.install(self.live, target, SOURCE)
+                self.assertEqual(snapshot, {path.relative_to(target).as_posix(): path.read_bytes() for path in target.rglob('*')
+                                           if path.is_file() and not path.is_symlink()})
+                self.assertFalse((target / 'usr/lib/xodus/xodus-settings').exists())
+
+    def test_old_dock_links_and_unsafe_receipt_reject_before_deletion(self):
+        seed_old_dock(self.target)
+        skin = self.target / payload.DOCK_SKINS / 'Tahoe/Config.qml'
+        original = skin.read_bytes()
+        outside = write(self.base, 'outside-dock', original)
+        skin.unlink()
+        skin.symlink_to(outside)
+        with self.assertRaisesRegex(ValueError, 'symlink'):
+            self.install()
+        self.assertEqual(outside.read_bytes(), original)
+        self.assertTrue((self.target / payload.DOCK_SKINS / 'Big Sur Light/Config.qml').exists())
+        skin.unlink()
+        skin.write_bytes(original)
+        receipt = self.target / 'usr/lib/xodus/installed-identity.json'
+        receipt.symlink_to(outside)
+        with self.assertRaisesRegex(ValueError, 'symlink'):
+            self.install()
+        self.assertEqual(outside.read_bytes(), original)
+        self.assertTrue((self.target / payload.DOCK_SKINS / 'Big Sur Light/Config.qml').exists())
+        self.assertFalse((self.target / 'usr/lib/xodus/xodus-settings').exists())
+
+    def test_missing_stock_dependency_and_qdbus_guest_link_reject_before_transfer(self):
+        dependency = self.target / payload.RUNTIME_DEPENDENCIES[0]
+        original = dependency.read_bytes()
+        dependency.unlink()
+        with self.assertRaisesRegex(ValueError, 'missing identity file'):
+            self.install()
+        self.assertFalse((self.target / 'usr/lib/xodus/xodus-settings').exists())
+        dependency.write_bytes(original)
+        executable = self.target / 'usr/bin/qdbus6'
+        executable.unlink()
+        executable.symlink_to('/etc/passwd')
+        with self.assertRaisesRegex(ValueError, 'unreviewed destination'):
+            self.install()
+        self.assertFalse((self.target / 'usr/lib/xodus/xodus-settings').exists())
+
+    def test_self_rehashed_source_cannot_authorize_old_dock_deletion(self):
+        seed_old_dock(self.target)
+        relative = 'usr/share/licenses/xodus-dock/upstream-skins/Tahoe/Config.qml'
+        file = self.live / relative
+        file.write_bytes(b'altered upstream source archive\n')
+        manifest_path = self.live / payload.MANIFEST
+        manifest = json.loads(manifest_path.read_text())
+        next(entry for entry in manifest['files'] if entry['path'] == relative)['sha256'] = hashlib.sha256(file.read_bytes()).hexdigest()
+        manifest_path.write_text(json.dumps(manifest))
+        before = (self.target / 'etc/default/grub').read_bytes()
+        with self.assertRaisesRegex(ValueError, 'archive changed'):
+            self.install()
+        self.assertEqual((self.target / 'etc/default/grub').read_bytes(), before)
+        self.assertTrue((self.target / payload.DOCK_SKINS / 'Tahoe/Config.qml').exists())
+        self.assertFalse((self.target / 'usr/lib/xodus/xodus-settings').exists())
 
     def test_real_installer_boundary_predicate_without_root_operations(self):
         payload.target_boundary(Path('/'), Path('/mnt'))
@@ -181,7 +306,7 @@ class PayloadContract(unittest.TestCase):
             self.install('boot')
         icon.unlink()
         icon.write_bytes(data)
-        (self.target / 'usr/share').mkdir(parents=True)
+        (self.target / 'usr/share').mkdir(parents=True, exist_ok=True)
         (self.target / 'usr/share/plymouth').symlink_to(self.base)
         with self.assertRaisesRegex(ValueError, 'symlink'):
             self.install('boot')
@@ -225,10 +350,14 @@ class PayloadContract(unittest.TestCase):
 
     def test_restore_only_reviewed_defaults_after_reset(self):
         self.install()
+        self.assertEqual(restore.SKEL, payload.SKEL)
         globals_file = self.target / 'home/default/.config/kdeglobals'
         globals_file.write_text('ColorScheme=pearOS-dark\n')
+        for relative in payload.SKEL:
+            (self.target / 'home/default' / relative).write_bytes(b'upstream first-theme reset\n')
         restore.restore(self.target, Path('/home/default'))
-        self.assertEqual(globals_file.read_bytes(), (self.live / 'etc/skel/.config/kdeglobals').read_bytes())
+        for relative in payload.SKEL:
+            self.assertEqual((self.target / 'home/default' / relative).read_bytes(), (self.live / 'etc/skel' / relative).read_bytes())
         self.assertEqual((self.target / 'home/default/Documents/keep.txt').read_text(), 'User content\n')
         self.assertFalse((self.target / 'home/default/.config/autostart/pearos-first-theme.desktop').exists())
 

@@ -1,7 +1,7 @@
 {
   "repository": "https://github.com/pearOS-archlinux/filesystem.git",
-  "commit": "b765b3f4ac2571374f3de2ad0e852129c7f39c25",
+  "commit": "d1398e2b3fd26185d5974b27edf06c1ae7432108",
   "package": "filesystem",
-  "version": "2026.09.18-1",
-  "package_sha256": "439086aa2dd9eac6bf6db1bfd166456bbcc2e71ee952ddca0660652f2b230180"
+  "version": "2026.10.01-1",
+  "package_sha256": "cb834ea243226afb4586de2d74a10e4a0ec9485fe9064ef1836b70a6527161d1"
 }
