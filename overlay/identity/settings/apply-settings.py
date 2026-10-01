@@ -82,7 +82,7 @@ def apply_release_identity(root, overlay):
                 raise SystemExit('Filesystem os-release source changed: ' + key)
         # The pinned ISO builder replaces these two package fields before the
         # identity hook. Keep its real image version in the final release data.
-        if values['IMAGE_ID'] not in ('pearos-nicec0re', 'Xodus') or not re.fullmatch(r'(?:26\.9|[0-9]{4}\.(?:0[1-9]|1[0-2]))', values['IMAGE_VERSION']):
+        if values['IMAGE_ID'] not in ('pearos-nicec0re', 'Xodus', 'Xodus-reference') or not re.fullmatch(r'(?:26\.9|[0-9]{4}\.(?:0[1-9]|1[0-2]))', values['IMAGE_VERSION']):
             raise SystemExit('Filesystem os-release image provenance changed')
         values.update(changed)
         updated = ''.join(key + '=' + json.dumps(value) + '\n' for key, value in values.items())

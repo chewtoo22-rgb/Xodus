@@ -131,10 +131,10 @@ class SettingsIdentityTests(unittest.TestCase):
 
     def test_real_builder_image_version_is_preserved(self):
         release = self.root / 'usr/lib/os-release'
-        release.write_text(release.read_text().replace('IMAGE_ID=pearos-nicec0re', 'IMAGE_ID=Xodus').replace('IMAGE_VERSION=26.9', 'IMAGE_VERSION=2026.09'))
+        release.write_text(release.read_text().replace('IMAGE_ID=pearos-nicec0re', 'IMAGE_ID=Xodus-reference').replace('IMAGE_VERSION=26.9', 'IMAGE_VERSION=2026.10'))
         self.apply()
         fields = identity.release_fields(release.read_text())
-        self.assertEqual(fields['IMAGE_VERSION'], '2026.09')
+        self.assertEqual(fields['IMAGE_VERSION'], '2026.10')
         self.assertEqual(fields['VERSION'], '26.9')
         self.assertEqual(fields['BUILD_ID'], 'rolling')
 
@@ -146,6 +146,15 @@ class SettingsIdentityTests(unittest.TestCase):
             self.apply()
         self.assertEqual((self.root / 'usr/lib/os-release').read_bytes(), original)
         self.assertFalse((self.root / 'usr/lib/xodus/upstream-os-release').exists())
+
+    def test_unreviewed_builder_image_id_is_rejected_before_writes(self):
+        release = self.root / 'usr/lib/os-release'
+        release.write_text(release.read_text().replace('IMAGE_ID=pearos-nicec0re', 'IMAGE_ID=other-image'))
+        original = release.read_bytes()
+        with self.assertRaisesRegex(SystemExit, 'image provenance changed'):
+            self.apply()
+        self.assertEqual(release.read_bytes(), original)
+        self.assertEqual(self.launcher.read_bytes(), self.original)
 
     def test_guest_release_link_loop_is_rejected(self):
         release = self.root / 'usr/lib/os-release'

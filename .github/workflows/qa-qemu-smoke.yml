@@ -127,8 +127,10 @@ jobs:
                 if [[ -z "$row" && -n "$live" ]]; then
                   echo "Waiting for exact-head Core ISO run $live for $target_sha"
                   for attempt in $(seq 1 75); do
-                    state=$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/$live" | jq -r '[.status,.conclusion,.head_sha] | @tsv')
-                    IFS=$'\t' read -r status conclusion observed_sha <<< "$state"
+                    # Bash collapses adjacent IFS whitespace, so TSV would
+                    # shift head_sha into an empty in-progress conclusion.
+                    state=$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/$live" | jq -r '[.status,(.conclusion // ""),.head_sha] | join("|")')
+                    IFS='|' read -r status conclusion observed_sha <<< "$state"
                     if [[ "$observed_sha" != "$target_sha" ]]; then
                       echo "Core ISO run $live has unexpected source $observed_sha" >&2
                       exit 7

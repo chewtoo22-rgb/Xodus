@@ -155,6 +155,19 @@ class RetainedGraphicalIdentityTests(unittest.TestCase):
         with self.assertRaisesRegex(gate.IdentityError, 'release identity differs'):
             self.verify()
 
+    def test_real_filename_image_provenance_is_accepted(self):
+        original = self.root / 'usr/lib/xodus/upstream-os-release'
+        original.write_text(original.read_text().replace('IMAGE_ID=pearos-nicec0re', 'IMAGE_ID=Xodus-reference').replace('IMAGE_VERSION=26.9', 'IMAGE_VERSION=2026.10'))
+        release = self.root / 'usr/lib/os-release'
+        release.write_text(release.read_text().replace('IMAGE_VERSION="26.9"', 'IMAGE_VERSION="2026.10"'))
+        self.assertEqual(self.verify()['graphical_identity'], 'pass')
+
+    def test_unreviewed_filename_image_provenance_fails(self):
+        original = self.root / 'usr/lib/xodus/upstream-os-release'
+        original.write_text(original.read_text().replace('IMAGE_ID=pearos-nicec0re', 'IMAGE_ID=other-image'))
+        with self.assertRaisesRegex(gate.IdentityError, 'image release provenance'):
+            self.verify()
+
     def test_forged_separate_base_provenance_fails(self):
         original = (self.root / 'usr/lib/xodus/upstream-os-release').read_text()
         self.write('usr/lib/xodus/upstream-etc-os-release', original.replace('VERSION="26.9"', 'VERSION="99.1"').encode())

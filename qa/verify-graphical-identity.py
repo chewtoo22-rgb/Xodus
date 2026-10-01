@@ -194,7 +194,7 @@ def verify(root, repo):
     original = fields(text('usr/lib/xodus/upstream-os-release'))
     if original.keys() != baseline.keys() or any(original[key] != value for key, value in baseline.items() if key not in ('IMAGE_ID', 'IMAGE_VERSION')):
         raise IdentityError('Retained base release provenance differs from audited source')
-    if original['IMAGE_ID'] not in ('pearos-nicec0re', 'Xodus') or not re.fullmatch(r'(?:26\.9|[0-9]{4}\.(?:0[1-9]|1[0-2]))', original['IMAGE_VERSION']):
+    if original['IMAGE_ID'] not in ('pearos-nicec0re', 'Xodus', 'Xodus-reference') or not re.fullmatch(r'(?:26\.9|[0-9]{4}\.(?:0[1-9]|1[0-2]))', original['IMAGE_VERSION']):
         raise IdentityError('Retained image release provenance differs')
     separate_release = root / 'usr/lib/xodus/upstream-etc-os-release'
     if separate_release.exists() or separate_release.is_symlink():
