@@ -1,0 +1,9 @@
+Xodus Dock appearance
+
+The Xodus Light and Xodus Dark QML and SVG files are original Xodus artwork,
+licensed GPL-2.0-or-later. They use the existing PearDock task and launch backend.
+PearDock code retains its upstream SPDX attribution and GPL-2.0-or-later license.
+The audited package's original skin files are retained under upstream-skins in
+this license directory, outside the selectable runtime skin directory.
+The internal PearDock plugin ID is retained for existing panels and settings.
+GPL license text: /usr/share/licenses/common/GPL2/license.txt

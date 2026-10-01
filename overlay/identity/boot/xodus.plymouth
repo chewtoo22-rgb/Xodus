@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=Xodus X1
+Description=Boot sequence derived from the approved Xodus X1 master
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/xodus
+ScriptFile=/usr/share/plymouth/themes/xodus/xodus.script

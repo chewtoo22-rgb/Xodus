@@ -28,7 +28,20 @@ _make_custom_airootfs() {
     # Clone pearOS-installer from GitHub instead of using local files
     git clone --depth 1 https://github.com/pearOS-archlinux/pearOS-installer.git "${pacstrap_dir}/usr/share/pearOS-installer" || _msg_error "Failed to clone pearOS-installer from GitHub" 1
 }
+_make_pkglist() { :; }
+_build_iso_base() {
+    _run_once _make_customize_airootfs
+    _run_once _make_pkglist
+    if [[ "${buildmode}" == 'netboot' ]]; then
+        _run_once _make_boot_on_iso9660
+    else
+        _run_once _make_bootmodes
+    fi
+    _run_once _cleanup_pacstrap_dir
+    _run_once _prepare_airootfs_image
+}
 EOF
+  python3 "$repo_root/qa/boot_identity_fixture.py" "$root"
 }
 
 make_fixture "$tmp/good"

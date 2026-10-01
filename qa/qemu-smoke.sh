@@ -8,6 +8,7 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 ISO_PATH=${1:-}
 LOG_DIR=${2:-qa-artifacts}
 BOOT_SECONDS=${BOOT_SECONDS:-600}
+BOOT_CAPTURE_INTERVAL=${BOOT_CAPTURE_INTERVAL:-0}
 
 if [[ -z "$ISO_PATH" || ! -f "$ISO_PATH" ]]; then
   echo "usage: $0 <iso-path> [log-dir]" >&2
@@ -15,6 +16,10 @@ if [[ -z "$ISO_PATH" || ! -f "$ISO_PATH" ]]; then
 fi
 if [[ ! "$BOOT_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
   echo "BOOT_SECONDS must be a positive integer" >&2
+  exit 2
+fi
+if [[ ! "$BOOT_CAPTURE_INTERVAL" =~ ^(0|[1-9][0-9]*)$ ]]; then
+  echo "BOOT_CAPTURE_INTERVAL must be a nonnegative integer" >&2
   exit 2
 fi
 for command in file xorriso qemu-system-x86_64 python3 awk realpath ps; do
@@ -198,6 +203,7 @@ started=$SECONDS
 deadline=$((SECONDS + BOOT_SECONDS))
 next_capture=$((started + 20))
 next_visible_capture=$started
+next_boot_capture=$((started + BOOT_CAPTURE_INTERVAL))
 guest_ready=no
 ready=no
 visible_frame=''
@@ -223,6 +229,13 @@ while (( SECONDS < deadline )); do
     fi
     printf 'frame_check=not_visible elapsed_seconds=%s %s\n' "$elapsed" "$frame_report" >>"$diagnostics"
     next_visible_capture=$((SECONDS + 10))
+  elif (( BOOT_CAPTURE_INTERVAL > 0 && SECONDS - started <= 60 &&
+          SECONDS >= next_boot_capture )); then
+    # Retain the new boot film and firmware menu for visual review. These
+    # samples never qualify desktop readiness; the exact sentinel and fresh
+    # ready frame above remain the admission checks.
+    capture_diagnostics "boot-$((SECONDS - started))s" "$((SECONDS - started))"
+    next_boot_capture=$((SECONDS + BOOT_CAPTURE_INTERVAL))
   elif (( SECONDS >= next_capture )); then
     capture_diagnostics "$((SECONDS - started))s" "$((SECONDS - started))"
     next_capture=$((SECONDS + 120))

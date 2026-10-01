@@ -1,0 +1,28 @@
+/* Copyright 2026 Xodus contributors. SPDX-License-Identifier: MIT */
+* { font-family: "Noto Sans"; }
+window, dialog, .background { background-color: @theme_bg_color; color: @theme_fg_color; }
+headerbar, toolbar, actionbar { background-color: @theme_bg_color; color: @theme_fg_color; border-bottom: 1px solid @borders; box-shadow: none; }
+headerbar { min-height: 42px; padding: 6px 10px; }
+button { border: 1px solid @borders; border-radius: 8px; padding: 6px 12px; background-image: none; background-color: @theme_base_color; color: @theme_fg_color; box-shadow: none; text-shadow: none; }
+button:hover { border-color: @theme_selected_bg_color; }
+button:active, button:checked, button.suggested-action { background-color: @theme_selected_bg_color; color: @theme_selected_fg_color; }
+button:disabled, entry:disabled { opacity: 0.5; }
+entry, spinbutton { border: 1px solid @borders; border-radius: 8px; padding: 6px 8px; background-color: @theme_base_color; color: @theme_text_color; box-shadow: none; }
+entry:focus { border-color: @theme_selected_bg_color; outline-color: @theme_selected_bg_color; }
+textview, treeview, list, listview, gridview { background-color: @theme_base_color; color: @theme_text_color; }
+row { padding: 7px 10px; }
+row:selected, selection { background-color: @theme_selected_bg_color; color: @theme_selected_fg_color; }
+notebook > header { background-color: @theme_bg_color; border-bottom: 1px solid @borders; }
+notebook > header > tabs > tab { padding: 9px 14px; border-bottom: 2px solid transparent; }
+notebook > header > tabs > tab:checked { border-bottom-color: @theme_selected_bg_color; }
+progressbar progress, scale highlight { background-color: @theme_selected_bg_color; background-image: none; border: none; box-shadow: none; border-radius: 6px; min-width: 2px; min-height: 5px; }
+progressbar trough, scale trough { background-color: @borders; border-radius: 6px; min-height: 5px; }
+switch { border: 1px solid @borders; border-radius: 20px; background-image: none; background-color: @borders; box-shadow: none; }
+switch:checked { background-color: @theme_selected_bg_color; border-color: @theme_selected_bg_color; }
+switch slider { border-radius: 20px; background-image: none; background-color: #F6F2FF; border: none; box-shadow: none; }
+check:checked, radio:checked { background-image: none; background-color: @theme_selected_bg_color; color: @theme_selected_fg_color; }
+menu, menuitem, popover { background-color: @theme_bg_color; color: @theme_fg_color; }
+menuitem:hover { background-color: @theme_selected_bg_color; color: @theme_selected_fg_color; }
+tooltip { border-radius: 8px; background-color: @theme_base_color; color: @theme_text_color; border: 1px solid @borders; }
+separator { background-color: @borders; min-width: 1px; min-height: 1px; }
+link, button.link { color: @link_color; }

@@ -1,0 +1,129 @@
+{
+  "schema": 1,
+  "package": "pearos-settings",
+  "version": "26.7.0-4",
+  "archive_sha256": "d2f993265cea5d7dffb8d3557ee9768e98bc796f95e907cb05840cb5a8b241e9",
+  "switcher": {
+    "package": "system-settings",
+    "version": "26.7.0-1",
+    "archive_sha256": "dfc36d4b044793485559f73caea0f9dc2eb032a233b95afa5d48e8dcc1d33024"
+  },
+  "files": {
+    "etc/skel/.config/gtk-3.0/colors.css": {
+      "sha256": "109eb92491cbee2ab7f0dd11307cbd7623d98040e8c12dc7916797a5ce427b17",
+      "normalized_sha256": "109eb92491cbee2ab7f0dd11307cbd7623d98040e8c12dc7916797a5ce427b17"
+    },
+    "etc/skel/.config/gtk-3.0/gtk.css": {
+      "sha256": "39f53137010efbba8ccbbba7a5f9a744291bbb70f51fd743797d82dcceef62b7",
+      "normalized_sha256": "39f53137010efbba8ccbbba7a5f9a744291bbb70f51fd743797d82dcceef62b7"
+    },
+    "etc/skel/.config/gtk-3.0/settings.ini": {
+      "sha256": "bda9b10c498d15558611c2156dfc13a2492c8c9e53e67a93deba89dacec0a5c0",
+      "normalized_sha256": "83d94a341bea8e8f32a83a4b6ff9939600809b279705fef0ff39eaaeea4a1a1c"
+    },
+    "etc/skel/.config/gtk-4.0/colors.css": {
+      "sha256": "109eb92491cbee2ab7f0dd11307cbd7623d98040e8c12dc7916797a5ce427b17",
+      "normalized_sha256": "109eb92491cbee2ab7f0dd11307cbd7623d98040e8c12dc7916797a5ce427b17"
+    },
+    "etc/skel/.config/gtk-4.0/gtk.css": {
+      "sha256": "7163c4a077e4a3618f91740bd32a952effa621c781387597f660dc19322ecebd",
+      "normalized_sha256": "7163c4a077e4a3618f91740bd32a952effa621c781387597f660dc19322ecebd"
+    },
+    "etc/skel/.config/gtk-4.0/settings.ini": {
+      "sha256": "3360fdbe3ecf7d14387857ea1328b1518e867fd8d04ffec8d11f3271e86c536a",
+      "normalized_sha256": "e6994022056c37b5b562015470068ed1cf28127017797836f881c643b2511f05"
+    },
+    "etc/skel/.gtkrc-2.0": {
+      "sha256": "bf76187d57c6c9a5b52530f81a8666d5b155bc74b79e179a97f54c67faf26742",
+      "normalized_sha256": "891a3f29a188e4ff61f4e86bf9510cb323f6195b7caf5632c9f0281387038672"
+    },
+    "etc/skel/.local/share/konsole/Fancy Blur.colorscheme": {
+      "sha256": "ca38764770f865515a4984861d6eef1df2d44dd150d60ff24d498507f1b661b8",
+      "normalized_sha256": "ca38764770f865515a4984861d6eef1df2d44dd150d60ff24d498507f1b661b8"
+    },
+    "etc/skel/.local/share/konsole/pearOS Fancy.profile": {
+      "sha256": "70af81c8b58724fef8a55a6e802ad2d979b5db810b5ccd0d7caf948feedceb0d",
+      "normalized_sha256": "70af81c8b58724fef8a55a6e802ad2d979b5db810b5ccd0d7caf948feedceb0d"
+    },
+    "etc/skel/.local/share/konsole/pearOS Normal.profile": {
+      "sha256": "5e7804f4032441c86c5a6322cc4e006adaac0b962fe184fceb2d0148f07efe48",
+      "normalized_sha256": "5e7804f4032441c86c5a6322cc4e006adaac0b962fe184fceb2d0148f07efe48"
+    },
+    "etc/skel/.themes/pearOS-Dark/index.theme": {
+      "sha256": "b2579ab9b48dff787c4344af8cdf5785a2b76cc75383041058b97ed4d23e6559",
+      "normalized_sha256": "b2579ab9b48dff787c4344af8cdf5785a2b76cc75383041058b97ed4d23e6559"
+    },
+    "etc/skel/.themes/pearOS-Light/index.theme": {
+      "sha256": "e52dad67b23110f3328eb8e34aee4738d9eee0d4fa243981f44515c09c6a243a",
+      "normalized_sha256": "e52dad67b23110f3328eb8e34aee4738d9eee0d4fa243981f44515c09c6a243a"
+    },
+    "usr/share/extras/system-settings/themeswitcher/colors.json": {
+      "sha256": "18d1cef0e91aa2302c827b62a0e1739910df010fe0c5feb73c756b6fd8196e25",
+      "normalized_sha256": "18d1cef0e91aa2302c827b62a0e1739910df010fe0c5feb73c756b6fd8196e25"
+    },
+    "usr/share/extras/system-settings/themeswitcher/colors/azul.ini": {
+      "sha256": "e20dedb0a0ca05f8dd67bd797fcb8c04630d0edadeab3810c16dc6f003ed6d13",
+      "normalized_sha256": "e20dedb0a0ca05f8dd67bd797fcb8c04630d0edadeab3810c16dc6f003ed6d13"
+    },
+    "usr/share/extras/system-settings/themeswitcher/colors/blue.ini": {
+      "sha256": "50797b9c902021f10f8b4238e3c52e28c898cd3cec1f5dcfd8264235f873f381",
+      "normalized_sha256": "50797b9c902021f10f8b4238e3c52e28c898cd3cec1f5dcfd8264235f873f381"
+    },
+    "usr/share/extras/system-settings/themeswitcher/colors/dark-purple.ini": {
+      "sha256": "c07d0ad111bf9aa1aa9d7270fe55e5365d2c5ef318f87605390cb2e12aef12f8",
+      "normalized_sha256": "c07d0ad111bf9aa1aa9d7270fe55e5365d2c5ef318f87605390cb2e12aef12f8"
+    },
+    "usr/share/extras/system-settings/themeswitcher/colors/green.ini": {
+      "sha256": "79c86c6caf16e13179cbe5ed9ada2570086cdea09e489a36c9d88be107a8b0ea",
+      "normalized_sha256": "79c86c6caf16e13179cbe5ed9ada2570086cdea09e489a36c9d88be107a8b0ea"
+    },
+    "usr/share/extras/system-settings/themeswitcher/colors/grey.ini": {
+      "sha256": "ff249ff0486e08c82612068a18ea006f9ff25a443b5b5fc442b8612dad29bb04",
+      "normalized_sha256": "ff249ff0486e08c82612068a18ea006f9ff25a443b5b5fc442b8612dad29bb04"
+    },
+    "usr/share/extras/system-settings/themeswitcher/colors/lila.ini": {
+      "sha256": "9754a619f434056b515961f5e63a97db7751953aeecf1183e1a13bcc0a38881a",
+      "normalized_sha256": "9754a619f434056b515961f5e63a97db7751953aeecf1183e1a13bcc0a38881a"
+    },
+    "usr/share/extras/system-settings/themeswitcher/colors/magenta.ini": {
+      "sha256": "2fe996d36a32a8cbf74fb15f0253fd62f2ee7015b4d7d17a3702c395ff87d2c1",
+      "normalized_sha256": "2fe996d36a32a8cbf74fb15f0253fd62f2ee7015b4d7d17a3702c395ff87d2c1"
+    },
+    "usr/share/extras/system-settings/themeswitcher/colors/orange.ini": {
+      "sha256": "2d103f21b1349c73db6e09288ae3451e72b300412c6a016c2272e0e8a3010879",
+      "normalized_sha256": "2d103f21b1349c73db6e09288ae3451e72b300412c6a016c2272e0e8a3010879"
+    },
+    "usr/share/extras/system-settings/themeswitcher/colors/purple.ini": {
+      "sha256": "c07d0ad111bf9aa1aa9d7270fe55e5365d2c5ef318f87605390cb2e12aef12f8",
+      "normalized_sha256": "c07d0ad111bf9aa1aa9d7270fe55e5365d2c5ef318f87605390cb2e12aef12f8"
+    },
+    "usr/share/extras/system-settings/themeswitcher/colors/yellow.ini": {
+      "sha256": "9b47156cf2f717112c364b3e5c518dece72f3b61e691f8b649815f336ca1eca9",
+      "normalized_sha256": "9b47156cf2f717112c364b3e5c518dece72f3b61e691f8b649815f336ca1eca9"
+    },
+    "usr/share/extras/system-settings/themeswitcher/config.json": {
+      "sha256": "3729ec2941d35f86f8d152f02568faedfe11b696b0692ce4cc60e6c1bde73546",
+      "normalized_sha256": "3729ec2941d35f86f8d152f02568faedfe11b696b0692ce4cc60e6c1bde73546"
+    },
+    "usr/share/extras/system-settings/themeswitcher/config.py": {
+      "sha256": "7e1dc1779007fc419734ed9e0076a969f4a402faea4b46a981a1db985844c546",
+      "normalized_sha256": "7e1dc1779007fc419734ed9e0076a969f4a402faea4b46a981a1db985844c546"
+    },
+    "usr/share/extras/system-settings/themeswitcher/kde-theme-switch.sh": {
+      "sha256": "9015a947ffcfef946b9ac14521f97b458cfc77f5dd1b87692b807e1c2aff49ac",
+      "normalized_sha256": "9015a947ffcfef946b9ac14521f97b458cfc77f5dd1b87692b807e1c2aff49ac"
+    },
+    "usr/share/extras/system-settings/themeswitcher/libadwaita": {
+      "sha256": "cb39a398e5558c64965619cce9c1024dbe8ef72869f573ec32a3256b4d7559c8",
+      "normalized_sha256": "cb39a398e5558c64965619cce9c1024dbe8ef72869f573ec32a3256b4d7559c8"
+    },
+    "usr/share/themes/pearOS-dark/index.theme": {
+      "sha256": "6135e467047277d567a7f79f2341a0ec06d346417aaec86a6d5193779eeeede6",
+      "normalized_sha256": "6135e467047277d567a7f79f2341a0ec06d346417aaec86a6d5193779eeeede6"
+    },
+    "usr/share/themes/pearOS/index.theme": {
+      "sha256": "00cb2177e04513de6474bca20e97615a6a9ccaacddc0febf3a187e4d4971b8c0",
+      "normalized_sha256": "00cb2177e04513de6474bca20e97615a6a9ccaacddc0febf3a187e4d4971b8c0"
+    }
+  }
+}

@@ -1,0 +1,11 @@
+/* Copyright 2026 Xodus contributors. SPDX-License-Identifier: MIT */
+/* Libadwaita controls its own light/dark surfaces; retain those preferences. */
+@define-color accent_color #AD85F5;
+@define-color accent_bg_color #7547C0;
+@define-color accent_fg_color #FFFFFF;
+@define-color theme_selected_bg_color #7547C0;
+@define-color theme_selected_fg_color #FFFFFF;
+* { font-family: "Noto Sans"; }
+button, entry { border-radius: 8px; }
+button.suggested-action, progressbar progress, scale highlight { background-color: @accent_bg_color; color: @accent_fg_color; }
+selection, row:selected { background-color: @accent_bg_color; color: @accent_fg_color; }

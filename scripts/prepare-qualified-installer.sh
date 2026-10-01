@@ -50,6 +50,24 @@ setup="$audit_dir/$SETUP_PATH"
 [[ -s "$setup" ]] || { echo "ERROR: audited installer setup missing: $setup" >&2; exit 1; }
 
 prepared="$outdir/setup.xodus-qualified"
+identity_deriver="$repo_root/overlay/identity/installed/derive-installer-identity.py"
+if [[ -f "$identity_deriver" ]]; then
+  # Derive the same reviewed graphical hooks used by the live installer before
+  # adding qualification's existing first-boot and package recovery payloads.
+  # Keep the audit checkout unchanged so Git blobs remain the authority.
+  qualification_sha=${GITHUB_HEAD_SHA:-$(git -C "$repo_root" rev-parse HEAD)}
+  [[ "$qualification_sha" =~ ^[0-9a-f]{40}$ ]] || exit 66
+  identity_installer="$outdir/identity-installer"
+  mkdir -p "$identity_installer/system_install" "$identity_installer/post-install"
+  cp "$setup" "$identity_installer/system_install/setup"
+  cp "$audit_dir/post-install/post_setup" "$identity_installer/post-install/post_setup"
+  printf 'XODUS_SOURCE_COMMIT=%s\nXODUS_INSTALLER_COMMIT=%s\n' \
+    "$qualification_sha" "$REF" >"$outdir/identity-build-info"
+  python3 "$identity_deriver" --apply-installer "$identity_installer" \
+    --original-root "$audit_dir" --source-commit "$qualification_sha" \
+    --build-info "$outdir/identity-build-info" | tee "$outdir/identity-derivation.txt"
+  setup="$identity_installer/system_install/setup"
+fi
 python3 "$patcher" "$setup" "$prepared" | tee "$outdir/payload-handoff-report.txt"
 [[ -s "$prepared" && -x "$prepared" ]] || { echo "ERROR: prepared installer is not executable" >&2; exit 1; }
 
