@@ -4,7 +4,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 fetch="$repo_root/scripts/fetch-qualified-candidate.sh"
 writer="$repo_root/scripts/write-candidate-usb.sh"
-bash -n "$fetch" "$writer"
+for script in "$fetch" "$writer"; do bash -n "$script"; done
 command -v jq >/dev/null 2>&1 || { echo 'jq is required for this contract' >&2; exit 2; }
 
 tmp="$(mktemp -d)"
