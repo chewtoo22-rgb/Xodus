@@ -19,39 +19,37 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "studio" / "xodus-studio-manifest.json"
 AI_SELECTOR = ROOT / "scripts" / "xodus-ai-select.py"
+CONTRACT = ROOT / "qa" / "xodus_studio_contract.py"
 SCHEMA = 1
-KNOWN_GPUS = ("intel", "amd", "nvidia")
+# Preference order when several GPUs exist: the discrete GPU hosts the model.
+KNOWN_GPUS = ("nvidia", "amd", "intel")
 # Explicit contract markers, matching the other Xodus planners.
 network_used = False
 executes_commands = False
 
 
-def _reject_duplicate_keys(pairs: list) -> dict:
-    result: dict = {}
-    for key, value in pairs:
-        if key in result:
-            raise ValueError(f"duplicate key: {key}")
-        result[key] = value
-    return result
+def _load_module(name: str, path: Path):
+    if not path.is_file():
+        raise ValueError(f"{path.name} is unavailable; refusing to plan without it")
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise ValueError(f"{path.name} cannot be loaded")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules.setdefault(name, module)
+    spec.loader.exec_module(module)
+    return module
 
 
 def load_manifest(path: Path = MANIFEST) -> dict:
-    if path.is_symlink() or not path.is_file():
-        raise ValueError("studio manifest must be a regular non-symlink file")
-    data = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_reject_duplicate_keys)
-    if not isinstance(data, dict) or data.get("schema") != SCHEMA:
-        raise ValueError("unsupported studio manifest schema")
+    """Load the manifest through the fail-closed Studio contract (raises ValueError)."""
+    contract = _load_module("xodus_studio_contract", CONTRACT)
+    data = contract.load(path)
+    contract.validate(data)
     return data
 
 
 def _load_ai_selector():
-    spec = importlib.util.spec_from_file_location("xodus_ai_select", AI_SELECTOR)
-    if spec is None or spec.loader is None:
-        raise RuntimeError("Xodus AI selector is unavailable")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules.setdefault("xodus_ai_select", module)
-    spec.loader.exec_module(module)
-    return module
+    return _load_module("xodus_ai_select", AI_SELECTOR)
 
 
 def resolve_profiles(manifest: dict, requested: list[str]) -> list[str]:
@@ -99,19 +97,22 @@ def build_plan(
             gpu_packages.extend(manifest["gpu_vulkan_drivers"][vendor])
         if not vendors:
             warnings.append("No GPU vendor given; Vulkan apps will fall back to software or fail until a driver is installed.")
+        if "nvidia" in vendors:
+            warnings.append("nvidia-utils needs a matching NVIDIA kernel module (nvidia or nvidia-open) for Vulkan to work.")
     packages.extend(gpu_packages)
     unique = sorted(set(packages))
 
-    assistant = {"requested": "ai-assist" in profiles, "enabled": False, "tier": "none", "max_model_class": "none", "reason": "not requested"}
+    assistant = {"requested": "ai-assist" in profiles, "enabled": False, "tier": "none", "max_model_class": "none",
+                 "preferred_quant": "none", "backend": "none", "reason": "not requested"}
     if assistant["requested"]:
         if ram_gib is None:
             raise ValueError("ai-assist requires --ram-gib so the tier selector can apply its memory policy")
         selector = _load_ai_selector()
+        primary = next((v for v in KNOWN_GPUS if v in vendors), "none")
         rec = selector.classify(selector.Hardware(ram_gib=ram_gib, vram_gib=vram_gib,
-                                                  gpu_vendor=vendors[0] if vendors else "none",
-                                                  cpu_threads=cpu_threads))
-        assistant.update(enabled=rec.tier != "disabled", tier=rec.tier,
-                         max_model_class=rec.max_model_class, reason=rec.reason)
+                                                  gpu_vendor=primary, cpu_threads=cpu_threads))
+        assistant.update(enabled=rec.tier != "disabled", tier=rec.tier, max_model_class=rec.max_model_class,
+                         preferred_quant=rec.preferred_quant, backend=rec.backend, reason=rec.reason)
         if rec.tier == "disabled":
             warnings.append("Local coding assistant disabled by the AI tier policy; editor installs without it.")
 
@@ -139,12 +140,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--list", action="store_true", help="list profiles and exit")
     args = parser.parse_args(argv)
 
-    manifest = load_manifest()
-    if args.list:
-        for name, spec in manifest["profiles"].items():
-            print(f"{name:<10} {spec['description']}")
-        return 0
     try:
+        manifest = load_manifest()
+        if args.list:
+            for name, spec in manifest["profiles"].items():
+                print(f"{name:<10} {spec['description']}")
+            return 0
         plan = build_plan(manifest, args.profile, args.gpu_vendor, args.ram_gib, args.vram_gib, args.cpu_threads)
     except ValueError as exc:
         print(f"xodus-studio-plan: {exc}", file=sys.stderr)

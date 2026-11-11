@@ -35,6 +35,37 @@ class ShellSyntaxInvocationTests(unittest.TestCase):
     def test_ignores_comment_lines(self) -> None:
         self.assertEqual(violations_in("# bash -n a.sh b.sh\n"), [])
 
+    def test_accepts_single_operand_forms(self) -> None:
+        for line in (
+            "bash -n -- a.sh",
+            "bash -n a.sh 2>/dev/null",
+            "bash -n a.sh >/dev/null 2>&1",
+            "bash -n a.sh 2>&1 | tee x",
+            "bash -n a.sh < /dev/null",
+            "bash -n a.sh &",
+            'bash -n "$(dirname "$0")/a.sh"',
+            'bash -n "$script" || exit 1',
+            "bash -c 'echo a b'",
+            "bash qa/run.sh a b",
+            "./build.sh -n a b",
+        ):
+            with self.subTest(line=line):
+                self.assertEqual(violations_in(line + "\n"), [])
+
+    def test_rejects_multi_file_forms(self) -> None:
+        for line in (
+            'bash -n "$a" "$b"',
+            "bash -n *.sh",
+            "bash -n $scripts",
+            "bash -nv a.sh b.sh",
+            "bash -O extglob -n a.sh b.sh",
+            "bash -n do-build.sh x.sh",
+            "sh -n a.sh b.sh",
+            "if bash -n a.sh b.sh; then :; fi",
+        ):
+            with self.subTest(line=line):
+                self.assertEqual(len(violations_in(line + "\n")), 1)
+
     def test_bash_really_skips_later_operands(self) -> None:
         """Pin the bash behaviour this contract exists to guard against."""
         with tempfile.TemporaryDirectory() as tmp:

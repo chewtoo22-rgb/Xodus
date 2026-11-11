@@ -66,7 +66,7 @@ See [`XODUS_STUDIO.md`](XODUS_STUDIO.md).
 
 - [x] Opt-in developer manifest (official Arch repos only, never in the ISO) with fail-closed contract.
 - [x] Deterministic, non-executing Studio install planner with per-GPU Vulkan drivers.
-- [x] Local AI coding assistant gated by the existing AI tier selector.
+- [x] Planner gates the `ai-assist` profile by the existing AI tier selector (assistant itself not built yet).
 - [ ] Weekly CI check that every Studio package resolves in `core`/`extra` (workflow added; needs a green run).
 - [ ] `xodus-studio` app: profile picker, plan preview, confirmation, broker-backed install, audit log.
 - [ ] Project templates (Godot, SDL3 + Vulkan, raylib, Rust) with CI smoke builds.

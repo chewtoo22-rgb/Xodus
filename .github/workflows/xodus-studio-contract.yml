@@ -29,6 +29,7 @@ permissions:
 jobs:
   contract:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: Validate manifest
@@ -39,11 +40,12 @@ jobs:
   arch-packages-exist:
     needs: contract
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     container: archlinux:base
     steps:
       - uses: actions/checkout@v4
       - name: Refresh sync databases
-        run: pacman -Sy --noconfirm --needed python
+        run: pacman -Syu --noconfirm --needed python
       - name: Every Studio package resolves in core or extra
         shell: bash
         run: |
@@ -52,7 +54,8 @@ jobs:
           test "${#packages[@]}" -gt 0
           missing=0
           for pkg in "${packages[@]}"; do
-            repo="$(pacman -Si -- "$pkg" 2>/dev/null | awk -F': ' '/^Repository/{print $2; exit}' | tr -d ' ')"
+            info="$(pacman -Si -- "$pkg" 2>/dev/null || true)"
+            repo="$(awk -F': *' '/^Repository/{print $2; exit}' <<<"$info" | tr -d ' ')"
             case "$repo" in
               core|extra) printf 'ok      %-28s %s\n' "$pkg" "$repo" ;;
               '') printf 'MISSING %s\n' "$pkg"; missing=1 ;;

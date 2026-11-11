@@ -31,7 +31,7 @@ PACKAGE_NAME = re.compile(r"^[a-z0-9@_+][a-z0-9@._+-]*$")
 MAX_PACKAGES = 200
 
 
-class ContractError(Exception):
+class ContractError(ValueError):
     pass
 
 
@@ -42,6 +42,12 @@ def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
             raise ValueError(f"duplicate key: {key}")
         result[key] = value
     return result
+
+
+def _exact_keys(obj: dict[str, Any], expected: set[str], where: str) -> None:
+    missing, unexpected = sorted(expected - set(obj)), sorted(set(obj) - expected)
+    if missing or unexpected:
+        raise ContractError(f"{where} keys mismatch: missing {missing}, unexpected {unexpected}")
 
 
 def _package_list(value: Any, where: str) -> list[str]:
@@ -59,9 +65,8 @@ def validate(data: Any) -> list[str]:
     """Validate a parsed manifest; return every package it can request."""
     if not isinstance(data, dict):
         raise ContractError("manifest root must be an object")
-    if set(data) != EXPECTED_KEYS:
-        raise ContractError(f"manifest keys must be exactly {sorted(EXPECTED_KEYS)}")
-    if data["schema"] != 1:
+    _exact_keys(data, EXPECTED_KEYS, "manifest")
+    if type(data["schema"]) is not int or data["schema"] != 1:
         raise ContractError("schema must equal 1")
     if data["iso_default"] is not False:
         raise ContractError("iso_default must stay false; Studio is opt-in and keeps the ISO lightweight")
@@ -79,12 +84,15 @@ def validate(data: Any) -> list[str]:
     for name, spec in profiles.items():
         if not PACKAGE_NAME.fullmatch(name):
             raise ContractError(f"invalid profile name {name!r}")
-        if not isinstance(spec, dict) or set(spec) != PROFILE_KEYS:
-            raise ContractError(f"profile {name} keys must be exactly {sorted(PROFILE_KEYS)}")
+        if not isinstance(spec, dict):
+            raise ContractError(f"profile {name} must be an object")
+        _exact_keys(spec, PROFILE_KEYS, f"profile {name}")
         if not isinstance(spec["description"], str) or not spec["description"].strip():
             raise ContractError(f"profile {name} needs a description")
         requires = spec["requires"]
-        if not isinstance(requires, list) or any(r not in profiles or r == name for r in requires):
+        if not isinstance(requires, list) or any(
+            not isinstance(r, str) or r not in profiles or r == name for r in requires
+        ):
             raise ContractError(f"profile {name} requires an unknown profile or itself")
         for pkg in _package_list(spec["packages"], f"profile {name}"):
             if pkg in owner:
@@ -111,15 +119,19 @@ def validate(data: Any) -> list[str]:
 
 def _reject_cycles(profiles: dict[str, Any]) -> None:
     state: dict[str, int] = {}
+    path: list[str] = []
 
     def visit(node: str) -> None:
         if state.get(node) == 1:
-            raise ContractError(f"profile dependency cycle through {node}")
+            cycle = path[path.index(node):] + [node]
+            raise ContractError(f"profile dependency cycle: {' -> '.join(cycle)}")
         if state.get(node) == 2:
             return
         state[node] = 1
+        path.append(node)
         for dep in profiles[node]["requires"]:
             visit(dep)
+        path.pop()
         state[node] = 2
 
     for name in profiles:

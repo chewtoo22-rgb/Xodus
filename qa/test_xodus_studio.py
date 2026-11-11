@@ -64,6 +64,25 @@ class StudioContractTests(unittest.TestCase):
     def test_rejects_empty_gpu_driver(self) -> None:
         self.mutate(lambda d: d["gpu_vulkan_drivers"].__setitem__("amd", []))
 
+    def test_rejects_boolean_schema(self) -> None:
+        self.mutate(lambda d: d.__setitem__("schema", True))
+
+    def test_rejects_unhashable_requirement(self) -> None:
+        self.mutate(lambda d: d["profiles"]["engines"]["requires"].append(["graphics"]))
+
+    def test_cycle_error_names_the_cycle(self) -> None:
+        data = copy.deepcopy(self.data)
+        data["profiles"]["toolchain"]["requires"].append("engines")
+        with self.assertRaisesRegex(ContractError, "cycle: .*toolchain.* -> .*toolchain"):
+            validate(data)
+
+    def test_key_errors_name_missing_and_unexpected(self) -> None:
+        data = copy.deepcopy(self.data)
+        data.pop("profiles")
+        data["aur_helper"] = "yay"
+        with self.assertRaisesRegex(ContractError, r"missing \['profiles'\], unexpected \['aur_helper'\]"):
+            validate(data)
+
     def test_rejects_duplicate_json_key(self) -> None:
         from xodus_studio_contract import reject_duplicate_keys
         with self.assertRaisesRegex(ValueError, "duplicate key: schema"):
@@ -115,6 +134,25 @@ class StudioPlannerTests(unittest.TestCase):
         nuc = plan_mod.build_plan(self.manifest, ["ai-assist"], ["intel"], ram_gib=16, cpu_threads=8)
         self.assertTrue(nuc["ai_assistant"]["enabled"])
         self.assertEqual(nuc["ai_assistant"]["tier"], "standard")
+
+    def test_ai_assist_prefers_discrete_gpu(self) -> None:
+        plan = plan_mod.build_plan(self.manifest, ["ai-assist"], ["intel", "nvidia"], ram_gib=32, vram_gib=8)
+        self.assertEqual(plan["ai_assistant"]["backend"], "cuda")
+        self.assertEqual(plan["ai_assistant"]["preferred_quant"], "Q4_K_M")
+
+    def test_nvidia_kernel_module_warning(self) -> None:
+        plan = plan_mod.build_plan(self.manifest, ["graphics"], ["nvidia"])
+        self.assertTrue(any("kernel module" in w for w in plan["warnings"]))
+
+    def test_planner_refuses_drifted_manifest(self) -> None:
+        import tempfile
+        data = copy.deepcopy(self.manifest)
+        data["profiles"]["art"]["packages"].append("--overwrite=*")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp, "m.json")
+            path.write_text(json.dumps(data))
+            with self.assertRaises(ValueError):
+                plan_mod.load_manifest(path)
 
     def test_ai_assist_requires_ram(self) -> None:
         with self.assertRaises(ValueError):
