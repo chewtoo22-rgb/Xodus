@@ -1,0 +1,28 @@
+name: Arena Session Plan
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/xodus-arena-session-plan'
+      - 'qa/test-arena-session-plan.py'
+      - '.github/workflows/arena-session-plan.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile planner and tests
+        run: python3 -m py_compile scripts/xodus-arena-session-plan qa/test-arena-session-plan.py
+      - name: Run Arena session plan tests
+        run: python3 -m unittest -v qa/test-arena-session-plan.py
+      - name: Enforce non-executing planner boundary
+        run: |
+          if grep -En '\b(subprocess|os\.system|systemctl|mount|umount|mkfs|parted|sgdisk|dd|curl|wget)\b' scripts/xodus-arena-session-plan; then
+            echo 'Arena session planner must remain non-executing and non-mutating' >&2
+            exit 1
+          fi
