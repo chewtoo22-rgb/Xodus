@@ -60,3 +60,16 @@ Target: x86-64 Intel NUC test machine.
 - Performance profiling.
 - Accessibility pass.
 - Documentation and recovery guide.
+
+## M7 — Xodus Studio (game & app development)
+See [`XODUS_STUDIO.md`](XODUS_STUDIO.md).
+
+- [x] Opt-in developer manifest (official Arch repos only, never in the ISO) with fail-closed contract.
+- [x] Deterministic, non-executing Studio install planner with per-GPU Vulkan drivers.
+- [x] Local AI coding assistant gated by the existing AI tier selector.
+- [ ] Weekly CI check that every Studio package resolves in `core`/`extra` (workflow added; needs a green run).
+- [ ] `xodus-studio` app: profile picker, plan preview, confirmation, broker-backed install, audit log.
+- [ ] Project templates (Godot, SDL3 + Vulkan, raylib, Rust) with CI smoke builds.
+- [ ] Editor integration for the local assistant.
+- [ ] "Playtest in Arena" handoff.
+- [ ] NUC hardware validation of the Vulkan/RenderDoc/Godot export path.

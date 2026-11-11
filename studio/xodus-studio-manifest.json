@@ -1,0 +1,54 @@
+{
+  "schema": 1,
+  "iso_default": false,
+  "network_required_for_planning": false,
+  "hardware_validation_claim": false,
+  "allowed_repos": ["core", "extra"],
+  "profiles": {
+    "toolchain": {
+      "description": "Native build toolchain for C, C++, Rust and Python projects.",
+      "requires": [],
+      "packages": ["base-devel", "git", "clang", "cmake", "ninja", "meson", "pkgconf", "gdb", "python", "rust"]
+    },
+    "graphics": {
+      "description": "Vulkan/OpenGL development headers, loaders, validation layers and shader compilers.",
+      "requires": ["toolchain"],
+      "packages": ["vulkan-headers", "vulkan-icd-loader", "vulkan-validation-layers", "vulkan-tools", "glslang", "shaderc", "spirv-tools", "sdl3", "mesa-utils"]
+    },
+    "engines": {
+      "description": "Open-source game engines and frameworks.",
+      "requires": ["graphics"],
+      "packages": ["godot", "love", "raylib"]
+    },
+    "editor": {
+      "description": "Code editor for game and app projects.",
+      "requires": [],
+      "packages": ["code"]
+    },
+    "art": {
+      "description": "3D, raster and vector asset creation.",
+      "requires": [],
+      "packages": ["blender", "krita", "gimp", "inkscape"]
+    },
+    "audio": {
+      "description": "Sound effects, recording and music production.",
+      "requires": [],
+      "packages": ["audacity", "lmms"]
+    },
+    "profiling": {
+      "description": "Frame capture, CPU profiling and in-game performance overlay.",
+      "requires": ["graphics"],
+      "packages": ["renderdoc", "perf", "valgrind", "mangohud"]
+    },
+    "ai-assist": {
+      "description": "Local Xodus AI model as an offline coding assistant; uses the existing AI tier selector and runtime, installs no extra packages.",
+      "requires": ["editor"],
+      "packages": []
+    }
+  },
+  "gpu_vulkan_drivers": {
+    "intel": ["vulkan-intel"],
+    "amd": ["vulkan-radeon"],
+    "nvidia": ["nvidia-utils"]
+  }
+}

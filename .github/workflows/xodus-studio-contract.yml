@@ -1,0 +1,62 @@
+name: Xodus Studio Contract
+
+on:
+  pull_request:
+    paths:
+      - 'studio/**'
+      - 'scripts/xodus-studio-plan.py'
+      - 'scripts/xodus-ai-select.py'
+      - 'qa/xodus_studio_contract.py'
+      - 'qa/test_xodus_studio.py'
+      - '.github/workflows/xodus-studio-contract.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'studio/**'
+      - 'scripts/xodus-studio-plan.py'
+      - 'scripts/xodus-ai-select.py'
+      - 'qa/xodus_studio_contract.py'
+      - 'qa/test_xodus_studio.py'
+      - '.github/workflows/xodus-studio-contract.yml'
+  schedule:
+    # Arch is rolling; re-check weekly that every Studio package still exists.
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate manifest
+        run: python3 qa/xodus_studio_contract.py
+      - name: Planner and contract regressions
+        run: python3 -m unittest qa/test_xodus_studio.py
+
+  arch-packages-exist:
+    needs: contract
+    runs-on: ubuntu-latest
+    container: archlinux:base
+    steps:
+      - uses: actions/checkout@v4
+      - name: Refresh sync databases
+        run: pacman -Sy --noconfirm --needed python
+      - name: Every Studio package resolves in core or extra
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t packages < <(python3 qa/xodus_studio_contract.py --print-packages)
+          test "${#packages[@]}" -gt 0
+          missing=0
+          for pkg in "${packages[@]}"; do
+            repo="$(pacman -Si -- "$pkg" 2>/dev/null | awk -F': ' '/^Repository/{print $2; exit}' | tr -d ' ')"
+            case "$repo" in
+              core|extra) printf 'ok      %-28s %s\n' "$pkg" "$repo" ;;
+              '') printf 'MISSING %s\n' "$pkg"; missing=1 ;;
+              *) printf 'REPO    %-28s %s (only core/extra allowed)\n' "$pkg" "$repo"; missing=1 ;;
+            esac
+          done
+          exit "$missing"
