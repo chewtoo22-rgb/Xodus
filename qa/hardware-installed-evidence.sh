@@ -14,22 +14,32 @@ run_capture() {
   } >"$outdir/$name.txt" 2>&1 || true
 }
 
-root_source="${XODUS_CONTRACT_ROOT_SOURCE:-$(findmnt -n -o SOURCE / 2>/dev/null || true)}"
-root_fstype="${XODUS_CONTRACT_ROOT_FSTYPE:-$(findmnt -n -o FSTYPE / 2>/dev/null || true)}"
+root_source="$(findmnt -n -o SOURCE / 2>/dev/null || true)"
+root_fstype="$(findmnt -n -o FSTYPE / 2>/dev/null || true)"
 
 # This collector is intentionally for an independently booted installed system.
 # Refuse common live/overlay roots so live-media success cannot be mislabeled as
-# physical post-install success.
-case "$root_source:$root_fstype" in
-  *overlay*|*airootfs*|*squashfs*|*tmpfs*)
-    printf 'refusing installed-system evidence on live/overlay root: source=%s fstype=%s\n' "$root_source" "$root_fstype" >&2
-    exit 40
-    ;;
-esac
+# physical post-install success. The real root is always checked; the contract
+# root-source/fstype test hooks can only add a refusal, never mask a live root.
+for probe in "$root_source:$root_fstype" \
+  "${XODUS_CONTRACT_ROOT_SOURCE:-}:${XODUS_CONTRACT_ROOT_FSTYPE:-}"; do
+  case "$probe" in
+    *overlay*|*airootfs*|*squashfs*|*tmpfs*)
+      printf 'refusing installed-system evidence on live/overlay root: %s\n' "$probe" >&2
+      exit 40
+      ;;
+  esac
+done
 
-if [[ "${XODUS_CONTRACT_ALLOW_NO_EFI:-0}" != "1" && ! -d /sys/firmware/efi ]]; then
-  printf 'refusing installed-system evidence: current boot is not UEFI\n' >&2
-  exit 41
+boot_mode=uefi
+if [[ ! -d /sys/firmware/efi ]]; then
+  if [[ "${XODUS_CONTRACT_ALLOW_NO_EFI:-0}" != "1" ]]; then
+    printf 'refusing installed-system evidence: current boot is not UEFI\n' >&2
+    exit 41
+  fi
+  # Contract-test hook only: the summary records the real boot mode so this
+  # evidence can never pass as a UEFI installed-system result.
+  boot_mode=not-uefi-contract-override
 fi
 
 candidate_sha="${XODUS_CANDIDATE_SHA:-}"
@@ -63,7 +73,7 @@ printf 'hostname=%s\n' "$(hostname 2>/dev/null || true)" >> "$outdir/summary.txt
 printf 'kernel=%s\n' "$(uname -r)" >> "$outdir/summary.txt"
 printf 'root_source=%s\n' "$root_source" >> "$outdir/summary.txt"
 printf 'root_fstype=%s\n' "$root_fstype" >> "$outdir/summary.txt"
-printf 'boot_mode=uefi\n' >> "$outdir/summary.txt"
+printf 'boot_mode=%s\n' "$boot_mode" >> "$outdir/summary.txt"
 
 if [[ -r /etc/os-release ]]; then
   cp /etc/os-release "$outdir/os-release.txt"

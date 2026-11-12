@@ -1,0 +1,82 @@
+{
+  "schema": 1,
+  "placeholder": "__XODUS_PROJECT_NAME__",
+  "network_required": false,
+  "templates": {
+    "godot-2d": {
+      "description": "Godot 4 2D scene with a GDScript-controlled player rectangle.",
+      "profiles": ["engines"],
+      "files": [".gitignore", "README.md", "main.gd", "main.tscn", "project.godot"],
+      "placeholder_files": ["README.md", "project.godot"],
+      "smoke": {
+        "tools": ["godot"],
+        "packages": ["godot"],
+        "pkg_config_modules": [],
+        "steps": [
+          ["godot", "--headless", "--path", ".", "--import"],
+          ["godot", "--headless", "--path", ".", "--check-only", "--script", "res://main.gd"]
+        ]
+      }
+    },
+    "love2d": {
+      "description": "LOVE 11 game with keyboard movement (Lua on LuaJIT).",
+      "profiles": ["engines"],
+      "files": ["README.md", "conf.lua", "main.lua"],
+      "placeholder_files": ["README.md", "conf.lua"],
+      "smoke": {
+        "tools": ["luajit"],
+        "packages": ["love"],
+        "pkg_config_modules": [],
+        "steps": [
+          ["luajit", "-bl", "conf.lua"],
+          ["luajit", "-bl", "main.lua"]
+        ]
+      }
+    },
+    "raylib-c": {
+      "description": "raylib game in C99 built with CMake and Ninja.",
+      "profiles": ["engines"],
+      "files": [".gitignore", "CMakeLists.txt", "README.md", "src/main.c"],
+      "placeholder_files": ["CMakeLists.txt", "README.md", "src/main.c"],
+      "smoke": {
+        "tools": ["cmake", "ninja", "cc", "pkg-config"],
+        "packages": ["base-devel", "cmake", "ninja", "pkgconf", "raylib"],
+        "pkg_config_modules": ["raylib"],
+        "steps": [
+          ["cmake", "-S", ".", "-B", "build", "-G", "Ninja"],
+          ["cmake", "--build", "build"]
+        ]
+      }
+    },
+    "rust-cli-game": {
+      "description": "Standard-library-only Rust terminal game; builds offline with no crates.io dependencies.",
+      "profiles": ["toolchain"],
+      "files": [".gitignore", "Cargo.toml", "README.md", "src/main.rs"],
+      "placeholder_files": ["Cargo.toml", "README.md", "src/main.rs"],
+      "smoke": {
+        "tools": ["cargo"],
+        "packages": ["rust"],
+        "pkg_config_modules": [],
+        "steps": [
+          ["cargo", "build", "--offline"],
+          ["cargo", "test", "--offline"]
+        ]
+      }
+    },
+    "sdl3-c": {
+      "description": "SDL3 window, event loop and renderer in C99 built with CMake and Ninja.",
+      "profiles": ["graphics"],
+      "files": [".gitignore", "CMakeLists.txt", "README.md", "src/main.c"],
+      "placeholder_files": ["CMakeLists.txt", "README.md", "src/main.c"],
+      "smoke": {
+        "tools": ["cmake", "ninja", "cc", "pkg-config"],
+        "packages": ["base-devel", "cmake", "ninja", "pkgconf", "sdl3"],
+        "pkg_config_modules": ["sdl3"],
+        "steps": [
+          ["cmake", "-S", ".", "-B", "build", "-G", "Ninja"],
+          ["cmake", "--build", "build"]
+        ]
+      }
+    }
+  }
+}
