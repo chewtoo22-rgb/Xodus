@@ -8,6 +8,9 @@ on:
       - 'scripts/xodus-ai-select.py'
       - 'qa/xodus_studio_contract.py'
       - 'qa/test_xodus_studio.py'
+      - 'scripts/xodus-studio-new.py'
+      - 'qa/xodus_studio_templates_contract.py'
+      - 'qa/test_xodus_studio_templates.py'
       - '.github/workflows/xodus-studio-contract.yml'
   push:
     branches: [main]
@@ -17,6 +20,9 @@ on:
       - 'scripts/xodus-ai-select.py'
       - 'qa/xodus_studio_contract.py'
       - 'qa/test_xodus_studio.py'
+      - 'scripts/xodus-studio-new.py'
+      - 'qa/xodus_studio_templates_contract.py'
+      - 'qa/test_xodus_studio_templates.py'
       - '.github/workflows/xodus-studio-contract.yml'
   schedule:
     # Arch is rolling; re-check weekly that every Studio package still exists.
@@ -36,6 +42,12 @@ jobs:
         run: python3 qa/xodus_studio_contract.py
       - name: Planner and contract regressions
         run: python3 -m unittest qa/test_xodus_studio.py
+      - name: Validate project templates
+        run: python3 qa/xodus_studio_templates_contract.py
+      - name: Template contract, scaffolder and available smoke builds
+        # Smoke builds whose toolchain is missing on the runner skip here;
+        # the Arch container job below requires all of them.
+        run: python3 -m unittest -v qa/test_xodus_studio_templates.py
 
   arch-packages-exist:
     needs: contract
@@ -63,3 +75,51 @@ jobs:
             esac
           done
           exit "$missing"
+
+  template-smoke-builds:
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container: archlinux:base
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install template toolchains from core/extra
+        shell: bash
+        run: |
+          set -euo pipefail
+          pacman -Syu --noconfirm --needed python
+          # Packages come from templates.json and the contract checks each is
+          # installed by the template's Studio profiles. luajit is listed
+          # explicitly because the LOVE smoke check uses it (love depends on it).
+          mapfile -t packages < <(python3 qa/xodus_studio_templates_contract.py --print-packages)
+          test "${#packages[@]}" -gt 0
+          pacman -S --noconfirm --needed -- "${packages[@]}" luajit
+      - name: Scaffold every template through the CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$(mktemp -d)"
+          mapfile -t ids < <(python3 qa/xodus_studio_templates_contract.py --print-ids)
+          test "${#ids[@]}" -gt 0
+          for id in "${ids[@]}"; do
+            python3 scripts/xodus-studio-new.py --template "$id" --name ci-smoke --dest "$out/$id" >/dev/null
+            if grep -rq '__XODUS_' "$out/$id"; then
+              printf 'placeholder left in %s\n' "$id"
+              exit 1
+            fi
+            printf 'scaffolded %s\n' "$id"
+          done
+      - name: Smoke-build every template (missing toolchain fails, not skips)
+        shell: bash
+        env:
+          XODUS_STUDIO_REQUIRE_SMOKE: '1'
+        # Steps per template live in studio/templates/templates.json:
+        # cmake+ninja build (raylib-c, sdl3-c), cargo build/test --offline
+        # (rust-cli-game), luajit -bl syntax check (love2d), and for godot-2d
+        # `godot --headless --path . --import` then
+        # `--check-only --script res://main.gd`. The Godot flags are Godot 4.2+
+        # behaviour and have not yet been confirmed on a green Actions run.
+        run: |
+          set -euo pipefail
+          godot --version || true
+          python3 -m unittest -v -k TemplateSmokeBuildTests qa/test_xodus_studio_templates.py

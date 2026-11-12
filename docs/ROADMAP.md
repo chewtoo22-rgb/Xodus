@@ -69,7 +69,7 @@ See [`XODUS_STUDIO.md`](XODUS_STUDIO.md).
 - [x] Planner gates the `ai-assist` profile by the existing AI tier selector (assistant itself not built yet).
 - [ ] Weekly CI check that every Studio package resolves in `core`/`extra` (workflow added; needs a green run).
 - [ ] `xodus-studio` app: profile picker, plan preview, confirmation, broker-backed install, audit log.
-- [ ] Project templates (Godot, SDL3 + Vulkan, raylib, Rust) with CI smoke builds.
+- [ ] Project templates (Godot, SDL3 + Vulkan, raylib, Rust) with CI smoke builds. Templates (`godot-2d`, `love2d`, `raylib-c`, `sdl3-c`, `rust-cli-game`), fail-closed contract and offline scaffolder are added; the Arch container smoke-build job is added but needs a green run. Still open: Godot 3D and a raw Vulkan template.
 - [ ] Editor integration for the local assistant.
 - [ ] "Playtest in Arena" handoff.
 - [ ] NUC hardware validation of the Vulkan/RenderDoc/Godot export path.
