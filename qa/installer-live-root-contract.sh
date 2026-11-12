@@ -9,7 +9,7 @@ if [[ -z "$iso" || ! -f "$iso" ]]; then
   exit 2
 fi
 
-for cmd in unsquashfs git sha256sum mount umount find; do
+for cmd in unsquashfs git sha256sum mount umount find cmp stat; do
   command -v "$cmd" >/dev/null 2>&1 || { echo "ERROR: missing required command: $cmd" >&2; exit 69; }
 done
 
@@ -22,6 +22,10 @@ source "$lock"
 : "${SETUP_PATH:?installer lock missing SETUP_PATH}"
 : "${SETUP_BLOB:?installer lock missing SETUP_BLOB}"
 : "${REF:?installer lock missing REF}"
+if [[ -n "${PR_HEAD_SHA:-}" && ! "$PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "ERROR: PR_HEAD_SHA must be a lowercase 40-character git SHA" >&2
+  exit 2
+fi
 
 iso="$(readlink -f "$iso")"
 mkdir -p "$outdir"
@@ -64,7 +68,7 @@ printf 'squashfs_path=%s\n' "$sfs_path" | tee "$outdir/iso-layout.txt"
 
 installer_listing="$work/installer-layout.full.txt"
 unsquashfs -ll "$sfs" \
-  | awk '/pearOS-installer|bin_install|system_install\/setup/ {print}' \
+  | awk '/pearOS-installer|bin_install|system_install\/setup|xodus-live-desktop-probe|usr\/lib\/xodus\/build-info/ {print}' \
   >"$installer_listing"
 head -n 200 "$installer_listing" >"$outdir/installer-layout.txt" || true
 
@@ -83,10 +87,33 @@ if [[ -z "$entry_rel" ]]; then
 fi
 printf 'setup_rel=%s\nentry_rel=%s\n' "$setup_rel" "$entry_rel" >>"$outdir/iso-layout.txt"
 
+# These paths are installed by the Xodus overlay. Extract only the contract
+# surface so the check catches mode and service activation errors in the actual
+# SquashFS without expanding the full live root on the runner.
+probe_rel=usr/lib/xodus/xodus-live-desktop-probe
+service_rel=usr/lib/systemd/system/xodus-live-desktop-probe.service
+wants_rel=etc/systemd/system/graphical.target.wants/xodus-live-desktop-probe.service
+build_info_rel=usr/lib/xodus/build-info
+xodus_executables=(
+  usr/lib/xodus/xodus-hardware-live-evidence
+  usr/lib/xodus/xodus-x1-nuc-preflight
+  usr/lib/xodus/xodus-build-info-verify
+  usr/lib/xodus/xodus-first-boot
+  usr/lib/xodus/xodus-ai-first-boot
+  usr/lib/xodus/xodus-ai-runtime-preflight.py
+  "$probe_rel"
+)
+if [[ -f "$repo_root/scripts/xodus-ai-select.py" ]]; then
+  xodus_executables+=(usr/lib/xodus/xodus-ai-select.py)
+fi
+printf 'probe_rel=%s\nservice_rel=%s\nwants_rel=%s\nbuild_info_rel=%s\n' \
+  "$probe_rel" "$service_rel" "$wants_rel" "$build_info_rel" >>"$outdir/iso-layout.txt"
+
 mkdir -p "$work/root"
-if ! unsquashfs -no-progress -d "$work/root" "$sfs" "$setup_rel" "$entry_rel" \
+if ! unsquashfs -no-progress -d "$work/root" "$sfs" \
+  "$setup_rel" "$entry_rel" "${xodus_executables[@]}" "$service_rel" "$wants_rel" "$build_info_rel" \
   >"$outdir/unsquashfs.txt" 2>&1; then
-  echo "ERROR: failed to selectively extract installer contract surface" >&2
+  echo "ERROR: failed to selectively extract installer and desktop contract surfaces" >&2
   cat "$outdir/unsquashfs.txt" >&2
   exit 7
 fi
@@ -116,6 +143,72 @@ else
   fi
 fi
 
+embedded_probe="$work/root/$probe_rel"
+embedded_service="$work/root/$service_rel"
+embedded_wants="$work/root/$wants_rel"
+embedded_build_info="$work/root/$build_info_rel"
+[[ -f "$embedded_probe" ]] || { echo "ERROR: live root is missing Xodus desktop probe" >&2; exit 12; }
+[[ -f "$embedded_service" ]] || { echo "ERROR: live root is missing Xodus desktop probe service" >&2; exit 13; }
+[[ -L "$embedded_wants" ]] || { echo "ERROR: desktop probe is not enabled for graphical.target" >&2; exit 14; }
+[[ -f "$embedded_build_info" ]] || { echo "ERROR: live root is missing Xodus build-info" >&2; exit 15; }
+
+: >"$outdir/executable-modes.txt"
+for executable_rel in "${xodus_executables[@]}"; do
+  embedded_executable="$work/root/$executable_rel"
+  [[ -f "$embedded_executable" ]] || {
+    echo "ERROR: live root is missing Xodus executable $executable_rel" >&2
+    exit 16
+  }
+  executable_mode="$(stat -c '%a' "$embedded_executable")"
+  printf '%s=%s\n' "$executable_rel" "$executable_mode" >>"$outdir/executable-modes.txt"
+  [[ "$executable_mode" == 755 ]] || {
+    echo "ERROR: live-root executable $executable_rel has mode $executable_mode, expected 755" >&2
+    exit 16
+  }
+done
+probe_mode="$(stat -c '%a' "$embedded_probe")"
+cmp -s "$repo_root/overlay/live-desktop/xodus-live-desktop-probe" "$embedded_probe" || {
+  echo "ERROR: embedded desktop probe differs from the checked-out Xodus source" >&2
+  exit 17
+}
+cmp -s "$repo_root/overlay/live-desktop/xodus-live-desktop-probe.service" "$embedded_service" || {
+  echo "ERROR: embedded desktop probe service differs from the checked-out Xodus source" >&2
+  exit 18
+}
+service_target="$(readlink "$embedded_wants")"
+[[ "$service_target" == /usr/lib/systemd/system/xodus-live-desktop-probe.service ]] || {
+  echo "ERROR: graphical.target desktop probe symlink has unexpected target: $service_target" >&2
+  exit 19
+}
+
+source_count="$(grep -c '^XODUS_SOURCE_COMMIT=' "$embedded_build_info" || true)"
+installer_count="$(grep -c '^XODUS_INSTALLER_COMMIT=' "$embedded_build_info" || true)"
+[[ "$source_count" == 1 && "$installer_count" == 1 ]] || {
+  echo 'ERROR: build-info must contain exactly one source and installer commit' >&2
+  exit 20
+}
+source_sha="$(sed -n 's/^XODUS_SOURCE_COMMIT=//p' "$embedded_build_info")"
+[[ "$source_sha" =~ ^[0-9a-f]{40}$ ]] || { echo 'ERROR: build-info source SHA is invalid' >&2; exit 21; }
+grep -Fxq "XODUS_INSTALLER_COMMIT=$REF" "$embedded_build_info" || {
+  echo 'ERROR: live-root installer commit differs from upstream/installer.lock' >&2
+  exit 22
+}
+if [[ -n "${PR_HEAD_SHA:-}" && "$source_sha" != "$PR_HEAD_SHA" ]]; then
+  echo "ERROR: live-root source SHA $source_sha differs from PR head $PR_HEAD_SHA" >&2
+  exit 23
+fi
+
+cat >"$outdir/desktop-payload.txt" <<EOF
+probe_path=$probe_rel
+probe_mode=$probe_mode
+probe_sha256=$(sha256sum "$embedded_probe" | awk '{print $1}')
+service_path=$service_rel
+service_sha256=$(sha256sum "$embedded_service" | awk '{print $1}')
+service_symlink=$service_target
+source_commit=$source_sha
+installer_commit=$REF
+EOF
+
 grep -nE 'wipefs|sgdisk|parted|mkfs\.|pacstrap|arch-chroot|grub-install|refind' "$embedded_setup" \
   >"$outdir/destructive-primitives.txt" || true
 
@@ -126,9 +219,10 @@ installer_path=$setup_rel
 installer_blob=$actual_blob
 entrypoint=$entry_rel
 live_root_contract=pass
+desktop_payload_contract=pass
 installer_invoked=no
 physical_install_policy=locked
 EOF
 
 cat "$outdir/summary.txt"
-echo "PASS: qualified Xodus ISO embeds the exact pinned pearOS installer driver."
+echo "PASS: qualified Xodus ISO embeds the pinned installer and executable desktop probe."

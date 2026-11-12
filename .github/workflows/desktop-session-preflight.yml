@@ -1,0 +1,26 @@
+name: Desktop Session Preflight
+
+on:
+  pull_request:
+    paths:
+      - 'qa/desktop-session-preflight.sh'
+      - 'qa/desktop-session-preflight-contract.sh'
+      - '.github/workflows/desktop-session-preflight.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run desktop session preflight contract
+        run: bash qa/desktop-session-preflight-contract.sh
+      - name: Enforce read-only boundary
+        run: |
+          if grep -En '\b(systemctl|mount|umount|mkfs|parted|sgdisk|dd|reboot|shutdown)\b' qa/desktop-session-preflight.sh; then
+            echo 'desktop preflight must remain read-only' >&2
+            exit 1
+          fi

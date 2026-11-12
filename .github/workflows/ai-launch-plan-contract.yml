@@ -1,0 +1,49 @@
+name: AI Launch Plan Contract
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/xodus-ai-launch-plan.py'
+      - 'qa/test_xodus_ai_launch_plan.py'
+      - '.github/workflows/ai-launch-plan-contract.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/xodus-ai-launch-plan.py'
+      - 'qa/test_xodus_ai_launch_plan.py'
+      - '.github/workflows/ai-launch-plan-contract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile planner
+        run: python3 -m py_compile scripts/xodus-ai-launch-plan.py qa/test_xodus_ai_launch_plan.py
+      - name: Run focused regressions
+        run: python3 -m unittest -v qa/test_xodus_ai_launch_plan.py
+      - name: Enforce non-executing planner boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          file=scripts/xodus-ai-launch-plan.py
+          if grep -En '^[[:space:]]*(import|from)[[:space:]]+(subprocess|socket|requests|urllib)([[:space:].]|$)' "$file"; then
+            echo 'Planner imports a forbidden process/network module' >&2
+            exit 1
+          fi
+          if grep -En '(subprocess\.|os\.(system|popen|exec[a-z_]*|spawn[a-z_]*)|socket\.)' "$file"; then
+            echo 'Planner contains a forbidden execution/network call' >&2
+            exit 1
+          fi
+          if grep -En "['\"](curl|wget|systemctl|sudo)['\"]" "$file"; then
+            echo 'Planner embeds a forbidden external command' >&2
+            exit 1
+          fi
+          grep -q '"network_downloads_allowed": False' "$file"
+          grep -q '"mutates_system": False' "$file"
+          grep -q '"executes_process": False' "$file"
+          grep -q '"hardware_validation_claim": False' "$file"

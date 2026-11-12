@@ -1,0 +1,21 @@
+name: Qualified Installer Preparation
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/prepare-qualified-installer.sh'
+      - 'scripts/patch-installer-xodus-payload.py'
+      - 'qa/qualified-installer-preparation-contract.sh'
+      - '.github/workflows/qualified-installer-preparation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate qualified installer composition
+        run: bash qa/qualified-installer-preparation-contract.sh

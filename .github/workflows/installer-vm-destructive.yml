@@ -7,7 +7,10 @@ on:
       - '.github/workflows/installer-vm-destructive.yml'
       - 'scripts/installer-target-guard.sh'
       - 'scripts/audit-installer-driver.sh'
+      - 'scripts/prepare-qualified-installer.sh'
+      - 'scripts/patch-installer-xodus-payload.py'
       - 'scripts/patch-installer-package-retries.py'
+      - 'qa/test_installer_package_retries.py'
       - 'upstream/installer.lock'
       - 'qa/post-install-uefi-smoke.sh'
       - 'qa/post-install-verifier-contract.sh'
@@ -19,7 +22,7 @@ on:
   workflow_dispatch:
     inputs:
       source_sha:
-        description: 'Optional successful Core ISO commit SHA to install'
+        description: 'Optional Core ISO source SHA; must match the selected ref'
         required: false
         type: string
 
@@ -30,11 +33,26 @@ permissions:
 jobs:
   destructive-install:
     runs-on: ubuntu-24.04
-    timeout-minutes: 55
+    # The matching PR ISO can take up to 180 minutes to build before this gate starts.
+    timeout-minutes: 240
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Verify exact PR-head checkout
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PR_HEAD_SHA"
+
+      - name: Verify installer package recovery contract
+        run: python3 -m unittest discover -s qa -p 'test_installer_package_retries.py' -q
 
       - name: Parse pinned pearOS revision
         id: lock
@@ -49,18 +67,71 @@ jobs:
       - name: Resolve proven Core ISO
         id: run
         shell: bash
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || '' }}
+          REQUESTED_SOURCE_SHA: ${{ inputs.source_sha || '' }}
+          EXPECTED_ARTIFACT: xodus-reference-iso-${{ steps.lock.outputs.commit }}
         run: |
           set -euo pipefail
-          requested='${{ inputs.source_sha || '' }}'
-          if [[ -n "$requested" ]]; then
-            [[ "$requested" =~ ^[0-9a-f]{40}$ ]]
-            row=$(gh api "/repos/${GITHUB_REPOSITORY}/actions/workflows/core-iso-build.yml/runs?status=success&per_page=50" \
-              | jq -r --arg sha "$requested" '.workflow_runs[] | select(.head_sha == $sha) | [.id,.head_sha] | @tsv' | head -n1)
-          else
-            row=$(gh api "/repos/${GITHUB_REPOSITORY}/actions/workflows/core-iso-build.yml/runs?status=success&per_page=20" \
-              | jq -r '.workflow_runs[] | [.id,.head_sha] | @tsv' | head -n1)
+
+          checkout_sha=$(git rev-parse HEAD)
+          target_sha="$checkout_sha"
+          required_event=''
+          if [[ "$GITHUB_EVENT_NAME" == 'pull_request' ]]; then
+            target_sha="$PR_HEAD_SHA"
+            required_event='pull_request'
+          elif [[ -n "$REQUESTED_SOURCE_SHA" && "$REQUESTED_SOURCE_SHA" != "$checkout_sha" ]]; then
+            echo 'Requested Core ISO SHA must match the dispatched checkout' >&2
+            exit 5
           fi
-          [[ -n "${row:-}" ]] || { echo 'No successful Core ISO build available' >&2; exit 5; }
+          [[ "$target_sha" =~ ^[0-9a-f]{40}$ ]] || { echo 'Invalid Core ISO source SHA' >&2; exit 5; }
+
+          # A PR must use the ISO built from its exact head, even while that
+          # producer is still running. Dispatch is bound to its selected ref.
+          for attempt in $(seq 1 360); do
+            uri="/repos/${GITHUB_REPOSITORY}/actions/workflows/core-iso-build.yml/runs?per_page=100"
+            if [[ -n "$target_sha" ]]; then
+              uri="${uri}&head_sha=${target_sha}"
+            else
+              uri="${uri}&status=success"
+            fi
+            runs=$(gh api -H 'Accept: application/vnd.github+json' "$uri")
+            row=''
+            while IFS=$'\t' read -r candidate_id candidate_sha; do
+              [[ -n "$candidate_id" ]] || continue
+              artifacts=$(gh api -H 'Accept: application/vnd.github+json' \
+                "/repos/${GITHUB_REPOSITORY}/actions/runs/${candidate_id}/artifacts?per_page=100")
+              if jq -e --arg name "$EXPECTED_ARTIFACT" \
+                '[.artifacts[] | select(.name == $name)] as $matches |
+                 ($matches | length) == 1 and
+                 $matches[0].expired == false and
+                 $matches[0].size_in_bytes > 0' <<< "$artifacts" >/dev/null; then
+                row="${candidate_id}"$'\t'"${candidate_sha}"
+                break
+              fi
+            done < <(jq -r --arg sha "$target_sha" --arg event "$required_event" \
+              '.workflow_runs[] |
+               select(.status == "completed" and .conclusion == "success" and
+                      ($sha == "" or .head_sha == $sha) and
+                      ($event == "" or .event == $event)) |
+               [.id,.head_sha] | @tsv' <<< "$runs")
+
+            if [[ -n "$row" ]]; then break; fi
+            if [[ "$GITHUB_EVENT_NAME" != 'pull_request' ]]; then
+              echo 'No successful Core ISO build with a live expected artifact matched the dispatch request' >&2
+              exit 5
+            fi
+            active=$(jq -r --arg sha "$target_sha" \
+              '[.workflow_runs[] | select(.head_sha == $sha and .event == "pull_request" and .status != "completed")] | length' \
+              <<< "$runs")
+            if (( active == 0 && attempt >= 4 )); then
+              echo "No successful exact-head Core ISO run with live artifact for $target_sha" >&2
+              exit 5
+            fi
+            echo "Waiting for exact-head Core ISO artifact for $target_sha (poll $attempt/360)"
+            sleep 30
+          done
+          [[ -n "${row:-}" ]] || { echo 'Exact-head Core ISO artifact did not appear before timeout' >&2; exit 5; }
           IFS=$'\t' read -r run_id source_sha <<< "$row"
           echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
           echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
@@ -97,14 +168,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          iso=$(find installer-input -type f -name '*.iso' -print -quit)
-          checksum=$(find installer-input -type f -name 'xodus-reference.sha256' -print -quit)
-          test -n "$iso" && test -s "$iso"
-          test -n "$checksum" && test -s "$checksum"
-          iso_abs=$(realpath "$iso")
-          expected=$(awk '{print $1}' "$checksum")
+          mapfile -t isos < <(find installer-input -type f -name '*.iso')
+          mapfile -t checksums < <(find installer-input -type f -name 'xodus-reference.sha256')
+          mapfile -t manifests < <(find installer-input -type f -name 'xodus-reference.manifest')
+          (( ${#isos[@]} == 1 && ${#checksums[@]} == 1 && ${#manifests[@]} == 1 ))
+          test -s "${isos[0]}" && test -s "${checksums[0]}" && test -s "${manifests[0]}"
+          iso_abs=$(realpath "${isos[0]}")
+          expected=$(awk 'NR == 1 {print $1}' "${checksums[0]}")
           actual=$(sha256sum "$iso_abs" | awk '{print $1}')
-          test "$expected" = "$actual"
+          [[ "$expected" == "$actual" ]]
+          grep -Fxq 'xodus_source_commit=${{ steps.run.outputs.source_sha }}' "${manifests[0]}"
+          grep -Fxq 'upstream_commit=${{ steps.lock.outputs.commit }}' "${manifests[0]}"
+          grep -Fxq "iso_filename=$(basename "$iso_abs")" "${manifests[0]}"
+          grep -Fxq "iso_sha256=$actual" "${manifests[0]}"
           echo "iso=$iso_abs" >> "$GITHUB_OUTPUT"
           printf 'sha256=%s\ncore_source_sha=%s\ncore_run_id=%s\n' \
             "$actual" '${{ steps.run.outputs.source_sha }}' '${{ steps.run.outputs.run_id }}' \
@@ -132,11 +208,25 @@ jobs:
           old = '''SETUP_FILE="$AUDIT_DIR/$SETUP_PATH"
           [[ -s "$SETUP_FILE" ]] || { echo "ERROR: audited installer setup missing" >&2; exit 1; }
           SETUP_B64="$(base64 -w0 "$SETUP_FILE")"'''
-          new = '''SETUP_FILE="$AUDIT_DIR/$SETUP_PATH"
-          [[ -s "$SETUP_FILE" ]] || { echo "ERROR: audited installer setup missing" >&2; exit 1; }
+          new = '''QUALIFIED_DIR="$OUTDIR/qualified-installer"
+          bash "$repo_root/scripts/prepare-qualified-installer.sh" "$LOCK" "$QUALIFIED_DIR" \
+            | tee "$OUTDIR/qualified-installer-preparation.txt"
+          SETUP_FILE="$QUALIFIED_DIR/setup.xodus-qualified"
+          [[ -s "$SETUP_FILE" && -x "$SETUP_FILE" ]] \
+            || { echo "ERROR: qualified Xodus installer setup missing" >&2; exit 1; }
+          grep -Fq '/usr/lib/xodus/xodus-first-boot' "$SETUP_FILE" \
+            || { echo "ERROR: qualified installer lost first-boot payload handoff" >&2; exit 1; }
+          grep -Fq 'multi-user.target.wants/xodus-first-boot.service' "$SETUP_FILE" \
+            || { echo "ERROR: qualified installer lost first-boot enablement" >&2; exit 1; }
+          grep -Fq '/usr/lib/xodus/xodus-ai-first-boot' "$SETUP_FILE" \
+            || { echo "ERROR: qualified installer lost AI first-boot payload handoff" >&2; exit 1; }
           PATCHED_SETUP_FILE="$OUTDIR/xodus-setup-runtime.sh"
           python3 "$repo_root/scripts/patch-installer-package-retries.py" "$SETUP_FILE" "$PATCHED_SETUP_FILE" \
             | tee "$OUTDIR/installer-runtime-patch.txt"
+          grep -Fq '/usr/lib/xodus/xodus-first-boot' "$PATCHED_SETUP_FILE" \
+            || { echo "ERROR: runtime hardening stripped first-boot payload handoff" >&2; exit 1; }
+          grep -Fq '/usr/lib/xodus/xodus-ai-first-boot' "$PATCHED_SETUP_FILE" \
+            || { echo "ERROR: runtime hardening stripped AI first-boot payload handoff" >&2; exit 1; }
           grep -Fqx '  shutdown -r now' "$PATCHED_SETUP_FILE" \
             || { echo "ERROR: upstream installer reboot contract changed" >&2; exit 1; }
           sed -i 's|^  shutdown -r now$|  echo "XODUS_CI_REBOOT_SUPPRESSED" >> /home/liveuser/Desktop/install.log; sync; exit 0|' \
@@ -144,11 +234,15 @@ jobs:
           grep -Fqx '  echo "XODUS_CI_REBOOT_SUPPRESSED" >> /home/liveuser/Desktop/install.log; sync; exit 0' \
             "$PATCHED_SETUP_FILE" \
             || { echo "ERROR: CI reboot suppression transform failed" >&2; exit 1; }
+          echo 'installer_source=audited-xodus-qualified-payload-handoff' \
+            | tee -a "$OUTDIR/installer-runtime-patch.txt"
           echo 'ci_reboot_policy=suppress-upstream-reboot-after-installation-finished' \
             | tee -a "$OUTDIR/installer-runtime-patch.txt"
+          sha256sum "$SETUP_FILE" "$PATCHED_SETUP_FILE" \
+            | tee "$OUTDIR/runtime-installer.sha256"
           SETUP_B64="$(base64 -w0 "$PATCHED_SETUP_FILE")"'''
           if text.count(old) != 1:
-              raise SystemExit('audited setup handoff contract changed; refusing runtime hardening')
+              raise SystemExit('audited setup handoff contract changed; refusing qualified installer integration')
           p.write_text(text.replace(old, new, 1))
           PY
 
@@ -166,7 +260,7 @@ jobs:
           # Consume the single installed-disk acceptance entrypoint merged in
           # PR #38. That entrypoint already composes on-disk payload checks with
           # detached-media UEFI/userspace boot proof. The destructive gate must
-          # call it on the exact raw disk produced by the audited installer.
+          # call it on the exact raw disk produced by the qualified installer.
           python3 - <<'PY'
           from pathlib import Path
           p = Path('qa/installer-vm-destructive.sh')
@@ -199,9 +293,15 @@ jobs:
           p.write_text(text.replace(old_summary, new_summary, 1))
           PY
 
-          python3 -m py_compile scripts/patch-installer-package-retries.py
+          python3 -m py_compile scripts/patch-installer-package-retries.py scripts/patch-installer-xodus-payload.py
+          bash -n scripts/prepare-qualified-installer.sh
           bash -n qa/installer-vm-destructive.sh
           grep -Fq "systemctl is-system-running || true" qa/installer-vm-destructive.sh
+          grep -Fq 'prepare-qualified-installer.sh' qa/installer-vm-destructive.sh
+          grep -Fq 'setup.xodus-qualified' qa/installer-vm-destructive.sh
+          grep -Fq 'installer_source=audited-xodus-qualified-payload-handoff' qa/installer-vm-destructive.sh
+          grep -Fq '/usr/lib/xodus/xodus-first-boot' qa/installer-vm-destructive.sh
+          grep -Fq '/usr/lib/xodus/xodus-ai-first-boot' qa/installer-vm-destructive.sh
           grep -Fq 'patch-installer-package-retries.py' qa/installer-vm-destructive.sh
           grep -Fq 'XODUS_CI_REBOOT_SUPPRESSED' qa/installer-vm-destructive.sh
           grep -Fq '__XODUS_INSTALLER_LOG__' qa/installer-vm-destructive.sh

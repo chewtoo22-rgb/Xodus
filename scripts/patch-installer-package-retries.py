@@ -15,6 +15,9 @@ Observed conflict repairs are explicit and fail closed:
 - pipewire-jack replaces the mutually-exclusive jack2 implementation.
 - plasma-desktop may replace the single lockscreen QML path already staged by
   the pearOS payload.
+- nautilus must come from the official extra repository at the exact version
+  already installed for libnautilus-extension; a stale pearOS package is not
+  retried or forced over the extension.
 - current Plasma may preselect plasmalogin through display-manager.service;
   pearOS explicitly configures SDDM later, so Xodus selects that alias against
   the installed root with systemd's offline --root mode and verifies it.
@@ -90,7 +93,10 @@ new = '''  trap - ERR
   # retry for anything else.
   if (( failed_packages > 0 )); then
     echo "Repairing/retrying $failed_packages failed package(s) after database refresh" >> /home/liveuser/Desktop/install.log
-    pacman -Syy --noconfirm >> /home/liveuser/Desktop/install.log 2>&1 || true
+    database_refresh_ok=false
+    if pacman -Syy --noconfirm >> /home/liveuser/Desktop/install.log 2>&1; then
+      database_refresh_ok=true
+    fi
     retry_failures=()
 
     for package in "${failed_package_names[@]}"; do
@@ -188,9 +194,46 @@ new = '''  trap - ERR
             recovered=true
           fi
           ;;
+        nautilus)
+          # A stale pearOS nautilus can conflict with the newer
+          # libnautilus-extension installed earlier by file-roller. Select only
+          # official extra/nautilus, and only at that extension's exact version.
+          extension_row=$(arch-chroot /mnt pacman -Q libnautilus-extension \
+            2>> /home/liveuser/Desktop/install.log) || extension_row=''
+          if $database_refresh_ok \
+             && [[ "$extension_row" =~ ^libnautilus-extension[[:space:]]([^[:space:]]+)$ ]]; then
+            extension_version="${BASH_REMATCH[1]}"
+            # pacstrap uses the live host's sync databases, so preview through
+            # that same refreshed pacman database rather than the target root.
+            repo_rows=$(pacman -Sp --print-format '%r/%n %v' extra/nautilus \
+              2>> /home/liveuser/Desktop/install.log) || repo_rows=''
+            mapfile -t official_rows < <(awk '$1 == "extra/nautilus" {print}' <<< "$repo_rows")
+            if (( ${#official_rows[@]} == 1 )) \
+               && [[ "${official_rows[0]}" =~ ^extra/nautilus[[:space:]]([^[:space:]]+)$ ]]; then
+              official_version="${BASH_REMATCH[1]}"
+              if [[ "$official_version" == "$extension_version" ]] \
+                 && pacstrap /mnt extra/nautilus \
+                      >> /home/liveuser/Desktop/install.log 2>&1; then
+                nautilus_row=$(arch-chroot /mnt pacman -Q nautilus \
+                  2>> /home/liveuser/Desktop/install.log) || nautilus_row=''
+                extension_after=$(arch-chroot /mnt pacman -Q libnautilus-extension \
+                  2>> /home/liveuser/Desktop/install.log) || extension_after=''
+                if [[ "$nautilus_row" == "nautilus $official_version" \
+                   && "$extension_after" == "libnautilus-extension $official_version" ]] \
+                   && arch-chroot /mnt pacman -Dk \
+                        >> /home/liveuser/Desktop/install.log 2>&1; then
+                  echo "Recovered nautilus from extra at matching libnautilus-extension version $official_version" \
+                    >> /home/liveuser/Desktop/install.log
+                  recovered=true
+                fi
+              fi
+            fi
+          fi
+          ;;
       esac
 
-      if ! $recovered; then
+      # Never fall back to unqualified pearOS nautilus after this check fails.
+      if ! $recovered && [[ "$package" != nautilus ]]; then
         if pacstrap /mnt "$package" >> /home/liveuser/Desktop/install.log 2>&1; then
           echo "Recovered package on normal retry: $package" >> /home/liveuser/Desktop/install.log
           recovered=true

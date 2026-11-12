@@ -1,0 +1,25 @@
+name: Systemd Dependency Integrity
+
+on:
+  pull_request:
+    paths:
+      - 'overlay/first-boot/*.service'
+      - 'qa/systemd_dependency_integrity.py'
+      - 'qa/test_systemd_dependency_integrity.py'
+      - '.github/workflows/systemd-dependency-integrity.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-integrity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile validator
+        run: python3 -m py_compile qa/systemd_dependency_integrity.py qa/test_systemd_dependency_integrity.py
+      - name: Run hostile-input regressions
+        run: python3 qa/test_systemd_dependency_integrity.py -v
+      - name: Validate repository Xodus service graph
+        run: python3 qa/systemd_dependency_integrity.py overlay/first-boot

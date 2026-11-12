@@ -2,8 +2,6 @@
 set -euo pipefail
 
 outdir="${1:-xodus-installed-hardware-evidence}"
-mkdir -p "$outdir"
-outdir="$(realpath "$outdir")"
 
 run_capture() {
   local name="$1"
@@ -34,7 +32,33 @@ if [[ "${XODUS_CONTRACT_ALLOW_NO_EFI:-0}" != "1" && ! -d /sys/firmware/efi ]]; t
   exit 41
 fi
 
+candidate_sha="${XODUS_CANDIDATE_SHA:-}"
+if [[ ! "$candidate_sha" =~ ^[0-9a-f]{40}$ ]]; then
+  printf 'refusing installed-system evidence: XODUS_CANDIDATE_SHA must be an exact lowercase SHA\n' >&2
+  exit 42
+fi
+
+# Bind physical installed-system evidence to the exact qualified Xodus build.
+# Capture the verifier result before creating the evidence directory so a
+# provenance failure leaves no partial bundle that could be mistaken as valid.
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+if ! build_info_contract=$(XODUS_EXPECTED_SOURCE_COMMIT="$candidate_sha" \
+  bash "$script_dir/x1-build-info-contract.sh" /); then
+  printf 'refusing installed-system evidence: running build-info does not match candidate %s\n' "$candidate_sha" >&2
+  exit 43
+fi
+upstream_sha=$(sed -n 's/^upstream_sha=//p' <<<"$build_info_contract")
+if [[ ! "$upstream_sha" =~ ^[0-9a-f]{40}$ ]] || [[ $(grep -c '^upstream_sha=' <<<"$build_info_contract") -ne 1 ]]; then
+  printf 'refusing installed-system evidence: verified build-info upstream provenance is missing or malformed\n' >&2
+  exit 44
+fi
+
+mkdir -p "$outdir"
+outdir="$(realpath "$outdir")"
+
 printf 'captured_at_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$outdir/summary.txt"
+printf 'candidate_sha=%s\n' "$candidate_sha" >> "$outdir/summary.txt"
+printf 'upstream_sha=%s\n' "$upstream_sha" >> "$outdir/summary.txt"
 printf 'hostname=%s\n' "$(hostname 2>/dev/null || true)" >> "$outdir/summary.txt"
 printf 'kernel=%s\n' "$(uname -r)" >> "$outdir/summary.txt"
 printf 'root_source=%s\n' "$root_source" >> "$outdir/summary.txt"

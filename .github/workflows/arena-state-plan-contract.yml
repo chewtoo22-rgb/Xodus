@@ -1,0 +1,37 @@
+name: Arena State Plan Contract
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/arena-state-plan.py'
+      - 'qa/test-arena-state-plan.py'
+      - '.github/workflows/arena-state-plan-contract.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/arena-state-plan.py'
+      - 'qa/test-arena-state-plan.py'
+      - '.github/workflows/arena-state-plan-contract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run focused Arena planner regressions
+        run: python3 qa/test-arena-state-plan.py
+      - name: Enforce non-mutating planner boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          target=scripts/arena-state-plan.py
+          ! grep -Eiq '(^|[[:space:]])(subprocess|os\.system|os\.popen|shutil\.rmtree|systemctl|loginctl|gamescope|steam)([[:space:](]|$)' "$target"
+          grep -Fq '"mutates_system": False' "$target"
+          grep -Fq '"hardware_validation_claim": False' "$target"

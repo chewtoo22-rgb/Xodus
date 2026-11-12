@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+"""Build a deterministic, non-executing Xodus Arena session plan.
+
+Consumes the Arena preflight decision and emits the exact argv/environment a
+future session launcher may use. This planner never starts gamescope, Steam, or
+any other process and never mutates power, display, audio, or service state.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+SCHEMA = 1
+PREFLIGHT_SCHEMA = 1
+MAX_DIMENSION = 7680
+MIN_DIMENSION = 640
+MIN_REFRESH = 30
+MAX_REFRESH = 240
+KNOWN_GPUS = {"intel", "amd", "nvidia"}
+
+
+def load_preflight(path: str) -> dict:
+    source = Path(path)
+    if source.is_symlink() or not source.is_file():
+        raise ValueError("preflight evidence must be a regular non-symlink file")
+    data = json.loads(source.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("preflight evidence must be an object")
+    return data
+
+
+def validate_preflight(data: dict) -> list[str]:
+    expected = {"schema", "ready", "blockers", "warnings", "gpu_vendors", "require_steam", "policy"}
+    if set(data) != expected:
+        raise ValueError("unexpected preflight schema fields")
+    if data.get("schema") != PREFLIGHT_SCHEMA:
+        raise ValueError("unsupported preflight schema")
+    if data.get("ready") is not True:
+        raise ValueError("Arena preflight is not ready")
+    blockers = data.get("blockers")
+    if not isinstance(blockers, list) or blockers:
+        raise ValueError("ready preflight cannot contain blockers")
+    warnings = data.get("warnings")
+    if not isinstance(warnings, list) or not all(isinstance(v, str) for v in warnings):
+        raise ValueError("warnings must be a string list")
+    vendors = data.get("gpu_vendors")
+    if not isinstance(vendors, list) or not vendors or not all(v in KNOWN_GPUS for v in vendors):
+        raise ValueError("gpu_vendors must contain known GPU vendors")
+    if not isinstance(data.get("require_steam"), bool):
+        raise ValueError("require_steam must be boolean")
+    policy = data.get("policy")
+    if not isinstance(policy, dict) or set(policy) != {
+        "read_only_preflight", "state_changes_performed", "hardware_validation_claim", "launch_authorized"
+    }:
+        raise ValueError("invalid preflight policy")
+    if policy.get("read_only_preflight") is not True:
+        raise ValueError("preflight must be read-only")
+    if policy.get("state_changes_performed") is not False:
+        raise ValueError("preflight must not change state")
+    if policy.get("hardware_validation_claim") is not False:
+        raise ValueError("preflight must not claim hardware validation")
+    if policy.get("launch_authorized") is not True:
+        raise ValueError("preflight did not authorize launch")
+    return sorted(set(vendors))
+
+
+def bounded_int(name: str, value: int, minimum: int, maximum: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
+        raise ValueError(f"{name} must be between {minimum} and {maximum}")
+    return value
+
+
+def build_plan(preflight: dict, width: int, height: int, refresh: int, steam: bool) -> dict:
+    vendors = validate_preflight(preflight)
+    width = bounded_int("width", width, MIN_DIMENSION, MAX_DIMENSION)
+    height = bounded_int("height", height, MIN_DIMENSION, MAX_DIMENSION)
+    refresh = bounded_int("refresh", refresh, MIN_REFRESH, MAX_REFRESH)
+    if preflight["require_steam"] and not steam:
+        raise ValueError("preflight requires Steam")
+
+    argv = [
+        "/usr/bin/gamescope", "-f", "-W", str(width), "-H", str(height), "-r", str(refresh), "--"
+    ]
+    target = ["/usr/bin/steam", "-gamepadui"] if steam else ["/usr/bin/xodus-arena-shell"]
+    argv.extend(target)
+
+    env = {
+        "XODUS_ARENA": "1",
+        "XODUS_ARENA_GPU_VENDOR": ",".join(vendors),
+    }
+    return {
+        "schema": SCHEMA,
+        "status": "planned",
+        "argv": argv,
+        "environment": env,
+        "display": {"width": width, "height": height, "refresh_hz": refresh},
+        "target": "steam_gamepadui" if steam else "xodus_arena_shell",
+        "gpu_vendors": vendors,
+        "policy": {
+            "exec_performed": False,
+            "state_changes_performed": False,
+            "hardware_validation_claim": False,
+            "requires_fresh_preflight": True,
+        },
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--preflight", required=True)
+    parser.add_argument("--width", type=int, default=1920)
+    parser.add_argument("--height", type=int, default=1080)
+    parser.add_argument("--refresh", type=int, default=60)
+    parser.add_argument("--steam", action="store_true")
+    args = parser.parse_args()
+    try:
+        plan = build_plan(load_preflight(args.preflight), args.width, args.height, args.refresh, args.steam)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        print(json.dumps({
+            "schema": SCHEMA,
+            "status": "blocked",
+            "error": str(exc),
+            "policy": {
+                "exec_performed": False,
+                "state_changes_performed": False,
+                "hardware_validation_claim": False,
+                "requires_fresh_preflight": True,
+            },
+        }, sort_keys=True, separators=(",", ":")))
+        return 2
+    print(json.dumps(plan, sort_keys=True, separators=(",", ":")))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

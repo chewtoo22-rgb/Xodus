@@ -1,0 +1,25 @@
+name: First Boot Service Contract
+
+on:
+  pull_request:
+    paths:
+      - 'overlay/first-boot/xodus-first-boot.service'
+      - 'qa/test-first-boot-service-contract.sh'
+      - '.github/workflows/first-boot-service-contract.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'overlay/first-boot/xodus-first-boot.service'
+      - 'qa/test-first-boot-service-contract.sh'
+      - '.github/workflows/first-boot-service-contract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate first-boot systemd contract
+        run: bash qa/test-first-boot-service-contract.sh

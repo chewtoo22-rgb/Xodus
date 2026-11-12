@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "milestone": "X1",
+  "target": "intel-nuc-x86_64",
+  "destructive_install": false,
+  "hardware_validation_claim": false,
+  "required_checks": [
+    "uefi_boot_path",
+    "qemu_ovmf_smoke",
+    "installer_vm_gate",
+    "first_boot_services",
+    "ai_first_boot_ordering",
+    "recovery_rollback_plan",
+    "dedicated_target_disk"
+  ]
+}

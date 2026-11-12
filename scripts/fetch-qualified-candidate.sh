@@ -3,29 +3,68 @@ set -euo pipefail
 
 REPO="${XODUS_REPO:-chewtoo22-rgb/Xodus}"
 OUT_DIR="${1:-xodus-hardware-candidate}"
+[[ $# -le 1 ]] || { echo "usage: $0 [candidate-dir]" >&2; exit 2; }
+[[ "$REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || {
+  echo "error: XODUS_REPO must be an owner/repository name" >&2
+  exit 2
+}
+[[ ! -e "$OUT_DIR" && ! -L "$OUT_DIR" ]] || {
+  echo "error: candidate output already exists; choose a new directory: $OUT_DIR" >&2
+  exit 2
+}
 
-for cmd in gh jq sha256sum find awk; do
+for cmd in gh jq sha256sum find; do
   command -v "$cmd" >/dev/null 2>&1 || {
     echo "error: required command '$cmd' is not installed" >&2
     exit 2
   }
 done
 
-mkdir -p "$OUT_DIR"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 runs_json="$(gh api "/repos/${REPO}/actions/workflows/hardware-candidate.yml/runs?branch=main&status=success&per_page=1")"
+if ! jq -e '
+  .workflow_runs[0].conclusion == "success" and
+  .workflow_runs[0].status == "completed" and
+  .workflow_runs[0].head_branch == "main" and
+  (.workflow_runs[0].id | numbers | . > 0 and floor == .) and
+  (.workflow_runs[0].head_sha | strings | test("^[0-9a-f]{40}$"))
+' <<<"$runs_json" >/dev/null; then
+  echo "error: no valid successful main Hardware Candidate Gate run was found" >&2
+  exit 3
+fi
 candidate_run_id="$(jq -er '.workflow_runs[0].id' <<<"$runs_json")"
 candidate_run_sha="$(jq -er '.workflow_runs[0].head_sha' <<<"$runs_json")"
+main_sha="$(gh api "/repos/${REPO}/branches/main" --jq '.commit.sha')"
+if [[ ! "$main_sha" =~ ^[0-9a-f]{40}$ || "$candidate_run_sha" != "$main_sha" ]]; then
+  echo "error: latest successful Hardware Candidate Gate run is stale or main HEAD is invalid" >&2
+  echo "candidate=${candidate_run_sha} main=${main_sha}" >&2
+  exit 3
+fi
 
 echo "Fetching qualification manifest from Hardware Candidate Gate run ${candidate_run_id}..."
-gh run download "$candidate_run_id" --repo "$REPO" --dir "$TMP_DIR/qualification"
+gh run download "$candidate_run_id" --repo "$REPO" --name "hardware-candidate-${candidate_run_sha}" --dir "$TMP_DIR/qualification"
 
-manifest="$(find "$TMP_DIR/qualification" -type f -name hardware-candidate.json -print -quit)"
-if [[ -z "$manifest" ]]; then
-  echo "error: hardware-candidate.json was not found in qualification artifacts" >&2
+mapfile -d '' -t manifests < <(find "$TMP_DIR/qualification" -type f -name hardware-candidate.json -print0)
+if [[ ${#manifests[@]} -ne 1 ]]; then
+  echo "error: expected exactly one hardware-candidate.json in qualification artifacts" >&2
   exit 3
+fi
+manifest="${manifests[0]}"
+
+if ! jq -e '
+  .schema == 1 and
+  (.candidate_sha | strings | test("^[0-9a-f]{40}$")) and
+  .policy == "live-boot-only" and
+  (.core_iso.run_id | numbers | . > 0 and floor == .) and
+  (.core_iso.artifact_id | numbers | . > 0 and floor == .) and
+  (.core_iso.artifact_name | strings | test("^xodus-reference-iso-[0-9a-f]{40}$")) and
+  (.qa_qemu.run_id | numbers | . > 0 and floor == .) and
+  .core_iso.run_id != .qa_qemu.run_id
+' "$manifest" >/dev/null; then
+  echo "error: malformed qualification manifest or unrecognized candidate policy" >&2
+  exit 4
 fi
 
 candidate_sha="$(jq -er '.candidate_sha' "$manifest")"
@@ -39,10 +78,10 @@ if [[ "$candidate_sha" != "$candidate_run_sha" ]]; then
   exit 4
 fi
 
-core_sha="$(gh api "/repos/${REPO}/actions/runs/${core_run_id}" --jq '.head_sha')"
-qa_sha="$(gh api "/repos/${REPO}/actions/runs/${qa_run_id}" --jq '.head_sha')"
-core_conclusion="$(gh api "/repos/${REPO}/actions/runs/${core_run_id}" --jq '.conclusion')"
-qa_conclusion="$(gh api "/repos/${REPO}/actions/runs/${qa_run_id}" --jq '.conclusion')"
+core_run_json="$(gh api "/repos/${REPO}/actions/runs/${core_run_id}")"
+qa_run_json="$(gh api "/repos/${REPO}/actions/runs/${qa_run_id}")"
+core_sha="$(jq -er '.head_sha' <<<"$core_run_json")"
+qa_sha="$(jq -er '.head_sha' <<<"$qa_run_json")"
 
 if [[ "$core_sha" != "$candidate_sha" || "$qa_sha" != "$candidate_sha" ]]; then
   echo "error: same-SHA release invariant failed" >&2
@@ -50,47 +89,30 @@ if [[ "$core_sha" != "$candidate_sha" || "$qa_sha" != "$candidate_sha" ]]; then
   exit 5
 fi
 
-if [[ "$core_conclusion" != "success" || "$qa_conclusion" != "success" ]]; then
+if ! jq -e '.status == "completed" and .conclusion == "success"' <<<"$core_run_json" >/dev/null ||
+   ! jq -e '.status == "completed" and .conclusion == "success"' <<<"$qa_run_json" >/dev/null; then
   echo "error: candidate references a non-successful producer or QA run" >&2
-  echo "core=${core_conclusion} qa=${qa_conclusion}" >&2
   exit 6
 fi
 
 echo "Downloading ISO artifact '${core_artifact}' from Core ISO run ${core_run_id}..."
+mkdir -p -- "$OUT_DIR"
 gh run download "$core_run_id" --repo "$REPO" --name "$core_artifact" --dir "$OUT_DIR"
 
-checksum_file="$(find "$OUT_DIR" -maxdepth 2 -type f \( -name '*.sha256' -o -name 'SHA256SUMS' \) -print -quit)"
-if [[ -z "$checksum_file" ]]; then
-  echo "error: no SHA-256 checksum file was found beside the ISO artifact" >&2
+[[ ! -e "$OUT_DIR/hardware-candidate.json" && ! -L "$OUT_DIR/hardware-candidate.json" ]] || {
+  echo "error: ISO artifact unexpectedly contains a qualification manifest" >&2
   exit 7
-fi
-
-iso_file="$(find "$OUT_DIR" -type f -name '*.iso' -print -quit)"
-if [[ -z "$iso_file" ]]; then
-  echo "error: no ISO file was found after artifact download" >&2
-  exit 8
-fi
-
-# GitHub artifact downloads may flatten the directory structure that existed
-# when the checksum was generated. Verify the digest against the discovered ISO
-# rather than trusting the recorded relative pathname to survive extraction.
-expected_sha="$(awk 'NF >= 2 && $1 ~ /^[0-9a-fA-F]{64}$/ { print tolower($1); exit }' "$checksum_file")"
-if [[ -z "$expected_sha" ]]; then
-  echo "error: checksum file does not contain a valid SHA-256 digest" >&2
-  exit 9
-fi
-
-actual_sha="$(sha256sum "$iso_file" | awk '{ print tolower($1) }')"
-if [[ "$actual_sha" != "$expected_sha" ]]; then
-  echo "error: ISO SHA-256 verification failed" >&2
-  echo "expected=${expected_sha}" >&2
-  echo "actual=${actual_sha}" >&2
-  exit 10
-fi
-
-echo "${iso_file}: OK (${actual_sha})"
-
+}
 cp "$manifest" "$OUT_DIR/hardware-candidate.json"
+bash "$(dirname "${BASH_SOURCE[0]}")/write-candidate-usb.sh" --verify-bundle "$OUT_DIR"
+iso_file="$(find "$OUT_DIR" -type f -name '*.iso' -print -quit)"
+final_main_sha="$(gh api "/repos/${REPO}/branches/main" --jq '.commit.sha')"
+if [[ "$final_main_sha" != "$candidate_sha" ]]; then
+  rm -f -- "$OUT_DIR/hardware-candidate.json"
+  echo "error: main advanced while the candidate was downloaded; this bundle is no longer current" >&2
+  echo "candidate=${candidate_sha} main=${final_main_sha}" >&2
+  exit 3
+fi
 
 cat <<EOF
 

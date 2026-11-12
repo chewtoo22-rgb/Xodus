@@ -18,6 +18,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Validate shell syntax
-        run: bash -n overlay/first-boot/xodus-ai-first-boot qa/ai-first-boot-contract.sh
+        run: for script in overlay/first-boot/xodus-ai-first-boot qa/ai-first-boot-contract.sh; do bash -n "$script"; done
       - name: Validate AI first-boot contract
         run: bash qa/ai-first-boot-contract.sh

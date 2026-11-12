@@ -1,0 +1,8 @@
+{
+  "units": {
+    "xodus-first-boot.service": {"kind": "oneshot", "enabled": true, "after": [], "requires": []},
+    "xodus-ai-first-boot.service": {"kind": "oneshot", "enabled": true, "after": ["xodus-first-boot.service"], "requires": ["xodus-first-boot.service"]},
+    "xodus-ai-runtime-preflight.service": {"kind": "oneshot", "enabled": true, "after": ["xodus-ai-first-boot.service"], "requires": ["xodus-ai-first-boot.service"]},
+    "graphical.target": {"after": ["xodus-first-boot.service"]}
+  }
+}

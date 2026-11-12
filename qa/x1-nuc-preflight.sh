@@ -10,7 +10,51 @@ pass() { printf 'PASS  %s\n' "$*"; }
 warn() { printf 'WARN  %s\n' "$*"; warn=$((warn+1)); }
 fail() { printf 'FAIL  %s\n' "$*"; fail=$((fail+1)); }
 
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+candidate_sha="${XODUS_CANDIDATE_SHA:-}"
+if [[ ! "$candidate_sha" =~ ^[0-9a-f]{40}$ ]]; then
+  fail "XODUS_CANDIDATE_SHA must be the exact lowercase 40-character qualified candidate SHA"
+else
+  # Production media carries the verifier beside this script in /usr/lib/xodus.
+  # Keep a repository fallback so the same preflight remains runnable from a
+  # source checkout during CI/development without weakening the ISO path.
+  installed_build_info_check="/usr/lib/xodus/xodus-build-info-verify"
+  repo_root="$(cd "$script_dir/.." && pwd -P)"
+  repo_build_info_check="$repo_root/qa/x1-build-info-contract.sh"
+  build_info_check=""
+  if [[ -f "$installed_build_info_check" && ! -L "$installed_build_info_check" ]]; then
+    build_info_check="$installed_build_info_check"
+  elif [[ -f "$repo_build_info_check" && ! -L "$repo_build_info_check" ]]; then
+    build_info_check="$repo_build_info_check"
+  fi
+
+  if [[ -z "$build_info_check" ]]; then
+    fail "X1 build-info verifier missing or unsafe"
+  elif XODUS_EXPECTED_SOURCE_COMMIT="$candidate_sha" bash "$build_info_check" / >/dev/null; then
+    pass "live system provenance matches qualified candidate $candidate_sha"
+  else
+    fail "live system build-info does not match qualified candidate $candidate_sha"
+  fi
+fi
+
 [[ $EUID -eq 0 ]] || warn "not running as root; some firmware/disk details may be incomplete"
+
+# Physical X1 qualification evidence must prove it did not originate from a VM
+# or container. If the detector is missing, that proof cannot be established,
+# so fail closed rather than accepting ambiguous hardware evidence.
+virt="unknown"
+if command -v systemd-detect-virt >/dev/null 2>&1; then
+  virt="$(systemd-detect-virt 2>/dev/null || true)"
+  if [[ -n "$virt" && "$virt" != "none" ]]; then
+    fail "virtualized environment detected ($virt); physical X1 NUC evidence is required"
+  elif [[ "$virt" == "none" ]]; then
+    pass "physical-machine boundary: no virtualization detected"
+  else
+    fail "systemd-detect-virt returned no trustworthy result; physical X1 NUC evidence cannot be verified"
+  fi
+else
+  fail "systemd-detect-virt unavailable; physical X1 NUC evidence cannot be verified"
+fi
 
 if [[ -d /sys/firmware/efi ]]; then
   pass "booted in UEFI mode"
@@ -66,5 +110,5 @@ else
   warn "no non-loopback network interface detected"
 fi
 
-printf 'SUMMARY failures=%d warnings=%d destructive_actions=0\n' "$fail" "$warn"
+printf 'SUMMARY candidate_sha=%s virtualization=%s failures=%d warnings=%d destructive_actions=0\n' "${candidate_sha:-missing}" "$virt" "$fail" "$warn"
 (( fail == 0 ))

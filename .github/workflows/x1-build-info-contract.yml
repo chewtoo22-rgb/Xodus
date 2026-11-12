@@ -1,0 +1,32 @@
+name: X1 Installed Build Info Contract
+
+on:
+  pull_request:
+    paths:
+      - 'qa/x1-build-info-contract.sh'
+      - 'qa/x1-build-info-contract-test.sh'
+      - '.github/workflows/x1-build-info-contract.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'qa/x1-build-info-contract.sh'
+      - 'qa/x1-build-info-contract-test.sh'
+      - '.github/workflows/x1-build-info-contract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate installed provenance contract
+        run: bash qa/x1-build-info-contract-test.sh
+      - name: Enforce read-only boundary
+        run: |
+          if grep -En '\b(mount|umount|mkfs|wipefs|parted|sgdisk|dd|systemctl|reboot|shutdown|curl|wget)\b' qa/x1-build-info-contract.sh; then
+            echo 'installed provenance verifier must remain read-only and offline' >&2
+            exit 1
+          fi

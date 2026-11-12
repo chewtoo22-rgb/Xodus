@@ -1,8 +1,8 @@
 # Post-install UEFI gate
 
-Physical installation stays locked until a disposable VM install passes this independent verifier.
+This verifier proves that a disposable VM disk created by the installer boots independently. Historical `Destructive VM Install Gate` runs have passed it, but a fresh run is required for each intended candidate. VM success alone does not open physical installation.
 
-`qa/post-install-uefi-smoke.sh <installed-disk.qcow2> <output-dir>` consumes the disk produced by the destructive installer test. It does **not** attach the installer ISO.
+`qa/installed-disk-acceptance.sh` combines installed-payload checks with `qa/post-install-uefi-smoke.sh <installed-disk.qcow2> <output-dir>`. The UEFI verifier consumes the disk produced by the destructive installer test. It does **not** attach the installer ISO.
 
 A candidate installed disk passes only when all of the following are true:
 
@@ -19,6 +19,8 @@ The output directory captures the partition table, block layout, EFI executable 
 
 ## Safety boundary
 
-The verifier is for expendable VM disks produced by CI. It is not permission to run the upstream whole-disk installer on physical storage. Hardware install remains locked until the complete chain is automated and green:
+The verifier is for expendable VM disks produced by CI. It is not permission to run the whole-disk installer on physical storage. The candidate's VM chain must be green:
 
 `qualified ISO -> guarded disposable disk -> pinned installer -> detach ISO -> post-install UEFI userspace sentinel`
+
+Physical installation remains a separate decision after successful live hardware testing, exact dedicated-disk guard approval, and a verified recovery/rollback procedure. No automated VM result establishes those physical facts.

@@ -1,0 +1,29 @@
+name: X1 AI Offline Boundary
+
+on:
+  pull_request:
+    paths:
+      - 'qa/x1_ai_offline_boundary.py'
+      - 'scripts/xodus-ai-*.py'
+      - '.github/workflows/x1-ai-offline-boundary.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'qa/x1_ai_offline_boundary.py'
+      - 'scripts/xodus-ai-*.py'
+      - '.github/workflows/x1-ai-offline-boundary.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  offline-boundary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate offline AI boundary
+        run: python3 qa/x1_ai_offline_boundary.py

@@ -12,7 +12,8 @@ outdir=${2:-}
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 system_contract="$repo_root/qa/installed-system-contract.sh"
 boot_contract="$repo_root/qa/installed-boot-contract.sh"
-[[ -f "$system_contract" && -f "$boot_contract" ]] || {
+provenance_contract="$repo_root/qa/installed-build-provenance.sh"
+[[ -f "$system_contract" && -f "$boot_contract" && -f "$provenance_contract" ]] || {
   echo "ERROR: installed payload contract dependency missing" >&2
   exit 66
 }
@@ -89,11 +90,22 @@ sudo mount -o ro "$efi_dev" "$esp_mnt"
 # independently derives the same layout from the installed fstab.
 bash "$system_contract" "$root_mnt" "$outdir/system" "$esp_mnt"
 bash "$boot_contract" "$root_mnt" "$esp_mnt" "$outdir/boot"
+bash "$provenance_contract" "$root_mnt" | tee "$outdir/build-provenance.txt"
+
+candidate_sha=$(sed -n 's/^candidate_sha=//p' "$outdir/build-provenance.txt")
+upstream_sha=$(sed -n 's/^upstream_sha=//p' "$outdir/build-provenance.txt")
+[[ "$candidate_sha" =~ ^[0-9a-f]{40}$ && "$upstream_sha" =~ ^[0-9a-f]{40}$ ]] || {
+  echo "ERROR: installed build provenance output malformed" >&2
+  exit 68
+}
 
 {
   echo "installed_payload_on_disk=pass"
   echo "installed_system_contract=pass"
   echo "installed_boot_contract=pass"
+  echo "installed_build_provenance=pass"
+  echo "candidate_sha=$candidate_sha"
+  echo "upstream_sha=$upstream_sha"
   echo "image_format=$format"
   echo "efi_partition=$efi_dev"
   echo "root_partition=$root_dev"

@@ -50,9 +50,17 @@ jobs:
           iso_label="pearOS_NiceC0re_$(date +%Y%m)"
           iso_publisher="The Pear Project <https://pearos.xyz>"
           iso_application="pearOS Live Session"
+          file_permissions=()
           EOF_PROFILE
           printf 'pearOS-Live-System\n' > "$tmp/pear/airootfs/etc/hostname"
           : > "$tmp/pear/airootfs/etc/motd"
+          cat > "$tmp/build-binary" <<'EOF_BUILDER'
+          #!/usr/bin/env bash
+          _make_custom_airootfs() {
+              # Clone pearOS-installer from GitHub instead of using local files
+              git clone --depth 1 https://github.com/pearOS-archlinux/pearOS-installer.git "${pacstrap_dir}/usr/share/pearOS-installer" || _msg_error "Failed to clone pearOS-installer from GitHub" 1
+          }
+          EOF_BUILDER
           XODUS_UPSTREAM_COMMIT=0123456789abcdef0123456789abcdef01234567 \
             bash overlay/apply-xodus-identity.sh "$tmp"
           test -x "$tmp/pear/airootfs/usr/lib/xodus/xodus-first-boot"

@@ -1,20 +1,21 @@
 # Installer Safety Gate
 
-Xodus currently pins pearOS Installer commit `e676698b4a07f797a50fd25241a738ead75248e6` for audit purposes only.
+Xodus pins pearOS Installer commit `e676698b4a07f797a50fd25241a738ead75248e6` and audits the `system_install/setup` blob before preparing the Xodus-qualified copy used in the destructive VM gate.
 
 The audited installer is explicitly whole-disk destructive. Its setup path unmounts target partitions, runs `wipefs -a` on the selected disk, creates a new partition table, repartitions the device, and formats the new root filesystem. Upstream also labels the installer work-in-progress.
 
 ## Current release policy
 
-- Physical M0 testing is live-boot-only.
+- M0 physical testing, when the live-image gate is green, is live-boot-only.
 - Do not install to a data-bearing disk.
 - Changes to the pinned installer revision must pass `Installer Safety Contract` and receive an explicit audit.
 - Every automated destructive installer target must first pass `scripts/installer-target-guard.sh`.
-- A physical installation candidate is not allowed until CI performs the destructive path against a newly-created disposable virtual disk and then proves that disk boots under UEFI without the ISO attached.
+- The destructive VM gate exists and has historical green evidence on an expendable disk. It must be rerun for the intended candidate; it does not authorize physical installation by itself.
+- A physical installation trial also requires a successful live-hardware checklist, an empty dedicated disk, explicit human opt-in, and a verified recovery/rollback procedure. That recovery/rollback gate remains open.
 
 ## Disposable target guard
 
-`installer-target-guard.sh` is a read-only, fail-closed preflight placed in front of the future destructive installer runner. It rejects:
+`installer-target-guard.sh` is a read-only, fail-closed preflight placed in front of the destructive installer runner. It rejects:
 
 - regular files and partitions instead of whole devices;
 - any target or child partition that is mounted;
@@ -28,7 +29,7 @@ The `Installer Target Guard` workflow creates a sparse temporary image, attaches
 
 ## Installer VM rehearsal
 
-`qa/installer-vm-rehearsal.sh` is the non-destructive bridge between boot smoke and the future destructive install test. The `Installer VM Rehearsal` workflow:
+`qa/installer-vm-rehearsal.sh` checks the non-destructive VM topology separately from the destructive install test. The `Installer VM Rehearsal` workflow:
 
 1. resolves a proven Core ISO build and independently verifies its packaged SHA-256;
 2. creates a fresh 32 GiB qcow2 target in runner-temporary storage;
@@ -36,11 +37,11 @@ The `Installer Target Guard` workflow creates a sparse temporary image, attaches
 4. keeps the VM alive through a watchdog window and captures serial, firmware, ISO, and virtual-disk evidence;
 5. records `installer_invoked=no` explicitly so a green rehearsal can never be confused with proof of installation.
 
-This closes the VM-topology gap without weakening the physical live-boot-only policy. A rehearsal pass means the qualified ISO remains bootable with the exact disposable-disk topology required by the next gate; it does **not** authorize physical installation.
+This checks the disposable-disk topology without weakening the physical live-boot-only policy. A rehearsal pass means the ISO stays bootable with that topology; it does **not** prove installation or authorize physical installation.
 
 ## Deterministic installer driver contract
 
-The future destructive VM test does not drive the Electron disk selector. Xodus pins both the installer commit and the Git blob for `system_install/setup`, then `scripts/audit-installer-driver.sh` proves the machine-facing contract we intend to invoke directly:
+The destructive VM test does not drive the Electron disk selector. Xodus pins both the installer commit and the Git blob for `system_install/setup`, then `scripts/audit-installer-driver.sh` proves the machine-facing contract before direct invocation:
 
 - the whole-disk target is assigned from positional argument `$1`;
 - that assignment occurs before the first destructive `wipefs` boundary;
@@ -48,19 +49,19 @@ The future destructive VM test does not drive the Electron disk selector. Xodus 
 - the new root filesystem is mounted at `/mnt`;
 - installer progress remains observable through `/tmp/progress`.
 
-`Installer Driver Contract` CI re-fetches the exact pinned commit, verifies the `system_install/setup` blob SHA, syntax-checks the entrypoint, and fails closed if any required target semantics drift. This lets the VM automation pass an exact guarded device path without relying on ambiguous GUI selection.
+`Installer Driver Contract` CI re-fetches the exact pinned commit, verifies the `system_install/setup` blob SHA, syntax-checks the entrypoint, and fails closed if any required target semantics drift. `Destructive VM Install Gate` then prepares the qualified Xodus payload handoff, uses the exact guarded device path, and captures installer and installed-disk evidence.
 
-## Next gate
+## Destructive VM proof and remaining gate
 
-The destructive VM installation gate must:
+`Destructive VM Install Gate` is designed to:
 
 1. create a uniquely named disposable qcow2/raw target inside the CI job and pass its exposed block device through the target guard;
 2. boot the exact qualified Xodus ISO under OVMF;
 3. ensure the installer sees only the disposable target as writable test storage;
-4. invoke the pinned `system_install/setup <exact-device>` entrypoint only after its blob and driver contract pass;
+4. invoke the audited, Xodus-qualified `system_install/setup <exact-device>` entrypoint only after its blob and driver contract pass;
 5. shut the VM down and detach the ISO;
 6. boot the installed target under OVMF;
-7. verify kernel/userspace startup and capture serial/journal evidence;
+7. verify installed payload, kernel/userspace startup, and capture serial/journal evidence;
 8. delete the disposable target after artifact/evidence handling.
 
-Until that exists and passes, the hardware runbook's no-install boundary remains mandatory.
+A current passing run is required before considering an installation candidate. Even then, the hardware runbook's no-install boundary remains in force until the separate live-hardware, target-disk, and recovery/rollback requirements are satisfied. VM success is not physical NUC/SATA proof.

@@ -1,0 +1,46 @@
+name: X1 NUC Readiness Bundle
+
+on:
+  pull_request:
+    paths:
+      - 'qa/x1-nuc-readiness-bundle.py'
+      - 'qa/test_x1_nuc_readiness_bundle.py'
+      - '.github/workflows/x1-nuc-readiness-bundle.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  readiness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile validator and tests
+        run: python -m py_compile qa/x1-nuc-readiness-bundle.py qa/test_x1_nuc_readiness_bundle.py
+      - name: Run regression suite
+        run: python qa/test_x1_nuc_readiness_bundle.py
+      - name: Enforce non-mutating non-claiming contract
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          text = Path('qa/x1-nuc-readiness-bundle.py').read_text(encoding='utf-8')
+          required = [
+              '"hardware_validation_claim": False',
+              '"physical_install_claim": "not_automatic"',
+              'ready_for_nuc_hardware_test',
+          ]
+          missing = [item for item in required if item not in text]
+          if missing:
+              raise SystemExit(f'missing NUC readiness safety contract: {missing}')
+          forbidden = [
+              'subprocess.', 'os.system(', 'systemctl', 'mount(', 'umount(',
+              'mkfs', 'parted', 'sgdisk', 'dd if=', 'reboot', 'poweroff',
+          ]
+          found = [item for item in forbidden if item in text]
+          if found:
+              raise SystemExit(f'mutating/destructive primitive found: {found}')
+          PY

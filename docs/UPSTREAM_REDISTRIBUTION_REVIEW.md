@@ -1,0 +1,18 @@
+# Upstream redistribution review
+
+Status: **open** as of 2026-09-26. This is an evidence inventory for a future public ISO. It does not approve redistribution or decide the license of a component.
+
+## Inputs and findings
+
+| Input | Evidence | Release action |
+| --- | --- | --- |
+| pearOS ISO source | [`upstream/iso.lock`](../upstream/iso.lock) fixes the ISO repository at `8175d4851fcf85b2325c56a3751c0697e044d049`. That tree has a root [GPL-3 license](https://github.com/pearOS-archlinux/iso/blob/8175d4851fcf85b2325c56a3751c0697e044d049/LICENSE), but also includes prebuilt EFI, theme, font, icon, and wallpaper files. | Map each redistributed binary and asset to its source, license, and required notice. Carry the notices in the image and source distribution. |
+| pearOS installer | [`upstream/installer.lock`](../upstream/installer.lock) fixes `e676698b4a07f797a50fd25241a738ead75248e6`. The [pinned tree](https://github.com/pearOS-archlinux/pearOS-installer/tree/e676698b4a07f797a50fd25241a738ead75248e6) has no root LICENSE, COPYING, or NOTICE file; `system_install/frontend/package.json` declares `Pear Public License v2`. The [pinned upstream ISO builder](https://github.com/pearOS-archlinux/iso/blob/8175d4851fcf85b2325c56a3751c0697e044d049/build-binary#L582-L597) defaults to cloning the installer's moving branch. Xodus patches that clone to the locked commit before building; a fresh CI artifact must verify this change. | Confirm the built image contains the locked installer revision. Obtain and review the license text applicable to that exact revision before public redistribution. |
+| Ploader EFI | The ISO source carries a prebuilt `ploader_x64.efi`; the [bootloader source](https://github.com/pearOS-archlinux/pearos-bootloader) has GPL-3 and rEFIt notices. The ISO does not record the EFI binary's source commit. | Identify the source revision and build for the shipped binary, then include the applicable source and notices. |
+| pearos-settings artwork | The ISO package list includes `pearos-settings`. Its [wallpaper attribution file at the audited source revision](https://github.com/pearOS-archlinux/pearos-settings/blob/bd65b6bb2bd0246d4603bf638b700e8b0ab6e67a/usr/share/extras/wallpapers/COPYRIGHT.txt) credits Apple Inc. for two default wallpapers and names other external creators. The package recipe copies the upstream `/usr` tree, but the built ISO package has not been inspected. | Inspect the exact package in the built ISO. Replace any assets without documented redistribution rights or obtain clearance, and preserve attribution for approved assets. |
+| Other ISO packages | The image installs packages from rolling Arch, pearOS, and inled repositories. A pinned ISO Git commit does not fix the exact package set or asset contents. | Retain a build-time package and license inventory, then review the binaries and data actually present in the release candidate. |
+| Xodus source | This repository currently has no root `LICENSE` or `NOTICE`. | The owner must select Xodus's own source terms and publish a notice inventory before a public release. |
+
+## Release check
+
+Keep public ISO redistribution blocked until the actual image has been inventoried, missing upstream license terms and asset permissions are resolved, and the corresponding source and notices are available. A successful VM boot or hardware live test does not close this review.

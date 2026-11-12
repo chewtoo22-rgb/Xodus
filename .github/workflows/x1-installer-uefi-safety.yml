@@ -1,0 +1,25 @@
+name: X1 Installer UEFI Safety
+
+on:
+  pull_request:
+    paths:
+      - 'qa/x1-installer-uefi-safety-manifest.json'
+      - 'qa/check_x1_installer_uefi_safety.py'
+      - '.github/workflows/x1-installer-uefi-safety.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'qa/x1-installer-uefi-safety-manifest.json'
+      - 'qa/check_x1_installer_uefi_safety.py'
+      - '.github/workflows/x1-installer-uefi-safety.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  installer-uefi-safety:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate installer and UEFI safety contract
+        run: python3 qa/check_x1_installer_uefi_safety.py

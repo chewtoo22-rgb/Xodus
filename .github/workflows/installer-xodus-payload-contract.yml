@@ -1,0 +1,20 @@
+name: Installer Xodus Payload Contract
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/patch-installer-xodus-payload.py'
+      - 'qa/installer-xodus-payload-contract.sh'
+      - '.github/workflows/installer-xodus-payload-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate payload handoff transform
+        run: bash qa/installer-xodus-payload-contract.sh
