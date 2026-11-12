@@ -1,0 +1,12 @@
+; Xodus Studio template: godot-2d (Godot 4).
+config_version=5
+
+[application]
+
+config/name="__XODUS_PROJECT_NAME__"
+run/main_scene="res://main.tscn"
+
+[display]
+
+window/size/viewport_width=640
+window/size/viewport_height=360

@@ -1,0 +1,9 @@
+[package]
+name = "__XODUS_PROJECT_NAME__"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Standard library only: no [dependencies], so `cargo build --offline` works
+# on a fresh machine without a crates.io index.
+[dependencies]
