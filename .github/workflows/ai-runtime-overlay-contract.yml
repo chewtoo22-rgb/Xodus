@@ -25,7 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Shell syntax
-        run: bash -n overlay/apply-xodus-identity.sh qa/ai-runtime-overlay-contract.sh
+        run: for script in overlay/apply-xodus-identity.sh qa/ai-runtime-overlay-contract.sh; do bash -n "$script"; done
       - name: Runtime Python syntax
         run: python3 -m py_compile scripts/xodus-ai-runtime-preflight.py
       - name: Overlay integration contract

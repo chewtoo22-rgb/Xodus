@@ -29,10 +29,24 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -t scripts < <(find scripts qa -type f -name '*.sh' -print | sort)
+          mapfile -t scripts < <(
+            find scripts qa overlay -type f -print | sort | while IFS= read -r path; do
+              case "$path" in
+                *.sh) printf '%s\n' "$path" ;;
+                *) head -n1 "$path" | grep -Eq '^#!.*\b(bash|sh)\b' && printf '%s\n' "$path" || true ;;
+              esac
+            done
+          )
           test "${#scripts[@]}" -gt 0
           printf 'Checking %s\n' "${scripts[@]}"
-          bash -n "${scripts[@]}"
+          for script in "${scripts[@]}"; do bash -n "$script"; done
+
+      - name: Shell syntax invocation contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 qa/check_shell_syntax_invocations.py
+          python3 -m unittest qa/test_check_shell_syntax_invocations.py
 
       - name: Required architecture docs
         shell: bash

@@ -43,6 +43,7 @@ Each workstream owns a directory and must avoid editing another workstream's fil
 - `agent/` — AI system-agent workstream
 - `gaming/` — Gaming workstream
 - `installer/` — Installer/recovery workstream
+- `studio/` — Xodus Studio developer-tools workstream
 - `qa/` — QA and test workstream
 - `vendor/` — generated upstream checkout area, ignored by git
 - `scripts/` — shared build/sync tooling; changes require integration review
