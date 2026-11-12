@@ -246,6 +246,74 @@ class TypeStrictTests(unittest.TestCase):
                 resolver.validate_catalog(bad)
 
 
+class ForgedSelectorTests(unittest.TestCase):
+    """Review repros: a recommendation must equal what the selector derives."""
+
+    def forged(self, **rec_overrides):
+        hw = selector.Hardware(8.0, 0.0, "intel", 8)
+        payload = selector_payload(hw)
+        payload["recommendation"].update(rec_overrides)
+        return payload
+
+    def test_forged_workstation_tier_on_8gib_rejected(self):
+        payload = self.forged(tier="workstation", max_model_class="20B-30B", backend="cuda")
+        with self.assertRaisesRegex(ValueError, "does not match hardware policy"):
+            resolver.resolve(payload, CATALOG)
+
+    def test_backend_must_match_gpu_vendor(self):
+        hw = selector.Hardware(32.0, 0.0, "intel", 16)
+        payload = selector_payload(hw)
+        payload["recommendation"]["backend"] = "cuda"
+        with self.assertRaisesRegex(ValueError, "backend"):
+            resolver.resolve(payload, CATALOG)
+
+    def test_control_characters_in_gpu_vendor_rejected(self):
+        payload = selector_payload(selector.Hardware(32.0, 0.0, "intel", 16))
+        payload["hardware"]["gpu_vendor"] = "intel\x1b[31m"
+        with self.assertRaisesRegex(ValueError, "selector policy"):
+            resolver.resolve(payload, CATALOG)
+
+    def test_genuine_selector_output_still_resolves(self):
+        for hw in (selector.Hardware(8.0, 0.0, "intel", 8), selector.Hardware(64.0, 16.0, "nvidia", 32)):
+            with self.subTest(hw=hw):
+                result = resolver.resolve(selector_payload(hw), CATALOG)
+                self.assertEqual(result["tier"], selector.classify(hw).tier)
+
+
+class HostileInputTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_huge_integer_ram_rejected_cleanly(self):
+        payload = selector_payload(NUC)
+        payload["hardware"]["ram_gib"] = 10 ** 400
+        with self.assertRaisesRegex(ValueError, "finite"):
+            resolver.resolve(payload, CATALOG)
+
+    def test_deeply_nested_json_rejected_cleanly(self):
+        path = self.root / "deep.json"
+        path.write_text("[" * 100000 + "]" * 100000, encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "malformed JSON"):
+            resolver.load_json(path)
+
+    def test_oversized_input_rejected(self):
+        path = self.root / "big.json"
+        path.write_text('{"x": "' + "a" * resolver.MAX_INPUT_BYTES + '"}', encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "exceeds"):
+            resolver.load_json(path)
+
+    def test_cli_exits_2_on_hostile_input(self):
+        path = self.root / "deep.json"
+        path.write_text("[" * 100000, encoding="utf-8")
+        out = subprocess.run([sys.executable, str(RESOLVER_PATH), "--selector-json", str(path),
+                              "--catalog", str(CATALOG_PATH)], capture_output=True, text=True)
+        self.assertEqual(out.returncode, 2, out.stderr)
+
+
 class InputFileTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()

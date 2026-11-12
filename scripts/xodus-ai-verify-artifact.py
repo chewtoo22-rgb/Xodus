@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import hmac
+import importlib.util
 import json
 import os
 import re
@@ -42,6 +43,20 @@ SELECTION_KEYS = {
     "network_used", "executed", "hardware_validation_claim",
 }
 MODEL_KEYS = {"model_id", "family", "parameter_class", "quant", "context_tokens", "engine", "reviewed"}
+MAX_INPUT_BYTES = 1024 * 1024
+RESOLVER_SCRIPT = Path(__file__).resolve().with_name("xodus-ai-resolve-model.py")
+DEFAULT_CATALOG = Path(__file__).resolve().parents[1] / "config" / "xodus-ai-model-catalog.json"
+
+
+def load_resolver_module():
+    """Load the model resolver, which re-derives a selection from hardware + catalog."""
+    spec = importlib.util.spec_from_file_location("xodus_ai_resolve_model", RESOLVER_SCRIPT)
+    if spec is None or spec.loader is None:
+        raise ValueError("model resolver is unavailable")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules.setdefault("xodus_ai_resolve_model", module)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -64,21 +79,8 @@ def _require_keys(value: Any, expected: set[str], where: str) -> dict[str, Any]:
 
 
 def load_object(path: Path) -> dict[str, Any]:
-    try:
-        info = path.lstat()
-    except OSError as exc:
-        raise ValueError(f"{path}: cannot inspect input: {exc}") from exc
-    if stat.S_ISLNK(info.st_mode):
-        raise ValueError(f"{path}: input symlinks are not allowed")
-    if not stat.S_ISREG(info.st_mode):
-        raise ValueError(f"{path}: input must be a regular file")
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_reject_duplicate_keys)
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"{path}: malformed JSON") from exc
-    if not isinstance(value, dict):
-        raise ValueError(f"{path}: top level must be an object")
-    return value
+    """Same bounded, non-following, regular-file JSON loader as the resolver."""
+    return load_resolver_module().load_json(path)
 
 
 def validate_manifest(manifest: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -159,9 +161,25 @@ def _hash_regular_file(artifact: Path, expected_size: int) -> tuple[int, str]:
     return opened.st_size, digest.hexdigest()
 
 
-def verify(selection: dict[str, Any], manifest: dict[str, Any], artifact: Path) -> dict[str, Any]:
+def verify(selection: dict[str, Any], manifest: dict[str, Any], artifact: Path,
+           catalog: dict[str, Any]) -> dict[str, Any]:
     artifacts = validate_manifest(manifest)
     model = validate_selection(selection)
+    # The selection must be exactly what the resolver derives from its own
+    # hardware block and the catalog: a hand-edited tier, backend or model
+    # entry is refused before any artifact is opened.
+    resolver = load_resolver_module()
+    hardware = selection["hardware"]
+    _require_keys(hardware, resolver.HARDWARE_KEYS, "selection hardware")
+    rebuilt = resolver.resolve({
+        "hardware": hardware,
+        "recommendation": resolver.expected_recommendation(hardware),
+        "network_used": False,
+        "hardware_validation_claim": False,
+    }, catalog)
+    if selection != rebuilt:
+        differing = sorted(k for k in rebuilt if selection.get(k) != rebuilt[k])
+        raise ValueError(f"selection does not match hardware policy and catalog: {differing}")
     model_id = model["model_id"]
     if not isinstance(model_id, str) or model_id not in artifacts:
         raise ValueError("selected model is not present in supplied manifest")
@@ -186,8 +204,12 @@ def verify(selection: dict[str, Any], manifest: dict[str, Any], artifact: Path) 
         "network_used": network_used,
         "executed": False,
         "hardware_validation_claim": hardware_validation_claim,
+        "tier": selection["tier"],
+        "backend": selection["backend"],
         "model_reviewed": False,
-        "ready_for_local_install": True,
+        # Proves only that the file matches the manifest; the catalog entry is
+        # still an unreviewed placeholder, so this is not an install approval.
+        "artifact_matches_manifest": True,
     }
 
 
@@ -196,9 +218,11 @@ def main() -> int:
     parser.add_argument("--selection-json", required=True, type=Path)
     parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--artifact", required=True, type=Path)
+    parser.add_argument("--catalog", type=Path, default=DEFAULT_CATALOG)
     args = parser.parse_args()
     try:
-        result = verify(load_object(args.selection_json), load_object(args.manifest), args.artifact)
+        result = verify(load_object(args.selection_json), load_object(args.manifest), args.artifact,
+                        load_object(args.catalog))
     except (OSError, ValueError) as exc:
         print(f"xodus-ai-verify-artifact: {exc}", file=sys.stderr)
         return 2

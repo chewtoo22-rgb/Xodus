@@ -60,5 +60,6 @@ jobs:
           grep -F 'artifact size does not match manifest' scripts/xodus-ai-verify-artifact.py
           grep -F 'artifact sha256 does not match manifest' scripts/xodus-ai-verify-artifact.py
           grep -F 'hmac.compare_digest' scripts/xodus-ai-verify-artifact.py
-          grep -F 'object_pairs_hook=_reject_duplicate_keys' scripts/xodus-ai-verify-artifact.py
-          grep -F 'ready_for_local_install' scripts/xodus-ai-verify-artifact.py
+          grep -F 'object_pairs_hook=_reject_duplicate_keys' scripts/xodus-ai-resolve-model.py
+          grep -F 'load_resolver_module().load_json' scripts/xodus-ai-verify-artifact.py
+          grep -F 'artifact_matches_manifest' scripts/xodus-ai-verify-artifact.py

@@ -17,11 +17,15 @@ when the two drift.
 from __future__ import annotations
 
 import argparse
+import errno
+import importlib.util
 import json
 import math
+import os
 import re
 import stat
 import sys
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +45,9 @@ CTX_BY_TIER = {
     "workstation": 32768,
 }
 MODEL_ID = re.compile(r"^[a-z0-9][a-z0-9._/-]{0,95}$")
+MAX_INPUT_BYTES = 1024 * 1024
+MAX_GIB = float(1 << 20)
+SELECTOR_SCRIPT = Path(__file__).resolve().with_name("xodus-ai-select.py")
 
 CATALOG_KEYS = {"schema_version", "review", "hardware_validation_claim", "policy", "tiers"}
 REVIEW_KEYS = {"status", "entries_reviewed", "note"}
@@ -71,17 +78,36 @@ def _require_keys(value: Any, expected: set[str], where: str) -> dict[str, Any]:
 
 
 def load_json(path: Path) -> dict[str, Any]:
+    """Read a bounded regular file without following a symlink, then parse it."""
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0)
     try:
-        info = path.lstat()
+        fd = os.open(path, flags)
     except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise ValueError(f"{path}: input symlinks are not allowed") from exc
         raise ValueError(f"{path}: cannot inspect input: {exc}") from exc
-    if stat.S_ISLNK(info.st_mode):
-        raise ValueError(f"{path}: input symlinks are not allowed")
-    if not stat.S_ISREG(info.st_mode):
-        raise ValueError(f"{path}: input must be a regular file")
     try:
-        value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_reject_duplicate_keys)
-    except json.JSONDecodeError as exc:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError(f"{path}: input must be a regular file")
+        if info.st_size > MAX_INPUT_BYTES:
+            raise ValueError(f"{path}: input exceeds {MAX_INPUT_BYTES} bytes")
+        chunks: list[bytes] = []
+        total = 0
+        while total <= MAX_INPUT_BYTES:
+            chunk = os.read(fd, MAX_INPUT_BYTES + 1 - total)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+        raw = b"".join(chunks)
+    finally:
+        os.close(fd)
+    if len(raw) > MAX_INPUT_BYTES:
+        raise ValueError(f"{path}: input exceeds {MAX_INPUT_BYTES} bytes")
+    try:
+        value = json.loads(raw.decode("utf-8"), object_pairs_hook=_reject_duplicate_keys)
+    except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as exc:
         raise ValueError(f"{path}: malformed JSON") from exc
     if not isinstance(value, dict):
         raise ValueError(f"{path}: top level must be an object")
@@ -93,7 +119,33 @@ def _is_int(value: Any) -> bool:
 
 
 def _is_gib(value: Any) -> bool:
-    return type(value) in (int, float) and math.isfinite(value) and value >= 0
+    if type(value) not in (int, float):
+        return False
+    try:
+        return math.isfinite(value) and 0 <= value <= MAX_GIB
+    except OverflowError:
+        return False
+
+
+def load_selector_module():
+    """Load the reviewed hardware selector, the single source of tier policy."""
+    spec = importlib.util.spec_from_file_location("xodus_ai_select", SELECTOR_SCRIPT)
+    if spec is None or spec.loader is None:
+        raise ValueError("hardware selector is unavailable")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules.setdefault("xodus_ai_select", module)
+    spec.loader.exec_module(module)
+    return module
+
+
+def expected_recommendation(hardware: dict[str, Any]) -> dict[str, Any]:
+    """Re-derive the recommendation from hardware with the reviewed selector."""
+    selector = load_selector_module()
+    try:
+        rec = selector.classify(selector.Hardware(**hardware))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"selector hardware rejected by selector policy: {exc}") from exc
+    return asdict(rec)
 
 
 def validate_catalog(catalog: dict[str, Any]) -> None:
@@ -169,6 +221,14 @@ def validate_selector(selector: dict[str, Any]) -> tuple[dict[str, Any], dict[st
 def resolve(selector: dict[str, Any], catalog: dict[str, Any]) -> dict[str, Any]:
     validate_catalog(catalog)
     hardware, rec = validate_selector(selector)
+
+    # Never trust a recommendation on its word: it must be exactly what the
+    # reviewed selector derives from the same hardware.
+    expected = expected_recommendation(hardware)
+    for key in ("tier", "max_model_class", "preferred_quant", "backend"):
+        if rec[key] != expected[key]:
+            raise ValueError(f"selector recommendation {key} {rec[key]!r} does not match "
+                             f"hardware policy {expected[key]!r}")
 
     tier = rec["tier"]
     backend = rec["backend"]

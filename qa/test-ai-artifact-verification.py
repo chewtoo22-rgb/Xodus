@@ -79,9 +79,10 @@ class ArtifactVerificationTests(unittest.TestCase):
 
     def test_verified_artifact_is_install_ready(self):
         artifact, selection, manifest = self.make_fixture()
-        result = MOD.verify(selection, manifest, artifact)
+        result = MOD.verify(selection, manifest, artifact, CATALOG)
         self.assertTrue(result["verified"])
-        self.assertTrue(result["ready_for_local_install"])
+        self.assertTrue(result["artifact_matches_manifest"])
+        self.assertNotIn("ready_for_local_install", result)
         self.assertFalse(result["network_used"])
         self.assertFalse(result["executed"])
         self.assertFalse(result["hardware_validation_claim"])
@@ -99,12 +100,12 @@ class ArtifactVerificationTests(unittest.TestCase):
         artifact, selection, manifest = self.make_fixture()
         artifact.write_bytes(b"tampered-same-size-data!"[: artifact.stat().st_size])
         with self.assertRaisesRegex(ValueError, "sha256"):
-            MOD.verify(selection, manifest, artifact)
+            MOD.verify(selection, manifest, artifact, CATALOG)
 
     def test_digest_comparison_is_constant_time(self):
         artifact, selection, manifest = self.make_fixture()
         with mock.patch.object(MOD.hmac, "compare_digest", wraps=MOD.hmac.compare_digest) as spy:
-            MOD.verify(selection, manifest, artifact)
+            MOD.verify(selection, manifest, artifact, CATALOG)
         spy.assert_called_once()
 
     def test_size_mismatch_fails_before_hashing(self):
@@ -112,7 +113,7 @@ class ArtifactVerificationTests(unittest.TestCase):
         artifact.write_bytes(artifact.read_bytes() + b"x")
         with mock.patch.object(MOD.hashlib, "sha256", side_effect=AssertionError("hashed")):
             with self.assertRaisesRegex(ValueError, "size"):
-                MOD.verify(selection, manifest, artifact)
+                MOD.verify(selection, manifest, artifact, CATALOG)
 
     def test_symlink_artifact_is_rejected(self):
         artifact, selection, manifest = self.make_fixture()
@@ -120,7 +121,7 @@ class ArtifactVerificationTests(unittest.TestCase):
         link.symlink_to(artifact)
         self.entry(manifest, selection)["filename"] = link.name
         with self.assertRaisesRegex(ValueError, "symlink"):
-            MOD.verify(selection, manifest, link)
+            MOD.verify(selection, manifest, link, CATALOG)
 
     def test_directory_artifact_is_rejected(self):
         artifact, selection, manifest = self.make_fixture()
@@ -128,7 +129,7 @@ class ArtifactVerificationTests(unittest.TestCase):
         directory.mkdir()
         self.entry(manifest, selection)["filename"] = directory.name
         with self.assertRaisesRegex(ValueError, "regular file"):
-            MOD.verify(selection, manifest, directory)
+            MOD.verify(selection, manifest, directory, CATALOG)
 
     def test_fifo_artifact_is_rejected(self):
         artifact, selection, manifest = self.make_fixture()
@@ -136,20 +137,20 @@ class ArtifactVerificationTests(unittest.TestCase):
         os.mkfifo(fifo)
         self.entry(manifest, selection)["filename"] = fifo.name
         with self.assertRaisesRegex(ValueError, "regular file"):
-            MOD.verify(selection, manifest, fifo)
+            MOD.verify(selection, manifest, fifo, CATALOG)
 
     def test_missing_artifact_is_rejected(self):
         artifact, selection, manifest = self.make_fixture()
         artifact.unlink()
         with self.assertRaisesRegex(ValueError, "cannot inspect"):
-            MOD.verify(selection, manifest, artifact)
+            MOD.verify(selection, manifest, artifact, CATALOG)
 
     def test_filename_mismatch_is_rejected(self):
         artifact, selection, manifest = self.make_fixture()
         other = self.root / "other.gguf"
         other.write_bytes(artifact.read_bytes())
         with self.assertRaisesRegex(ValueError, "filename"):
-            MOD.verify(selection, manifest, other)
+            MOD.verify(selection, manifest, other, CATALOG)
 
     # Manifest contract --------------------------------------------------------
 
@@ -157,59 +158,59 @@ class ArtifactVerificationTests(unittest.TestCase):
         artifact, selection, manifest = self.make_fixture()
         manifest["artifacts"] = {"unknown/model": manifest["artifacts"].popitem()[1]}
         with self.assertRaisesRegex(ValueError, "not present"):
-            MOD.verify(selection, manifest, artifact)
+            MOD.verify(selection, manifest, artifact, CATALOG)
 
     def test_quant_mismatch_is_rejected(self):
         artifact, selection, manifest = self.make_fixture()
         self.entry(manifest, selection)["quant"] = "Q8_0"
         with self.assertRaisesRegex(ValueError, "quant"):
-            MOD.verify(selection, manifest, artifact)
+            MOD.verify(selection, manifest, artifact, CATALOG)
 
     def test_network_enabled_manifest_is_rejected(self):
         artifact, selection, manifest = self.make_fixture()
         for value in (True, 0, None):
             manifest["network_downloads_allowed"] = value
             with self.assertRaisesRegex(ValueError, "network downloads"):
-                MOD.verify(selection, manifest, artifact)
+                MOD.verify(selection, manifest, artifact, CATALOG)
 
     def test_manifest_exact_keys(self):
         artifact, selection, manifest = self.make_fixture()
         extra = copy.deepcopy(manifest)
         extra["download_url"] = "x"
         with self.assertRaisesRegex(ValueError, "unexpected keys.*download_url"):
-            MOD.verify(selection, extra, artifact)
+            MOD.verify(selection, extra, artifact, CATALOG)
         missing = copy.deepcopy(manifest)
         del missing["network_downloads_allowed"]
         with self.assertRaisesRegex(ValueError, "missing keys.*network_downloads_allowed"):
-            MOD.verify(selection, missing, artifact)
+            MOD.verify(selection, missing, artifact, CATALOG)
 
     def test_manifest_artifact_entry_exact_keys(self):
         artifact, selection, manifest = self.make_fixture()
         extra = copy.deepcopy(manifest)
         self.entry(extra, selection)["url"] = "x"
         with self.assertRaisesRegex(ValueError, "unexpected keys.*url"):
-            MOD.verify(selection, extra, artifact)
+            MOD.verify(selection, extra, artifact, CATALOG)
         missing = copy.deepcopy(manifest)
         del self.entry(missing, selection)["format"]
         with self.assertRaisesRegex(ValueError, "missing keys.*format"):
-            MOD.verify(selection, missing, artifact)
+            MOD.verify(selection, missing, artifact, CATALOG)
 
     def test_bool_schema_version_rejected(self):
         artifact, selection, manifest = self.make_fixture()
         manifest["schema_version"] = True
         with self.assertRaisesRegex(ValueError, "manifest schema_version"):
-            MOD.verify(selection, manifest, artifact)
+            MOD.verify(selection, manifest, artifact, CATALOG)
         manifest["schema_version"] = 1
         selection["schema_version"] = True
         with self.assertRaisesRegex(ValueError, "selection schema_version"):
-            MOD.verify(selection, manifest, artifact)
+            MOD.verify(selection, manifest, artifact, CATALOG)
 
     def test_bool_or_float_size_rejected(self):
         artifact, selection, manifest = self.make_fixture(b"x")
         for value in (True, 1.0, "1", 0, -1, MOD.MAX_ARTIFACT_BYTES + 1):
             self.entry(manifest, selection)["size_bytes"] = value
             with self.assertRaisesRegex(ValueError, "size_bytes"):
-                MOD.verify(selection, manifest, artifact)
+                MOD.verify(selection, manifest, artifact, CATALOG)
 
     def test_malformed_sha256_rejected(self):
         artifact, selection, manifest = self.make_fixture()
@@ -217,24 +218,24 @@ class ArtifactVerificationTests(unittest.TestCase):
         for value in ("0_" + good[2:], "+" + good[1:], good.upper(), good[:-1], good + "0", 7):
             self.entry(manifest, selection)["sha256"] = value
             with self.assertRaisesRegex(ValueError, "invalid sha256"):
-                MOD.verify(selection, manifest, artifact)
+                MOD.verify(selection, manifest, artifact, CATALOG)
 
     def test_non_basename_filename_rejected(self):
         artifact, selection, manifest = self.make_fixture()
         for value in ("../x.gguf", "sub/x.gguf", "", ".."):
             self.entry(manifest, selection)["filename"] = value
             with self.assertRaisesRegex(ValueError, "basename"):
-                MOD.verify(selection, manifest, artifact)
+                MOD.verify(selection, manifest, artifact, CATALOG)
 
     def test_non_gguf_rejected(self):
         artifact, selection, manifest = self.make_fixture()
         self.entry(manifest, selection)["filename"] = "model.bin"
         with self.assertRaisesRegex(ValueError, "GGUF"):
-            MOD.verify(selection, manifest, artifact)
+            MOD.verify(selection, manifest, artifact, CATALOG)
         self.entry(manifest, selection)["filename"] = artifact.name
         self.entry(manifest, selection)["format"] = "safetensors"
         with self.assertRaisesRegex(ValueError, "format"):
-            MOD.verify(selection, manifest, artifact)
+            MOD.verify(selection, manifest, artifact, CATALOG)
 
     # Selection contract ------------------------------------------------------
 
@@ -243,43 +244,68 @@ class ArtifactVerificationTests(unittest.TestCase):
         extra = copy.deepcopy(selection)
         extra["surprise"] = 1
         with self.assertRaisesRegex(ValueError, "unexpected keys.*surprise"):
-            MOD.verify(extra, manifest, artifact)
+            MOD.verify(extra, manifest, artifact, CATALOG)
         missing = copy.deepcopy(selection)
         del missing["download_requested"]
         with self.assertRaisesRegex(ValueError, "missing keys.*download_requested"):
-            MOD.verify(missing, manifest, artifact)
+            MOD.verify(missing, manifest, artifact, CATALOG)
 
     def test_selection_model_exact_keys(self):
         artifact, selection, manifest = self.make_fixture()
         extra = copy.deepcopy(selection)
         extra["model"]["url"] = "x"
         with self.assertRaisesRegex(ValueError, "unexpected keys.*url"):
-            MOD.verify(extra, manifest, artifact)
+            MOD.verify(extra, manifest, artifact, CATALOG)
         missing = copy.deepcopy(selection)
         del missing["model"]["quant"]
         with self.assertRaisesRegex(ValueError, "missing keys.*quant"):
-            MOD.verify(missing, manifest, artifact)
+            MOD.verify(missing, manifest, artifact, CATALOG)
 
     def test_selection_must_not_request_download(self):
         artifact, selection, manifest = self.make_fixture()
         selection["download_requested"] = 0
         with self.assertRaisesRegex(ValueError, "download"):
-            MOD.verify(selection, manifest, artifact)
+            MOD.verify(selection, manifest, artifact, CATALOG)
 
     def test_disabled_selection_is_rejected(self):
         artifact, selection, manifest = self.make_fixture()
         selection["requires_artifact_verification"] = 1
         with self.assertRaisesRegex(ValueError, "does not require"):
-            MOD.verify(selection, manifest, artifact)
+            MOD.verify(selection, manifest, artifact, CATALOG)
 
     def test_selection_claims_must_be_false(self):
         for key in ("network_used", "executed", "hardware_validation_claim", "model_reviewed"):
             artifact, selection, manifest = self.make_fixture()
             selection[key] = True
             with self.assertRaisesRegex(ValueError, key):
-                MOD.verify(selection, manifest, artifact)
+                MOD.verify(selection, manifest, artifact, CATALOG)
 
     # Input files ---------------------------------------------------------------
+
+    def test_junk_selection_fields_rejected(self):
+        """Review repro: the verifier certified tier 'turbo' / backend 'none' / reviewed model."""
+        mutations = {
+            "tier": lambda s: s.__setitem__("tier", "turbo"),
+            "backend": lambda s: s.__setitem__("backend", "none"),
+            "hardware": lambda s: s.__setitem__("hardware", "lol"),
+            "model.reviewed": lambda s: s["model"].__setitem__("reviewed", True),
+            "model.engine": lambda s: s["model"].__setitem__("engine", "evil"),
+            "model.context": lambda s: s["model"].__setitem__("context_tokens", 10 ** 9),
+        }
+        for name, mutate in mutations.items():
+            with self.subTest(field=name):
+                artifact, selection, manifest = self.make_fixture()
+                mutate(selection)
+                with self.assertRaises(ValueError):
+                    MOD.verify(selection, manifest, artifact, CATALOG)
+
+    def test_forged_tier_selection_rejected(self):
+        """A selection claiming workstation on 8 GiB/Intel is refused before hashing."""
+        artifact, selection, manifest = self.make_fixture()
+        selection["hardware"] = {"ram_gib": 8.0, "vram_gib": 0.0, "gpu_vendor": "intel", "cpu_threads": 8}
+        with mock.patch.object(MOD, "_hash_regular_file", side_effect=AssertionError("hashed")):
+            with self.assertRaisesRegex(ValueError, "hardware policy and catalog"):
+                MOD.verify(selection, manifest, artifact, CATALOG)
 
     def test_duplicate_json_key_rejected(self):
         path = self.root / "manifest.json"

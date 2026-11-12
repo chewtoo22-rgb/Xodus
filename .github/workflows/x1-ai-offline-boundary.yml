@@ -4,12 +4,14 @@ on:
   pull_request:
     paths:
       - 'qa/x1_ai_offline_boundary.py'
+      - 'qa/test_x1_ai_offline_boundary.py'
       - 'scripts/xodus-ai-*.py'
       - '.github/workflows/x1-ai-offline-boundary.yml'
   push:
     branches: [main]
     paths:
       - 'qa/x1_ai_offline_boundary.py'
+      - 'qa/test_x1_ai_offline_boundary.py'
       - 'scripts/xodus-ai-*.py'
       - '.github/workflows/x1-ai-offline-boundary.yml'
 
@@ -27,3 +29,5 @@ jobs:
           python-version: '3.12'
       - name: Validate offline AI boundary
         run: python3 qa/x1_ai_offline_boundary.py
+      - name: Allowlist regression tests
+        run: python3 qa/test_x1_ai_offline_boundary.py
