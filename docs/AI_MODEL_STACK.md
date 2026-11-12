@@ -48,6 +48,14 @@ Allow larger quantized local models when VRAM headroom is available. Arena Mode 
 
 Primary local runtime target: llama.cpp-compatible GGUF execution, with an adapter for Ollama-style model management where useful. This keeps Xodus independent of one vendor and lets users bring their own local models.
 
+## First-boot model catalog (placeholder)
+
+`config/xodus-ai-model-catalog.json` maps each hardware tier from `scripts/xodus-ai-select.py` to one catalog entry, resolved offline by `scripts/xodus-ai-resolve-model.py`. A supplied local GGUF file is then checked against a supplied manifest (filename, size, sha256) by `scripts/xodus-ai-verify-artifact.py`.
+
+- **Every catalog `model_id` is an unreviewed placeholder name.** No model has been chosen, licensed, downloaded or hashed. The catalog says so (`review.status: unreviewed_placeholder`, `entries_reviewed: false`, per-entry `reviewed: false`, `hardware_validation_claim: false`), and the resolver rejects a catalog that claims otherwise. The catalog holds no download URLs or digests.
+- Per-tier `context_tokens` and the artifact size cap mirror `CTX_BY_TIER` and `MAX_MODEL_BYTES` in `scripts/xodus-ai-launch-plan.py`, the runtime source of truth. `qa/test-ai-model-catalog.py` fails if they drift.
+- A passing artifact verification means only that the local file matches the manifest it was given. The manifest is not a review record.
+
 ## Privacy contract
 
 - Local is the default path for system-sensitive data.
