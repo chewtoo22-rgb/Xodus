@@ -1,77 +1,186 @@
 #!/usr/bin/env python3
-"""Resolve a hardware-selector result to one reviewed Xodus local-model entry.
+"""Resolve a hardware-selector result to one Xodus local-model catalog entry.
 
-This step is intentionally offline. It chooses policy, not a remote download URL.
-Artifact installation/verification remains a separate release gate.
+This step is intentionally offline and non-executing. It chooses policy, not a
+remote download source. Artifact installation/verification remains a separate
+release gate (scripts/xodus-ai-verify-artifact.py).
+
+The catalog entries are unreviewed placeholders: every entry must carry
+``reviewed: false`` and the catalog must say so in its ``review`` block. The
+resolver refuses a catalog that claims review, because no review evidence
+mechanism exists yet.
+
+Per-tier context sizes mirror ``CTX_BY_TIER`` in scripts/xodus-ai-launch-plan.py,
+which is the reviewed runtime source of truth. qa/test-ai-model-catalog.py fails
+when the two drift.
 """
 from __future__ import annotations
 
 import argparse
 import json
+import math
+import re
+import stat
 import sys
 from pathlib import Path
 from typing import Any
 
 SUPPORTED_SCHEMA = 1
+# Explicit contract markers consumed by the offline-boundary QA gate.
+network_used = False
+hardware_validation_claim = False
+
 VALID_TIERS = {"disabled", "lite", "standard", "performance", "workstation"}
 VALID_BACKENDS = {"none", "cpu", "cuda", "vulkan"}
+# Must equal CTX_BY_TIER in scripts/xodus-ai-launch-plan.py (cross-checked in QA).
+CTX_BY_TIER = {
+    "disabled": 0,
+    "lite": 4096,
+    "standard": 8192,
+    "performance": 16384,
+    "workstation": 32768,
+}
+MODEL_ID = re.compile(r"^[a-z0-9][a-z0-9._/-]{0,95}$")
+
+CATALOG_KEYS = {"schema_version", "review", "hardware_validation_claim", "policy", "tiers"}
+REVIEW_KEYS = {"status", "entries_reviewed", "note"}
+POLICY_KEYS = {"selection_basis", "network_downloads_allowed", "automatic_model_switching_after_first_boot"}
+ENTRY_KEYS = {"model_id", "family", "parameter_class", "quant", "context_tokens", "engine", "reviewed"}
+SELECTOR_KEYS = {"hardware", "recommendation", "network_used", "hardware_validation_claim"}
+HARDWARE_KEYS = {"ram_gib", "vram_gib", "gpu_vendor", "cpu_threads"}
+RECOMMENDATION_KEYS = {"tier", "max_model_class", "preferred_quant", "backend", "reason"}
+
+
+def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON key: {key!r}")
+        result[key] = value
+    return result
+
+
+def _require_keys(value: Any, expected: set[str], where: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"{where}: must be an object")
+    missing = sorted(expected - set(value))
+    unexpected = sorted(set(value) - expected)
+    if missing or unexpected:
+        raise ValueError(f"{where}: missing keys {missing}, unexpected keys {unexpected}")
+    return value
 
 
 def load_json(path: Path) -> dict[str, Any]:
-    value = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        info = path.lstat()
+    except OSError as exc:
+        raise ValueError(f"{path}: cannot inspect input: {exc}") from exc
+    if stat.S_ISLNK(info.st_mode):
+        raise ValueError(f"{path}: input symlinks are not allowed")
+    if not stat.S_ISREG(info.st_mode):
+        raise ValueError(f"{path}: input must be a regular file")
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_reject_duplicate_keys)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{path}: malformed JSON") from exc
     if not isinstance(value, dict):
         raise ValueError(f"{path}: top level must be an object")
     return value
 
 
+def _is_int(value: Any) -> bool:
+    return type(value) is int
+
+
+def _is_gib(value: Any) -> bool:
+    return type(value) in (int, float) and math.isfinite(value) and value >= 0
+
+
 def validate_catalog(catalog: dict[str, Any]) -> None:
-    if catalog.get("schema_version") != SUPPORTED_SCHEMA:
+    _require_keys(catalog, CATALOG_KEYS, "catalog")
+    if not _is_int(catalog["schema_version"]) or catalog["schema_version"] != SUPPORTED_SCHEMA:
         raise ValueError("unsupported catalog schema_version")
-    policy = catalog.get("policy")
-    if not isinstance(policy, dict) or policy.get("selection_basis") != "hardware_only":
+    if catalog["hardware_validation_claim"] is not False:
+        raise ValueError("catalog must not claim hardware validation")
+
+    review = _require_keys(catalog["review"], REVIEW_KEYS, "catalog review")
+    if review["status"] != "unreviewed_placeholder" or review["entries_reviewed"] is not False:
+        raise ValueError("catalog entries are unreviewed placeholders and must say so")
+    if not isinstance(review["note"], str) or not review["note"].strip():
+        raise ValueError("catalog review note is required")
+
+    policy = _require_keys(catalog["policy"], POLICY_KEYS, "catalog policy")
+    if policy["selection_basis"] != "hardware_only":
         raise ValueError("catalog must enforce hardware_only selection")
-    if policy.get("network_downloads_allowed") is not False:
+    if policy["network_downloads_allowed"] is not False:
         raise ValueError("first-boot resolver must not enable network downloads")
-    tiers = catalog.get("tiers")
-    if not isinstance(tiers, dict) or set(tiers) != VALID_TIERS:
-        raise ValueError("catalog must define exactly the supported tiers")
+    if policy["automatic_model_switching_after_first_boot"] is not False:
+        raise ValueError("catalog must not enable automatic model switching")
+
+    tiers = catalog["tiers"]
+    _require_keys(tiers, VALID_TIERS, "catalog tiers")
     for tier, entry in tiers.items():
-        if not isinstance(entry, dict):
-            raise ValueError(f"tier {tier}: entry must be an object")
+        _require_keys(entry, ENTRY_KEYS, f"tier {tier}")
+        if entry["reviewed"] is not False:
+            raise ValueError(f"tier {tier}: placeholder entry cannot claim review")
+        context = entry["context_tokens"]
+        if not _is_int(context) or context != CTX_BY_TIER[tier]:
+            raise ValueError(f"tier {tier}: context_tokens must match launch planner")
         if tier == "disabled":
-            if entry.get("model_id") is not None or entry.get("engine") != "none":
+            if (entry["model_id"] is not None or entry["family"] is not None
+                    or entry["engine"] != "none" or entry["quant"] != "none"
+                    or entry["parameter_class"] != "none"):
                 raise ValueError("disabled tier cannot select a model")
             continue
-        model_id = entry.get("model_id")
-        if not isinstance(model_id, str) or not model_id or len(model_id) > 96:
+        model_id = entry["model_id"]
+        if not isinstance(model_id, str) or not MODEL_ID.fullmatch(model_id):
             raise ValueError(f"tier {tier}: invalid model_id")
-        if entry.get("quant") != "Q4_K_M":
+        family = entry["family"]
+        if not isinstance(family, str) or not family or len(family) > 64:
+            raise ValueError(f"tier {tier}: invalid family")
+        if not isinstance(entry["parameter_class"], str) or not entry["parameter_class"]:
+            raise ValueError(f"tier {tier}: invalid parameter_class")
+        if entry["quant"] != "Q4_K_M":
             raise ValueError(f"tier {tier}: catalog quant must match selector contract")
-        if entry.get("engine") != "llama.cpp":
+        if entry["engine"] != "llama.cpp":
             raise ValueError(f"tier {tier}: unsupported engine")
-        context = entry.get("context_tokens")
-        if not isinstance(context, int) or context < 2048 or context > 32768:
-            raise ValueError(f"tier {tier}: invalid context_tokens")
+
+
+def validate_selector(selector: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    _require_keys(selector, SELECTOR_KEYS, "selector result")
+    if selector["network_used"] is not False:
+        raise ValueError("selector result must be offline")
+    if selector["hardware_validation_claim"] is not False:
+        raise ValueError("selector result must not claim hardware validation")
+    hardware = _require_keys(selector["hardware"], HARDWARE_KEYS, "selector hardware")
+    rec = _require_keys(selector["recommendation"], RECOMMENDATION_KEYS, "selector recommendation")
+    if not _is_gib(hardware["ram_gib"]) or not _is_gib(hardware["vram_gib"]):
+        raise ValueError("selector hardware RAM/VRAM must be finite non-negative numbers")
+    if not isinstance(hardware["gpu_vendor"], str) or len(hardware["gpu_vendor"]) > 64:
+        raise ValueError("selector hardware gpu_vendor is invalid")
+    if not _is_int(hardware["cpu_threads"]) or not 1 <= hardware["cpu_threads"] <= 4096:
+        raise ValueError("selector hardware cpu_threads is invalid")
+    for key in RECOMMENDATION_KEYS:
+        if not isinstance(rec[key], str):
+            raise ValueError(f"selector recommendation {key} must be a string")
+    return hardware, rec
 
 
 def resolve(selector: dict[str, Any], catalog: dict[str, Any]) -> dict[str, Any]:
     validate_catalog(catalog)
-    rec = selector.get("recommendation")
-    hardware = selector.get("hardware")
-    if not isinstance(rec, dict) or not isinstance(hardware, dict):
-        raise ValueError("selector result missing hardware/recommendation objects")
+    hardware, rec = validate_selector(selector)
 
-    tier = rec.get("tier")
-    backend = rec.get("backend")
+    tier = rec["tier"]
+    backend = rec["backend"]
     if tier not in VALID_TIERS:
         raise ValueError("selector returned unknown tier")
     if backend not in VALID_BACKENDS:
         raise ValueError("selector returned unknown backend")
 
     entry = catalog["tiers"][tier]
-    if entry.get("parameter_class") != rec.get("max_model_class"):
+    if entry["parameter_class"] != rec["max_model_class"]:
         raise ValueError("catalog parameter_class disagrees with selector contract")
-    if entry.get("quant") != rec.get("preferred_quant"):
+    if entry["quant"] != rec["preferred_quant"]:
         raise ValueError("catalog quant disagrees with selector contract")
     if tier == "disabled" and backend != "none":
         raise ValueError("disabled tier must use none backend")
@@ -81,12 +190,16 @@ def resolve(selector: dict[str, Any], catalog: dict[str, Any]) -> dict[str, Any]
     return {
         "schema_version": SUPPORTED_SCHEMA,
         "selection_basis": "hardware_only",
-        "hardware": hardware,
+        "hardware": dict(hardware),
         "tier": tier,
         "backend": backend,
-        "model": entry,
+        "model": dict(entry),
+        "model_reviewed": False,
         "download_requested": False,
         "requires_artifact_verification": tier != "disabled",
+        "network_used": network_used,
+        "executed": False,
+        "hardware_validation_claim": hardware_validation_claim,
     }
 
 
@@ -97,7 +210,7 @@ def main() -> int:
     args = parser.parse_args()
     try:
         result = resolve(load_json(args.selector_json), load_json(args.catalog))
-    except (OSError, json.JSONDecodeError, ValueError) as exc:
+    except (OSError, ValueError) as exc:
         print(f"xodus-ai-resolve-model: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(result, sort_keys=True))

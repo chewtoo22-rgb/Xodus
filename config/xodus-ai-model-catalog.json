@@ -1,5 +1,11 @@
 {
   "schema_version": 1,
+  "review": {
+    "status": "unreviewed_placeholder",
+    "entries_reviewed": false,
+    "note": "Every model_id below is an unreviewed placeholder name, not a released or reviewed artifact. No download source, license or sha256 is asserted here. Context sizes mirror scripts/xodus-ai-launch-plan.py CTX_BY_TIER."
+  },
+  "hardware_validation_claim": false,
   "policy": {
     "selection_basis": "hardware_only",
     "network_downloads_allowed": false,
@@ -12,7 +18,8 @@
       "parameter_class": "none",
       "quant": "none",
       "context_tokens": 0,
-      "engine": "none"
+      "engine": "none",
+      "reviewed": false
     },
     "lite": {
       "model_id": "xodus-lite-1b-q4",
@@ -20,7 +27,8 @@
       "parameter_class": "1B-3B",
       "quant": "Q4_K_M",
       "context_tokens": 4096,
-      "engine": "llama.cpp"
+      "engine": "llama.cpp",
+      "reviewed": false
     },
     "standard": {
       "model_id": "xodus-nemotron-nano-4b-q4",
@@ -28,23 +36,26 @@
       "parameter_class": "3B-4B",
       "quant": "Q4_K_M",
       "context_tokens": 8192,
-      "engine": "llama.cpp"
+      "engine": "llama.cpp",
+      "reviewed": false
     },
     "performance": {
       "model_id": "xodus-performance-8b-q4",
       "family": "general-instruct",
       "parameter_class": "7B-14B",
       "quant": "Q4_K_M",
-      "context_tokens": 8192,
-      "engine": "llama.cpp"
+      "context_tokens": 16384,
+      "engine": "llama.cpp",
+      "reviewed": false
     },
     "workstation": {
       "model_id": "xodus-workstation-24b-q4",
       "family": "general-instruct",
       "parameter_class": "20B-30B",
       "quant": "Q4_K_M",
-      "context_tokens": 16384,
-      "engine": "llama.cpp"
+      "context_tokens": 32768,
+      "engine": "llama.cpp",
+      "reviewed": false
     }
   }
 }

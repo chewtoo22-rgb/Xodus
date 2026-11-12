@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 SUPPORTED_SCHEMA = 1
-MAX_ARTIFACT_BYTES = 64 * 1024 * 1024 * 1024
+MAX_ARTIFACT_BYTES = 128 * 1024 * 1024 * 1024
 
 
 def load_object(path: Path) -> dict[str, Any]:
