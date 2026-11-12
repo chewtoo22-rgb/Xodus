@@ -4,6 +4,21 @@ on:
   pull_request:
     paths:
       - 'scripts/xodus-ai-verify-artifact.py'
+      - 'scripts/xodus-ai-resolve-model.py'
+      - 'scripts/xodus-ai-select.py'
+      - 'scripts/xodus-ai-launch-plan.py'
+      - 'config/xodus-ai-model-catalog.json'
+      - 'qa/test-ai-artifact-verification.py'
+      - '.github/workflows/ai-artifact-verification.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'scripts/xodus-ai-verify-artifact.py'
+      - 'scripts/xodus-ai-resolve-model.py'
+      - 'scripts/xodus-ai-select.py'
+      - 'scripts/xodus-ai-launch-plan.py'
+      - 'config/xodus-ai-model-catalog.json'
       - 'qa/test-ai-artifact-verification.py'
       - '.github/workflows/ai-artifact-verification.yml'
   workflow_dispatch:
@@ -21,7 +36,12 @@ jobs:
         with:
           python-version: '3.12'
       - name: Compile verifier
-        run: python -m py_compile scripts/xodus-ai-verify-artifact.py qa/test-ai-artifact-verification.py
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in scripts/xodus-ai-verify-artifact.py qa/test-ai-artifact-verification.py; do
+            python -m py_compile "$f"
+          done
       - name: Run artifact boundary tests
         run: python -m unittest qa/test-ai-artifact-verification.py -v
       - name: Reject network/download primitives in verifier
@@ -37,6 +57,8 @@ jobs:
         run: |
           set -euo pipefail
           grep -F 'artifact symlinks are not allowed' scripts/xodus-ai-verify-artifact.py
-          grep -F 'artifact size does not match reviewed manifest' scripts/xodus-ai-verify-artifact.py
-          grep -F 'artifact sha256 does not match reviewed manifest' scripts/xodus-ai-verify-artifact.py
+          grep -F 'artifact size does not match manifest' scripts/xodus-ai-verify-artifact.py
+          grep -F 'artifact sha256 does not match manifest' scripts/xodus-ai-verify-artifact.py
+          grep -F 'hmac.compare_digest' scripts/xodus-ai-verify-artifact.py
+          grep -F 'object_pairs_hook=_reject_duplicate_keys' scripts/xodus-ai-verify-artifact.py
           grep -F 'ready_for_local_install' scripts/xodus-ai-verify-artifact.py
