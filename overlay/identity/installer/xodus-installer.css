@@ -1,0 +1,119 @@
+/* Xodus installer and first setup surfaces. All controls keep their original
+   IDs, event handlers, disk semantics, IPC and navigation. */
+:root { color-scheme: dark; --x-bg:#08070D; --x-panel:#111018; --x-border:#393044;
+  --x-text:#F5F1FC; --x-muted:#C4BACE; --x-accent:#B69BFA; }
+html, body { min-height:100%; color:var(--x-text); }
+body { font-family:"Noto Sans","DejaVu Sans",Arial,sans-serif!important; font-size:14px;
+  background:linear-gradient(120deg,#060509ee,#08060cbb),url(../resources/xodus-installer-wallpaper.svg) center/cover fixed!important;
+  padding-top:44px; letter-spacing:normal; }
+body::before,body::after { content:none!important; }
+body,button,input,select,textarea { font-family:"Noto Sans","DejaVu Sans",Arial,sans-serif!important; }
+input,textarea { user-select:text; }
+p,span { letter-spacing:normal; line-height:1.5; }
+h1,.tab.active h1 { color:var(--x-text)!important; font-family:inherit; font-size:30px;
+  font-weight:650; letter-spacing:-.025em; line-height:1.2; margin:16px 0 12px;
+  padding:0; width:auto; text-align:center; align-self:center; }
+h2 { color:var(--x-text); }
+.description,.menu_description,.alt-hint,.look-note { color:var(--x-muted)!important; }
+.setup-text { color:var(--x-muted); }
+.flex-container { height:calc(100vh - 44px); min-height:520px; padding:28px; }
+.app,.menu { width:min(880px,100%); height:min(640px,calc(100vh - 100px)); min-height:500px;
+  background:linear-gradient(145deg,#17111df5,#0b0a10fa)!important; border:1px solid var(--x-border)!important;
+  border-radius:20px; box-shadow:0 24px 80px #0009; padding:28px 32px 84px; }
+.menu { width:min(740px,100%); }
+.tabs { height:100%; }
+.tab.active { max-height:100%; overflow:auto; padding-bottom:8px; }
+.worldmap,.release-logo,.release-logo-agreement,.release-logoooo { width:90px; height:90px!important;
+  padding:0; margin:8px 0 6px; object-fit:contain; }
+.tab.active>img[src*="xodus-installer-mark"] { max-height:110px!important; width:110px!important; margin:8px 0; }
+.countries { margin:8px 0 0; }
+.list { width:min(400px,70vw); height:210px; border:1px solid var(--x-border); border-radius:12px;
+  background:#0c0b12; color:var(--x-text); padding:6px; }
+option { padding:12px 16px; color:var(--x-text); background:#0c0b12; text-align:left; }
+option:checked,.list:not(:focus) option:checked,.list option[selected],option.selected-option {
+  background:#4E346B!important; color:#FFF!important; }
+.list::-webkit-scrollbar-track { background:#111018; border:0; }
+.list::-webkit-scrollbar-thumb { background:#625372; }
+button,.button,.install-button,.install-button-agreement,.nav-button {
+  min-height:42px; padding:10px 20px; border-radius:10px; font-size:14px; font-weight:600;
+  background:#45324F!important; color:#FFF!important; border:1px solid #806192;
+  cursor:pointer; margin:0; }
+button:hover:not(:disabled) { background:#644079!important; border-color:#BC96D9; }
+button:disabled,.disabled { opacity:.45; cursor:not-allowed; }
+button:focus-visible,input:focus-visible,select:focus-visible,.menu_checkbox_label:focus-within {
+  outline:3px solid var(--x-accent); outline-offset:3px; box-shadow:none; }
+.movement-buttons { left:0; right:0; bottom:0; width:100%; padding:18px 28px;
+  border-top:1px solid #393044; display:flex; align-items:center; justify-content:flex-end; gap:12px;
+  background:#0d0b12; border-radius:0 0 20px 20px; min-height:76px; }
+.movement-buttons hr { display:none; }
+.arrow-button-container { margin:0; display:block; }
+.arrow-button { width:44px; height:44px; background-image:none!important; }
+.arrow-button:empty::after { content:"→"; font-size:22px; }
+#move-back-btn.arrow-button:empty::after { content:"←"; }
+.grid-container,.grid-container-agreement,.grid-container-disk,.grid-container-status {
+  display:flex; justify-content:flex-end; gap:12px; width:100%; }
+.ul_menu { display:grid; gap:12px; margin:0; padding:0; }
+.menu_checkbox_label { margin:0; padding:16px 18px 16px 80px; left:0; width:100%; height:auto;
+  min-height:92px; border:1px solid #393044; border-radius:12px; background:#14111B; cursor:pointer; }
+.menu_checkbox_label:hover { border-color:#806192; background:#1D1626; }
+.menu_checkbox_label.menu_checkbox_checked { background:#2B1D3A; border-color:#B69BFA; }
+.menu_checkbox_label .menu_logo { position:absolute; left:18px; top:22px; width:42px; height:42px; margin:0; object-fit:contain; }
+.menu_title,.menu_checkbox_label .menu_title { padding:0; margin:0 0 4px; font-size:16px; }
+.menu_description,.menu_checkbox_label .menu_description { padding:0; margin:0; font-size:13px; }
+.ul_menu_disk { padding:0; width:100%; margin:12px 0; }
+.disk_title { color:var(--x-text); }
+.label_for_disk { border-radius:12px; }
+.disk_logo,.disk_logo_progress { opacity:1; }
+.license,.license-agreement { width:100%; color:var(--x-muted); background:#09080F;
+  border:1px solid var(--x-border); border-radius:10px; padding:16px; line-height:1.55; font-size:12px; }
+.license-agreement { height:230px; min-height:140px; }
+.license-sub-text { margin:12px 0 0; font-size:12px; }
+.taskbar { height:44px; background:#0D0B13ee; border-bottom:1px solid var(--x-border);
+  backdrop-filter:blur(18px); color:var(--x-text); font-size:13px; text-transform:none; }
+.taskbar-button img { width:24px; height:24px; object-fit:contain; opacity:1; }
+.taskbar-button div { padding:0 12px; }
+.logo-menu,.modal-content,.agreement-modal-content { background:#17111F; border:1px solid #5A456B;
+  border-radius:14px; color:var(--x-text); }
+.logo-menu { top:44px; }
+.agreement-modal-content { width:min(480px,90vw); max-width:480px; height:auto!important; max-height:90vh!important; gap:12px; }
+.agreement-modal-logo { height:64px; width:64px; object-fit:contain; }
+.agreement-modal-text { line-height:1.6; }
+.agreement-modal-buttons button { border-radius:10px; }
+.modal-content { max-width:90vw; }
+.spinner-blade { background:#B69BFA; }
+progress { accent-color:#B69BFA; }
+progress::-webkit-progress-bar { background:#272031; border-radius:8px; }
+progress::-webkit-progress-value { background:#B69BFA; border-radius:8px; }
+#create_user { position:static; transform:none; margin:16px auto 0; max-width:460px; width:100%; }
+#create_user form { gap:10px; }
+#create_user .textbox,.textbox { width:100%; height:40px; border:1px solid #5A456B;
+  border-radius:9px; background:#0C0A12; color:var(--x-text); padding:10px 14px; }
+body.dark-mode #create_user .textbox,body.dark-mode .list {
+  background:#0C0A12; border-color:#5A456B; color:var(--x-text); }
+body.dark-mode #create_user .textbox::placeholder { color:#AB9BB9; }
+#move-back-btn svg path,body.dark-mode #move-back-btn svg path { fill:#DCCAFF; }
+.profile-picture-item:hover,.profile-picture-item.selected {
+  border-color:#B69BFA; box-shadow:0 0 15px #A65BDE66; }
+.profile-picture-item.selected::after { background:#8060B2; }
+#create_user .account-name-hint { color:var(--x-muted); margin:0; width:100%; }
+.password-row { width:100%; gap:12px; }
+.password-row .textbox { width:100%; }
+.hello__div { text-align:center; display:flex; flex-direction:column; align-items:center; justify-content:center;
+  min-height:calc(100vh - 44px); padding:32px; }
+.xodus-setup-mark { width:140px; height:140px; margin-bottom:12px; }
+.hello-button-container { margin:24px 0 0; position:static; transform:none; }
+.look-preview-dark { background:#100B19!important; border-color:#6C478D!important; }
+.look-preview-light { background:#EDE6F5!important; border-color:#9975B5!important; }
+.look-preview-bar,.look-preview-dock { background:#B69BFA!important; }
+.look-option.selected { border-color:#B69BFA; box-shadow:0 0 0 2px #B69BFA44,0 0 22px #A65BDE44; }
+.welcome-aa-container { background:#08060E!important; }
+.welcome-aa-svg .hello-text-svg { fill:#DCCAFF!important; font-family:"Noto Sans",sans-serif!important; }
+.orb { opacity:.12!important; background:#9C5CDA!important; }
+@media(max-width:760px),(max-height:690px) {
+  .flex-container { padding:12px; min-height:440px; }
+  .app,.menu { padding:20px 20px 76px; height:calc(100vh - 68px); min-height:440px; }
+  .worldmap,.release-logo,.release-logo-agreement { width:64px; height:64px!important; margin:4px; }
+  h1,.tab.active h1 { font-size:26px; }
+  .license-agreement { height:180px; }
+  .menu_checkbox_label { min-height:78px; padding-top:12px; padding-bottom:12px; }
+}

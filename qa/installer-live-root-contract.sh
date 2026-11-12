@@ -94,6 +94,17 @@ probe_rel=usr/lib/xodus/xodus-live-desktop-probe
 service_rel=usr/lib/systemd/system/xodus-live-desktop-probe.service
 wants_rel=etc/systemd/system/graphical.target.wants/xodus-live-desktop-probe.service
 build_info_rel=usr/lib/xodus/build-info
+identity_dir="$repo_root/overlay/identity/installed"
+identity_contract=0
+identity_surfaces=()
+if [[ -f "$identity_dir/derive-installer-identity.py" ]]; then
+  identity_contract=1
+  identity_surfaces=(
+    usr/share/pearOS-installer/post-install/post_setup
+    usr/share/pearOS-installer/xodus-installed-identity.json
+    usr/lib/xodus/identity-payload.json
+  )
+fi
 xodus_executables=(
   usr/lib/xodus/xodus-hardware-live-evidence
   usr/lib/xodus/xodus-x1-nuc-preflight
@@ -103,6 +114,9 @@ xodus_executables=(
   usr/lib/xodus/xodus-ai-runtime-preflight.py
   "$probe_rel"
 )
+if (( identity_contract )); then
+  xodus_executables+=(usr/lib/xodus/xodus-identity-payload usr/lib/xodus/xodus-restore-user-identity)
+fi
 if [[ -f "$repo_root/scripts/xodus-ai-select.py" ]]; then
   xodus_executables+=(usr/lib/xodus/xodus-ai-select.py)
 fi
@@ -111,7 +125,7 @@ printf 'probe_rel=%s\nservice_rel=%s\nwants_rel=%s\nbuild_info_rel=%s\n' \
 
 mkdir -p "$work/root"
 if ! unsquashfs -no-progress -d "$work/root" "$sfs" \
-  "$setup_rel" "$entry_rel" "${xodus_executables[@]}" "$service_rel" "$wants_rel" "$build_info_rel" \
+  "$setup_rel" "$entry_rel" "${xodus_executables[@]}" "$service_rel" "$wants_rel" "$build_info_rel" "${identity_surfaces[@]}" \
   >"$outdir/unsquashfs.txt" 2>&1; then
   echo "ERROR: failed to selectively extract installer and desktop contract surfaces" >&2
   cat "$outdir/unsquashfs.txt" >&2
@@ -126,7 +140,7 @@ embedded_entry="$work/root/$entry_rel"
 actual_blob="$(git hash-object "$embedded_setup")"
 printf 'expected_blob=%s\nactual_blob=%s\ninstaller_ref=%s\n' \
   "$SETUP_BLOB" "$actual_blob" "$REF" | tee "$outdir/installer-blob.txt"
-if [[ "$actual_blob" != "$SETUP_BLOB" ]]; then
+if (( ! identity_contract )) && [[ "$actual_blob" != "$SETUP_BLOB" ]]; then
   echo "ERROR: qualified ISO installer blob differs from upstream/installer.lock" >&2
   exit 10
 fi
@@ -196,6 +210,37 @@ grep -Fxq "XODUS_INSTALLER_COMMIT=$REF" "$embedded_build_info" || {
 if [[ -n "${PR_HEAD_SHA:-}" && "$source_sha" != "$PR_HEAD_SHA" ]]; then
   echo "ERROR: live-root source SHA $source_sha differs from PR head $PR_HEAD_SHA" >&2
   exit 23
+fi
+
+if (( identity_contract )); then
+  qualified_source_sha=${PR_HEAD_SHA:-$(git -C "$repo_root" rev-parse HEAD)}
+  [[ "$source_sha" == "$qualified_source_sha" ]] || {
+    echo 'ERROR: identity derivation must match the checked-out qualification source' >&2
+    exit 24
+  }
+  bash "$repo_root/scripts/audit-installer-driver.sh" "$lock" "$work/audited-installer" \
+    >"$outdir/original-installer-audit.txt"
+  python3 "$identity_dir/derive-installer-identity.py" \
+    --verify-installer "$work/root/usr/share/pearOS-installer" \
+    --original-root "$work/audited-installer" --source-commit "$qualified_source_sha" \
+    --build-info "$embedded_build_info" | tee "$outdir/installer-identity-derivation.txt"
+  for helper in identity-payload restore-user-identity; do
+    cmp "$identity_dir/$helper.py" "$work/root/usr/lib/xodus/xodus-$helper" || {
+      echo "ERROR: embedded identity helper differs from reviewed source: $helper" >&2
+      exit 25
+    }
+  done
+  python3 "$repo_root/qa/identity-payload-extract-paths.py" \
+    "$work/root/usr/lib/xodus/identity-payload.json" --expected-source "$qualified_source_sha" \
+    >"$work/identity-extraction-paths.txt"
+  mapfile -t identity_paths <"$work/identity-extraction-paths.txt"
+  (( ${#identity_paths[@]} > 0 )) || exit 26
+  unsquashfs -f -no-progress -d "$work/root" "$sfs" "${identity_paths[@]}" \
+    >"$outdir/identity-unsquashfs.txt" 2>&1
+  python3 "$identity_dir/identity-payload.py" verify --source-root "$work/root" \
+    --expected-source "$qualified_source_sha" | tee "$outdir/identity-payload-verification.txt"
+  cp "$work/root/usr/share/pearOS-installer/xodus-installed-identity.json" "$outdir/"
+  cp "$work/root/usr/lib/xodus/identity-payload.json" "$outdir/"
 fi
 
 cat >"$outdir/desktop-payload.txt" <<EOF

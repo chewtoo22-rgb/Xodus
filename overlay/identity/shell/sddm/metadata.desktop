@@ -1,0 +1,12 @@
+[SddmGreeterTheme]
+Name=Xodus Login
+Description=Xodus account and session sign in
+Author=Xodus contributors
+Copyright=Copyright 2026 Xodus contributors
+License=MIT
+Type=sddm-theme
+Version=1.0
+MainScript=Main.qml
+ConfigFile=theme.conf
+Theme-Id=Xodus
+QtVersion=6

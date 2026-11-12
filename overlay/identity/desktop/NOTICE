@@ -1,0 +1,16 @@
+Xodus desktop selection overlay
+Copyright 2026 Xodus contributors. MIT licensed; see ../shell/LICENSE.
+
+This overlay selects the separately packaged KDE Breeze controls, window
+decoration, Plasma style, icons and cursors. Their authorship and licenses
+remain with KDE and are preserved in the installed distribution packages.
+The original pearOS package artwork and copyright notices are retained.
+
+Reviewed configuration input: pearos-settings 26.7.0-4.
+kdeglobals is checked after apply-shell-identity.sh; other inputs are original
+package bytes. Neither account settings nor display device records are reset.
+
+Dependency file layouts:
+https://archlinux.org/packages/extra/x86_64/breeze/files/
+https://archlinux.org/packages/extra/x86_64/breeze-icons/files/
+https://archlinux.org/packages/extra/x86_64/breeze-cursors/files/

@@ -51,13 +51,21 @@ installer_setup_blob="${installer_entries[3]#SETUP_BLOB=}"
   exit 66
 }
 command -v python3 >/dev/null 2>&1 || { echo "python3 is required to pin the installer source" >&2; exit 66; }
-python3 - "$builder" "$installer_commit" "$installer_setup_blob" <<'PY'
+python3 - "$builder" "$installer_commit" "$installer_setup_blob" "$xodus_source_commit" <<'PY'
 from pathlib import Path
 import sys
 
 builder = Path(sys.argv[1])
-commit, setup_blob = sys.argv[2:]
+commit, setup_blob, xodus_source = sys.argv[2:]
 source = builder.read_text()
+# These KDE assets are now active Xodus dependencies. Retain only the two
+# reviewed paths that the pinned cleanup previously treated as unused.
+for relative in ('usr/share/plasma/look-and-feel/org.kde.breezedark.desktop',
+                 'usr/share/icons/breeze-dark'):
+    deletion = '    rm -rf "${pacstrap_dir}/' + relative + '"\n'
+    if source.count(deletion) != 1:
+        raise SystemExit('pinned Breeze cleanup layout changed: ' + relative)
+    source = source.replace(deletion, '    # Xodus retains active KDE dependency: ' + relative + '\n', 1)
 old = '    git clone --depth 1 https://github.com/pearOS-archlinux/pearOS-installer.git "${pacstrap_dir}/usr/share/pearOS-installer" || _msg_error "Failed to clone pearOS-installer from GitHub" 1'
 if source.count(old) != 1 or source.count('    # Clone pearOS-installer from GitHub instead of using local files') != 1:
     raise SystemExit('pinned upstream installer clone layout changed')
@@ -68,11 +76,143 @@ new = '''    git init -q "${pacstrap_dir}/usr/share/pearOS-installer" || _msg_er
     [[ "$(git -C "${pacstrap_dir}/usr/share/pearOS-installer" rev-parse HEAD)" == "@COMMIT@" ]] || _msg_error "pearOS-installer commit does not match the lock" 1
     [[ "$(git -C "${pacstrap_dir}/usr/share/pearOS-installer" rev-parse HEAD:system_install/setup)" == "@BLOB@" ]] || _msg_error "pearOS-installer setup blob does not match the lock" 1'''
 new = new.replace('@COMMIT@', commit).replace('@BLOB@', setup_blob)
-builder.write_text(source.replace(old, new))
+# The pinned builder writes its ISO pkglist before cleanup removes optional
+# packages. Move the list after cleanup, but before squashfs/ISO creation, so
+# it describes the installed package database in the finished live image.
+build_order_anchor = '''    _run_once _make_customize_airootfs
+    _run_once _make_pkglist
+    if [[ "${buildmode}" == 'netboot' ]]; then
+        _run_once _make_boot_on_iso9660
+    else
+        _run_once _make_bootmodes
+    fi
+    _run_once _cleanup_pacstrap_dir
+    _run_once _prepare_airootfs_image'''
+hook_definition_anchor = '_make_pkglist() {'
+if source.count(build_order_anchor) != 1 or source.count(hook_definition_anchor) != 1:
+    raise SystemExit('pinned upstream live identity/package-list layout changed')
+hook_definition = '''_apply_xodus_visible_identity() {
+    local helper="${profile}/xodus-apply-visible-identity.sh"
+    local welcome_builder="${profile}/xodus-build-welcome.sh"
+    local settings_builder="${profile}/xodus-settings/build-settings.sh"
+    local shell_helper="${profile}/xodus-apply-shell-identity.sh"
+    [[ -f "$helper" ]] || _msg_error "Xodus visible identity hook is missing" 1
+    [[ -f "$welcome_builder" ]] || _msg_error "Xodus Welcome builder is missing" 1
+    [[ -f "$settings_builder" && -f "$shell_helper" ]] || _msg_error "Xodus Settings or shell helper is missing" 1
+    pacman -S --needed --noconfirm qt5-base pkgconf || _msg_error "Xodus Welcome build dependencies are unavailable" 1
+    pacman -S --needed --noconfirm cmake ninja qt6-base qt6-declarative qt6-5compat qt6-shadertools qt6-svg libx11 || _msg_error "Xodus Settings build dependencies are unavailable" 1
+    bash "$settings_builder" "${profile}" "${pacstrap_dir}" || _msg_error "Xodus Settings build failed" 1
+    bash "$welcome_builder" "${profile}" "${pacstrap_dir}" || _msg_error "Xodus Welcome build failed" 1
+    bash "$helper" "${pacstrap_dir}" || _msg_error "Xodus visible identity hook failed" 1
+    bash "$shell_helper" "${pacstrap_dir}" "${profile}/xodus-shell" || _msg_error "Xodus desktop shell identity failed" 1
+    arch-chroot "${pacstrap_dir}" pacman -S --needed --noconfirm breeze breeze5 breeze-icons breeze-cursors qt6-tools || _msg_error "Xodus desktop controls are unavailable" 1
+    python3 "${profile}/xodus-toolkit/apply-toolkit-identity.py" "${pacstrap_dir}" || _msg_error "Xodus toolkit identity failed" 1
+    python3 "${profile}/xodus-desktop/apply-desktop-identity.py" "${pacstrap_dir}" || _msg_error "Xodus desktop defaults failed" 1
+    python3 "${profile}/xodus-control-center/apply-control-center-identity.py" "${pacstrap_dir}" || _msg_error "Xodus Control Center identity failed" 1
+    python3 "${profile}/xodus-dock/apply-dock-identity.py" "${pacstrap_dir}" || _msg_error "Xodus Dock identity failed" 1
+    python3 "${profile}/xodus-installer/apply-installer-identity.py" "${pacstrap_dir}/usr/share/pearOS-installer" || _msg_error "Xodus installer frontend identity failed" 1
+    python3 "${profile}/xodus-installer/apply-calamares-identity.py" "${pacstrap_dir}" || _msg_error "Xodus Calamares identity failed" 1
+    install -Dm0755 "${profile}/xodus-installed/identity-payload.py" "${pacstrap_dir}/usr/lib/xodus/xodus-identity-payload" || _msg_error "Xodus identity transfer helper is missing" 1
+    install -Dm0755 "${profile}/xodus-installed/restore-user-identity.py" "${pacstrap_dir}/usr/lib/xodus/xodus-restore-user-identity" || _msg_error "Xodus first-login identity helper is missing" 1
+    python3 "${profile}/xodus-installed/derive-installer-identity.py" \\
+        --apply-installer "${pacstrap_dir}/usr/share/pearOS-installer" \\
+        --original-root "${pacstrap_dir}/usr/share/pearOS-installer" \\
+        --source-commit @XODUS_SOURCE@ --build-info "${pacstrap_dir}/usr/lib/xodus/build-info" || _msg_error "Xodus installer identity derivation failed" 1
+    python3 "${profile}/xodus-boot-contract/verify-boot-identity.py" --live-root "${pacstrap_dir}" || _msg_error "Xodus staged boot identity verification failed" 1
+    python3 "${profile}/xodus-graphical-contract/qa/verify-graphical-identity.py" "${pacstrap_dir}" --repo-root "${profile}/xodus-graphical-contract" || _msg_error "Xodus staged graphical identity verification failed" 1
+    python3 "${profile}/xodus-installed/identity-payload.py" capture "${pacstrap_dir}" || _msg_error "Xodus graphical identity capture failed" 1
+}
+
+'''.replace('@XODUS_SOURCE@', xodus_source)
+source = source.replace(old, new)
+source = source.replace(hook_definition_anchor, hook_definition + hook_definition_anchor)
+source = source.replace(
+    build_order_anchor,
+    '''    _run_once _make_customize_airootfs
+    _run_once _apply_xodus_visible_identity
+    if [[ "${buildmode}" == 'netboot' ]]; then
+        _run_once _make_boot_on_iso9660
+    else
+        _run_once _make_bootmodes
+    fi
+    _run_once _cleanup_pacstrap_dir
+    _run_once _make_pkglist
+    _run_once _prepare_airootfs_image''',
+)
+builder.write_text(source)
 PY
 bash -n "$builder"
 grep -Fq "fetch --depth=1 origin $installer_commit" "$builder"
 ! grep -Fq 'git clone --depth 1 https://github.com/pearOS-archlinux/pearOS-installer.git' "$builder"
+grep -Fq '    _run_once _apply_xodus_visible_identity' "$builder"
+
+# The visible identity helper runs after upstream package installation and
+# live-user creation. It edits the packaged Plasma and installer files inside
+# pacstrap_dir, where the profile overlay alone cannot reach them.
+visible_identity_hook="$script_dir/identity/apply-visible-identity.sh"
+welcome_builder="$script_dir/identity/welcome/build-welcome.sh"
+welcome_source="$script_dir/identity/welcome/xodus-welcome.cpp"
+wallpaper_source="$script_dir/identity/assets/xodus-wallpaper.png"
+app_icon_source="$script_dir/identity/assets/xodus-app-icon.png"
+[[ -f "$visible_identity_hook" && -f "$welcome_builder" && -f "$welcome_source" &&
+   -s "$wallpaper_source" && -s "$app_icon_source" ]] || {
+  echo 'Xodus visible identity hook, Welcome source, or artwork is missing' >&2
+  exit 66
+}
+install -Dm0644 "$visible_identity_hook" "$root/pear/xodus-apply-visible-identity.sh"
+install -Dm0644 "$welcome_builder" "$root/pear/xodus-build-welcome.sh"
+install -Dm0644 "$welcome_source" "$root/pear/xodus-welcome.cpp"
+install -Dm0644 "$wallpaper_source" "$root/pear/airootfs/usr/share/wallpapers/Xodus/xodus-wallpaper.png"
+install -Dm0644 "$app_icon_source" "$root/pear/airootfs/usr/share/pixmaps/xodus-app-icon.png"
+
+shell_identity_hook="$script_dir/identity/apply-shell-identity.sh"
+[[ -f "$shell_identity_hook" && ! -L "$shell_identity_hook" ]] || exit 66
+install -Dm0644 "$shell_identity_hook" "$root/pear/xodus-apply-shell-identity.sh"
+for component in shell settings installer installed toolkit desktop control-center dock; do
+  payload="$script_dir/identity/$component"
+  destination="$root/pear/xodus-$component"
+  [[ -d "$payload" && ! -L "$payload" && ! -e "$destination" && ! -L "$destination" ]] || {
+    echo "Xodus $component source payload is missing or already staged" >&2
+    exit 66
+  }
+  python3 - "$payload" "$destination" <<'PY'
+import shutil, sys
+shutil.copytree(sys.argv[1], sys.argv[2], ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+PY
+done
+
+# Carry the retained graphical contract and its minimal source references into
+# the build container. Keep repository-relative paths for exact byte checks.
+graphical_checker="$repo_root/qa/verify-graphical-identity.py"
+graphical_contract_dir="$root/pear/xodus-graphical-contract"
+[[ -f "$graphical_checker" && ! -L "$graphical_checker" &&
+   ! -e "$graphical_contract_dir" && ! -L "$graphical_contract_dir" ]] || exit 66
+install -Dm0644 "$graphical_checker" "$graphical_contract_dir/qa/verify-graphical-identity.py"
+mapfile -t graphical_refs < <(python3 "$graphical_checker" --list-reference-files)
+(( ${#graphical_refs[@]} > 0 )) || exit 66
+for reference in "${graphical_refs[@]}"; do
+  [[ "$reference" == overlay/identity/* && "$reference" != *..* &&
+     -f "$repo_root/$reference" && ! -L "$repo_root/$reference" ]] || exit 66
+  install -Dm0644 "$repo_root/$reference" "$graphical_contract_dir/$reference"
+done
+
+# Apply the audited boot visuals before customize_airootfs.sh selects Plymouth
+# and regenerates the initramfs. The helper validates every pinned-source
+# anchor and the approved-video asset hashes before changing the source tree.
+boot_identity_helper="$script_dir/identity/boot/apply-boot-identity.py"
+[[ -f "$boot_identity_helper" && ! -L "$boot_identity_helper" ]] || {
+  echo 'Xodus boot identity helper is missing or unsafe' >&2
+  exit 66
+}
+python3 "$boot_identity_helper" "$root"
+python3 "$script_dir/identity/boot/verify-boot-identity.py" --source-root "$root"
+boot_contract_dir="$root/pear/xodus-boot-contract"
+install -d "$boot_contract_dir/source"
+for name in verify-boot-identity.py xodus.script xodus.plymouth grub-theme.txt; do
+  install -m0644 "$script_dir/identity/boot/$name" "$boot_contract_dir/$name"
+done
+install -m0644 "$script_dir/identity/boot/source/assets.sha256" "$boot_contract_dir/source/assets.sha256"
+install -m0644 "$repo_root/qa/verify-built-boot.sh" "$root/pear/xodus-verify-built-boot.sh"
 
 # Fail closed if the pinned upstream shape drifts. This prevents a partially
 # branded image from silently shipping after an upstream layout change.

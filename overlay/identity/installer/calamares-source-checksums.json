@@ -1,0 +1,16 @@
+{
+  "package": "pear-calamares-config",
+  "version": "26.8.0-13",
+  "files": {
+    "settings.conf": "05061c097cdc1483eb7760a12c3e848adef0d054487272c9d902325182c6f691",
+    "branding/pearOS/branding.desc": "740a91d4d78e9640bedc34b2871d618a26866dca13ec92e67251f318b031df54",
+    "branding/pearOS/calamares-sidebar.qml": "2d27413f2d7637656d563edcf57a6cbc82f51cacf4634bc1b44f9125588fc5fd",
+    "branding/pearOS/icon.png": "d9416bbf08d39e82470bf398b51d1b52808916e339c77be89911e07847161f65",
+    "branding/pearOS/logo.png": "d9416bbf08d39e82470bf398b51d1b52808916e339c77be89911e07847161f65",
+    "branding/pearOS/show.qml": "6fc04f589488ec7212de826d1f036cc425702f0d906dbf7e38ec12c61b1eeb69",
+    "branding/pearOS/slide1.png": "bba7443d50931af03b68bef9afbdf9ecbf1e35e2ad7af87e2bdaf5a6959c2bd2",
+    "branding/pearOS/stylesheet.qss": "42cb4110bc91934a5ce418ae26208a9e59b7870d23486dff6be23ba8f195acaa",
+    "branding/pearOS/welcome.png": "4ffd22173069a321e9cc4af43d497074382862e670577f9e0580ac1049b74778"
+  },
+  "archive_sha256": "d1eedaa6c3fe269ea92cce97385fe10e5eeeb22451b24391db7559a3afecb980"
+}

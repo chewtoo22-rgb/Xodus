@@ -90,7 +90,20 @@ _make_custom_airootfs() {
     # Clone pearOS-installer from GitHub instead of using local files
     git clone --depth 1 https://github.com/pearOS-archlinux/pearOS-installer.git "${pacstrap_dir}/usr/share/pearOS-installer" || _msg_error "Failed to clone pearOS-installer from GitHub" 1
 }
+_make_pkglist() { :; }
+_build_iso_base() {
+    _run_once _make_customize_airootfs
+    _run_once _make_pkglist
+    if [[ "${buildmode}" == 'netboot' ]]; then
+        _run_once _make_boot_on_iso9660
+    else
+        _run_once _make_bootmodes
+    fi
+    _run_once _cleanup_pacstrap_dir
+    _run_once _prepare_airootfs_image
+}
 EOF
+python3 "$repo_root/qa/boot_identity_fixture.py" "$fixture"
 bash "$repo_root/overlay/apply-xodus-identity.sh" "$fixture" >/dev/null
 test -x "$fixture/pear/airootfs/usr/lib/xodus/xodus-live-desktop-probe"
 test -f "$fixture/pear/airootfs/usr/lib/systemd/system/xodus-live-desktop-probe.service"

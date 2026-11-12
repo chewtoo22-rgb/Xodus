@@ -53,8 +53,21 @@ jobs:
               # Clone pearOS-installer from GitHub instead of using local files
               git clone --depth 1 https://github.com/pearOS-archlinux/pearOS-installer.git "${pacstrap_dir}/usr/share/pearOS-installer" || _msg_error "Failed to clone pearOS-installer from GitHub" 1
           }
+          _make_pkglist() { :; }
+          _build_buildmode() {
+              _run_once _make_customize_airootfs
+              _run_once _make_pkglist
+              if [[ "${buildmode}" == 'netboot' ]]; then
+                  _run_once _make_boot_on_iso9660
+              else
+                  _run_once _make_bootmodes
+              fi
+              _run_once _cleanup_pacstrap_dir
+              _run_once _prepare_airootfs_image
+          }
           EOF
 
+          python3 qa/boot_identity_fixture.py "$root"
           XODUS_SOURCE_COMMIT="$SOURCE_SHA" \
           XODUS_UPSTREAM_COMMIT="$UPSTREAM_SHA" \
             bash overlay/apply-xodus-identity.sh "$root"
@@ -100,8 +113,8 @@ jobs:
         run: |
           set -euo pipefail
           workflow=.github/workflows/core-iso-build.yml
-          test "$(grep -Fc 'XODUS_SOURCE_COMMIT:' "$workflow")" -eq 2
-          test "$(grep -Fc 'github.event.pull_request.head.sha || github.sha' "$workflow")" -eq 3
+          test "$(grep -Fc 'XODUS_SOURCE_COMMIT:' "$workflow")" -eq 3
+          test "$(grep -Fc 'github.event.pull_request.head.sha || github.sha' "$workflow")" -eq 4
           grep -Fq 'test "$(git rev-parse HEAD)" = "$XODUS_SOURCE_COMMIT"' "$workflow"
           grep -Fq 'xodus_source_commit=$XODUS_SOURCE_COMMIT' "$workflow"
           grep -Fq 'installer_commit=$XODUS_INSTALLER_COMMIT' "$workflow"

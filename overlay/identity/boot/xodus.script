@@ -1,0 +1,135 @@
+# 241 RGB frames from the approved 24 fps Xodus film. Load one frame at a
+# time: retaining the full decoded film would consume about 500 MiB of RAM.
+# The animation never waits for completion before Plymouth hands off to SDDM.
+Window.SetBackgroundTopColor(0.004, 0.003, 0.013);
+Window.SetBackgroundBottomColor(0.004, 0.003, 0.013);
+Plymouth.SetRefreshRate(24);
+
+film = Sprite();
+film.SetZ(0);
+frame_index = 0;
+last_width = 0;
+last_height = 0;
+last_index = -1;
+
+fun fit_image(image, max_width, max_height)
+  {
+    scale = max_width / image.GetWidth();
+    height_scale = max_height / image.GetHeight();
+    if (height_scale < scale)
+      scale = height_scale;
+    return image.Scale(Math.Max(1, Math.Int(image.GetWidth() * scale)),
+                       Math.Max(1, Math.Int(image.GetHeight() * scale)));
+  }
+
+fun show_frame(index)
+  {
+    if (index < 10)
+      name = "frame-00" + index + ".png";
+    else if (index < 100)
+      name = "frame-0" + index + ".png";
+    else
+      name = "frame-" + index + ".png";
+    image = fit_image(Image(name), Window.GetWidth(), Window.GetHeight());
+    film.SetImage(image);
+    film.SetPosition(Window.GetX() + (Window.GetWidth() - image.GetWidth()) / 2,
+                     Window.GetY() + (Window.GetHeight() - image.GetHeight()) / 2, 0);
+    global.last_width = Window.GetWidth();
+    global.last_height = Window.GetHeight();
+    global.last_index = index;
+  }
+
+fun refresh_callback()
+  {
+    if (last_index != frame_index || last_width != Window.GetWidth() ||
+        last_height != Window.GetHeight())
+      show_frame(frame_index);
+    if (frame_index < 240)
+      global.frame_index++;
+  }
+show_frame(0);
+Plymouth.SetRefreshFunction(refresh_callback);
+
+fun fit_text(text, max_width, max_height)
+  {
+    image = Image.Text(text, 1, 1, 1);
+    scale = Math.Min(1, max_width / image.GetWidth());
+    scale = Math.Min(scale, max_height / image.GetHeight());
+    return image.Scale(Math.Max(1, Math.Int(image.GetWidth() * scale)),
+                       Math.Max(1, Math.Int(image.GetHeight() * scale)));
+  }
+
+# Fit text within the screen even on a small display. Suppress the film while
+# asking for input, giving password/question text a consistently dark backdrop.
+prompt_sprite = Sprite();
+prompt_sprite.SetZ(100);
+prompt_sprite.SetOpacity(0);
+entry_sprite = Sprite();
+entry_sprite.SetZ(101);
+entry_sprite.SetOpacity(0);
+message_sprite = Sprite();
+message_sprite.SetZ(102);
+message_sprite.SetOpacity(0);
+
+fun show_prompt(prompt, entered)
+  {
+    film.SetOpacity(0);
+    if (prompt == "")
+      prompt = "Xodus input";
+    prompt_image = fit_text(prompt, Window.GetWidth() * 0.9, Window.GetHeight() * 0.1);
+    entry_image = fit_text(entered, Window.GetWidth() * 0.9, Window.GetHeight() * 0.1);
+    prompt_sprite.SetImage(prompt_image);
+    entry_sprite.SetImage(entry_image);
+    prompt_sprite.SetPosition(Window.GetX() + (Window.GetWidth() - prompt_image.GetWidth()) / 2,
+                              Window.GetY() + Window.GetHeight() * 0.44, 100);
+    entry_sprite.SetPosition(Window.GetX() + (Window.GetWidth() - entry_image.GetWidth()) / 2,
+                             Window.GetY() + Window.GetHeight() * 0.56, 101);
+    prompt_sprite.SetOpacity(1);
+    entry_sprite.SetOpacity(1);
+  }
+
+fun password_callback(prompt, bullets)
+  {
+    masked = "";
+    for (i = 0; i < bullets; i++)
+      masked += "*";
+    if (masked == "")
+      masked = "_";
+    show_prompt(prompt, masked);
+  }
+
+fun question_callback(prompt, entered)
+  {
+    if (entered == "")
+      entered = "_";
+    show_prompt(prompt, entered);
+  }
+
+fun normal_callback()
+  {
+    prompt_sprite.SetOpacity(0);
+    entry_sprite.SetOpacity(0);
+    film.SetOpacity(1);
+  }
+
+fun message_callback(message)
+  {
+    if (message == "")
+      return;
+    message_image = fit_text(message, Window.GetWidth() * 0.9, Window.GetHeight() * 0.08);
+    message_sprite.SetImage(message_image);
+    message_sprite.SetPosition(Window.GetX() + (Window.GetWidth() - message_image.GetWidth()) / 2,
+                               Window.GetY() + Window.GetHeight() - message_image.GetHeight() - 24, 102);
+    message_sprite.SetOpacity(1);
+  }
+
+fun hide_message_callback(message)
+  {
+    message_sprite.SetOpacity(0);
+  }
+
+Plymouth.SetDisplayPasswordFunction(password_callback);
+Plymouth.SetDisplayQuestionFunction(question_callback);
+Plymouth.SetDisplayNormalFunction(normal_callback);
+Plymouth.SetDisplayMessageFunction(message_callback);
+Plymouth.SetHideMessageFunction(hide_message_callback);
