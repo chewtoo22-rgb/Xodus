@@ -6,6 +6,8 @@ on:
       - 'config/xodus-ai-model-catalog.json'
       - 'scripts/xodus-ai-select.py'
       - 'scripts/xodus-ai-resolve-model.py'
+      - 'scripts/xodus-ai-launch-plan.py'
+      - 'scripts/xodus-ai-verify-artifact.py'
       - 'qa/test-ai-model-catalog.py'
       - '.github/workflows/ai-model-catalog.yml'
   push:
@@ -15,6 +17,8 @@ on:
       - 'config/xodus-ai-model-catalog.json'
       - 'scripts/xodus-ai-select.py'
       - 'scripts/xodus-ai-resolve-model.py'
+      - 'scripts/xodus-ai-launch-plan.py'
+      - 'scripts/xodus-ai-verify-artifact.py'
       - 'qa/test-ai-model-catalog.py'
       - '.github/workflows/ai-model-catalog.yml'
 
@@ -32,7 +36,7 @@ jobs:
           python-version: '3.12'
       - name: Run selector tests
         run: python3 qa/test-ai-hardware-selector.py
-      - name: Run catalog resolver tests
+      - name: Run catalog resolver tests (includes launch-planner cross-check)
         run: python3 qa/test-ai-model-catalog.py
       - name: Smoke resolve 32 GiB Intel NUC class
         shell: bash
@@ -41,4 +45,12 @@ jobs:
           selector_json="$(mktemp)"
           python3 scripts/xodus-ai-select.py --ram-gib 32 --vram-gib 0 --gpu-vendor intel > "$selector_json"
           resolved="$(python3 scripts/xodus-ai-resolve-model.py --selector-json "$selector_json")"
-          python3 -c 'import json,sys; d=json.loads(sys.argv[1]); assert d["tier"] == "standard"; assert d["backend"] == "vulkan"; assert d["model"]["family"] == "nemotron-nano"; assert d["download_requested"] is False' "$resolved"
+          python3 -c 'import json,sys; d=json.loads(sys.argv[1]); assert d["tier"] == "standard"; assert d["backend"] == "vulkan"; assert d["model"]["family"] == "nemotron-nano"; assert d["model"]["context_tokens"] == 8192; assert d["download_requested"] is False; assert d["network_used"] is False; assert d["hardware_validation_claim"] is False; assert d["model_reviewed"] is False' "$resolved"
+      - name: Smoke resolve workstation class context
+        shell: bash
+        run: |
+          set -euo pipefail
+          selector_json="$(mktemp)"
+          python3 scripts/xodus-ai-select.py --ram-gib 64 --vram-gib 16 --gpu-vendor nvidia > "$selector_json"
+          resolved="$(python3 scripts/xodus-ai-resolve-model.py --selector-json "$selector_json")"
+          python3 -c 'import json,sys; d=json.loads(sys.argv[1]); assert d["tier"] == "workstation"; assert d["backend"] == "cuda"; assert d["model"]["context_tokens"] == 32768' "$resolved"

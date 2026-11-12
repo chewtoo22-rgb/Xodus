@@ -10,6 +10,8 @@ AI_SCRIPTS = (
     pathlib.Path("scripts/xodus-ai-select.py"),
     pathlib.Path("scripts/xodus-ai-launch-plan.py"),
     pathlib.Path("scripts/xodus-ai-runtime-preflight.py"),
+    pathlib.Path("scripts/xodus-ai-resolve-model.py"),
+    pathlib.Path("scripts/xodus-ai-verify-artifact.py"),
 )
 FORBIDDEN = re.compile(
     r"(?:\b(?:curl|wget|nc|netcat|socat|ftp|telnet)\b|\brequests\b|\burllib\b|\bsocket\b|\bhttpx\b|\bsubprocess\.run\s*\(\s*\[?\s*[\"'](?:curl|wget))",
