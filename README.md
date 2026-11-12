@@ -18,6 +18,7 @@ The pearOS ISO source is pinned, the Xodus identity overlay is applied before th
 - Build traceable bootable ISOs in GitHub Actions, then lock the remaining inputs needed for bitwise reproducibility.
 - Add an AI system agent with explicit permissions and auditable actions.
 - Add first-class gaming, controller, Proton/Wine, and emulator support.
+- Make Xodus a good place to build games and apps, with opt-in dev tools and an offline AI coding assistant.
 - Build safe installation, rollback, recovery, and update paths before physical installation testing.
 - Target the Intel NUC / x86-64 PC platform first.
 
@@ -49,6 +50,7 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`docs/ROADMAP.md`](docs/
 4. **Gaming** — Proton/Wine/Bottles, controllers, emulation, performance profiles.
 5. **Installer / Recovery** — safe partitioning, rollback, recovery image, upgrade paths.
 6. **QA / CI** — static checks, package validation, ISO builds, VM boot/install smoke tests.
+7. **Xodus Studio** — opt-in game/app development tools, engines, graphics SDKs, and a local AI coding assistant. See [`docs/XODUS_STUDIO.md`](docs/XODUS_STUDIO.md).
 
 ## Licensing
 

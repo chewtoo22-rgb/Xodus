@@ -57,7 +57,7 @@ jobs:
           EXPECTED_CHECKOUT_SHA: ${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}
         run: |
           test "$(git rev-parse HEAD)" = "$EXPECTED_CHECKOUT_SHA"
-          bash -n qa/qemu-smoke.sh overlay/live-desktop/xodus-live-desktop-probe overlay/apply-xodus-identity.sh
+          for script in qa/qemu-smoke.sh overlay/live-desktop/xodus-live-desktop-probe overlay/apply-xodus-identity.sh; do bash -n "$script"; done
           bash qa/test-live-desktop-probe.sh
           python3 qa/test_qemu_smoke.py
 
