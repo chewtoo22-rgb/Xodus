@@ -102,6 +102,44 @@ class TemplatesContractTests(unittest.TestCase):
         (self.root / "love2d" / "main.lua").unlink()
         self.rejects(pattern=r"missing \['main.lua'\]")
 
+    def test_rejects_git_and_hidden_directories(self) -> None:
+        for rel in (".git/config", "sub/.git/hooks/post-checkout", ".hidden/x.txt", ".GIT/config"):
+            with self.subTest(rel=rel):
+                target = self.root / "love2d" / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("[core]\n\tfsmonitor = id\n")
+
+                def add(d, rel=rel):
+                    d["templates"]["love2d"]["files"] = sorted([*d["templates"]["love2d"]["files"], rel])
+                self.rejects(add, ".git or hidden")
+                shutil.rmtree(self.root / "love2d" / rel.split("/")[0])
+
+    def test_rejects_bidi_control_characters(self) -> None:
+        path = self.root / "love2d" / "main.lua"
+        path.write_text(path.read_text(encoding="utf-8") + "-- ‮ evil\n", encoding="utf-8")
+        self.rejects(pattern="bidirectional")
+
+    def test_rejects_carriage_return(self) -> None:
+        path = self.root / "love2d" / "main.lua"
+        path.write_bytes(path.read_bytes() + b"print(1)\r\n")
+        self.rejects(pattern="LF-terminated")
+
+    def test_rejects_oversized_file(self) -> None:
+        path = self.root / "love2d" / "main.lua"
+        path.write_text("-- " + "x" * contract.MAX_FILE_BYTES + "\n")
+        self.rejects(pattern="exceeds")
+
+    def test_rejects_shell_as_smoke_tool(self) -> None:
+        def shell(d):
+            smoke = d["templates"]["love2d"]["smoke"]
+            smoke["tools"] = sorted([*smoke["tools"], "bash"])
+            smoke["steps"] = [*smoke["steps"], ["bash", "-c", "id"]]
+        self.rejects(shell, "not allowed build tools")
+
+    def test_rejects_non_list_smoke_step(self) -> None:
+        self.rejects(lambda d: d["templates"]["love2d"]["smoke"].__setitem__("steps", ["luajit -bl main.lua"]),
+                     "argv list")
+
     def test_rejects_symlinked_file(self) -> None:
         target = self.root / "love2d" / "main.lua"
         target.unlink()
@@ -302,6 +340,55 @@ class ScaffolderTests(unittest.TestCase):
                     new_mod.build_plan(self.manifest, "love2d", name, self.tmp / "dest")
                 self.assertFalse((self.tmp / "dest").exists())
 
+    def test_destination_swapped_for_symlink_is_refused(self) -> None:
+        """A dest replaced by a symlink after planning must not redirect the writes."""
+        dest = self.tmp / "swap"
+        elsewhere = self.tmp / "elsewhere"
+        elsewhere.mkdir()
+        plan, files = new_mod.build_plan(self.manifest, "raylib-c", "game", dest)
+        dest.symlink_to(elsewhere, target_is_directory=True)
+        with self.assertRaises(ValueError):
+            new_mod.write_files(dest, files)
+        self.assertEqual(list(elsewhere.iterdir()), [])
+
+    def test_symlink_injected_at_mkdir_time_is_refused(self) -> None:
+        """Reproduce the review's race: dest becomes a symlink right as it is created."""
+        from unittest import mock
+        dest = self.tmp / "race"
+        elsewhere = self.tmp / "race-target"
+        elsewhere.mkdir()
+        _, files = new_mod.build_plan(self.manifest, "raylib-c", "game", dest)
+        real_mkdir = os.mkdir
+
+        def racing_mkdir(path, mode=0o777, *, dir_fd=None):
+            if path == dest.name and dir_fd is not None:
+                dest.symlink_to(elsewhere, target_is_directory=True)
+                raise FileExistsError(path)
+            return real_mkdir(path, mode, dir_fd=dir_fd)
+
+        with mock.patch.object(new_mod.os, "mkdir", racing_mkdir):
+            with self.assertRaises(ValueError):
+                new_mod.write_files(dest, files)
+        self.assertEqual(list(elsewhere.iterdir()), [])
+
+    def test_rejects_cargo_build_directory_names(self) -> None:
+        for name in ("build", "deps", "examples", "incremental"):
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(ValueError, "reserved"):
+                    new_mod.validate_name(name)
+
+    @unittest.skipUnless(shutil.which("cargo") or (CARGO_HOME_BIN / "cargo").exists(), "cargo not installed")
+    def test_scaffolded_rust_names_pass_cargo_metadata(self) -> None:
+        cargo = shutil.which("cargo") or str(CARGO_HOME_BIN / "cargo")
+        for name in ("game", "my-game", "core", "tester", "builder"):
+            with self.subTest(name=name):
+                dest = self.tmp / f"rust-{name}"
+                _, files = new_mod.build_plan(self.manifest, "rust-cli-game", name, dest)
+                new_mod.write_files(dest, files)
+                proc = subprocess.run([cargo, "metadata", "--offline", "--no-deps", "--format-version", "1"],
+                                      cwd=dest, capture_output=True, text=True)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+
     def test_rejects_names_cargo_refuses(self) -> None:
         for name in ("test", "fn", "self", "async", "type", "crate"):
             with self.subTest(name=name):
@@ -365,7 +452,7 @@ class ScaffolderTests(unittest.TestCase):
         dest = self.tmp / "race"
         dest.mkdir()
         (dest / "main.lua").write_text("mine\n")
-        with self.assertRaises(FileExistsError):
+        with self.assertRaisesRegex(ValueError, "not empty"):
             new_mod.write_files(dest, [("main.lua", b"theirs\n")])
         self.assertEqual((dest / "main.lua").read_text(), "mine\n")
 
@@ -375,7 +462,8 @@ class ScaffolderTests(unittest.TestCase):
         outside = self.tmp / "outside"
         outside.mkdir()
         (dest / "src").symlink_to(outside)
-        with self.assertRaisesRegex(ValueError, "symlink"):
+        # Refused before any write: a pre-planted entry makes dest non-empty.
+        with self.assertRaisesRegex(ValueError, "not empty"):
             new_mod.write_files(dest, [("src/main.c", b"int main(void){return 0;}\n")])
         self.assertEqual(list(outside.iterdir()), [])
 

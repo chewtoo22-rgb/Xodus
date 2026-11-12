@@ -31,6 +31,11 @@ SMOKE_KEYS = {"tools", "packages", "pkg_config_modules", "steps"}
 TEMPLATE_ID = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 PATH_PART = re.compile(r"^\.?[A-Za-z0-9_][A-Za-z0-9_.-]*$")
 TOOL_NAME = re.compile(r"^[a-z][a-z0-9_+-]*$")
+# Smoke steps may only invoke build tools; a shell or interpreter here would
+# turn the argv-only rule back into arbitrary shell strings.
+ALLOWED_TOOLS = frozenset({"cargo", "cc", "cmake", "godot", "luajit", "ninja", "pkg-config"})
+# Unicode bidirectional controls ("Trojan Source") make reviewed text differ from what runs.
+BIDI_CONTROLS = frozenset(chr(c) for c in (*range(0x202A, 0x202F), *range(0x2066, 0x206A)))
 PACKAGE_NAME = re.compile(r"^[a-z0-9@_+][a-z0-9@._+-]*$")
 SMOKE_ARG = re.compile(r"^[A-Za-z0-9_.:/=+-]+$")
 MAX_FILE_BYTES = 64 * 1024
@@ -75,9 +80,11 @@ def _relative_path(text: str, where: str) -> None:
     pure = PurePosixPath(text)
     if pure.is_absolute() or not pure.parts or str(pure) != text:
         raise ContractError(f"{where}: {text!r} is not a normalised relative path")
-    for part in pure.parts:
+    for index, part in enumerate(pure.parts):
         if part in (".", "..") or not PATH_PART.fullmatch(part):
             raise ContractError(f"{where}: {text!r} has an invalid path component {part!r}")
+        if part.lower() == ".git" or (part.startswith(".") and index < len(pure.parts) - 1):
+            raise ContractError(f"{where}: {text!r} must not create .git or hidden directories")
     if PLACEHOLDER in text:
         raise ContractError(f"{where}: file paths must not contain the placeholder")
 
@@ -142,9 +149,12 @@ def read_template_file(path: Path, where: str) -> str:
     if b"\0" in raw or b"\r" in raw:
         raise ContractError(f"{where} must be LF-terminated text without NUL bytes")
     try:
-        return raw.decode("utf-8")
+        text = raw.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise ContractError(f"{where} is not UTF-8") from exc
+    if any(ch in BIDI_CONTROLS for ch in text):
+        raise ContractError(f"{where} contains Unicode bidirectional control characters")
+    return text
 
 
 def validate(data: Any, root: Path = TEMPLATES_DIR, studio_profiles: dict[str, Any] | None = None) -> list[str]:
@@ -227,6 +237,9 @@ def validate(data: Any, root: Path = TEMPLATES_DIR, studio_profiles: dict[str, A
         smoke = spec["smoke"]
         _exact_keys(smoke, SMOKE_KEYS, f"{where} smoke")
         tools = _string_list(smoke["tools"], f"{where} smoke tools", TOOL_NAME)
+        disallowed = sorted(set(tools) - ALLOWED_TOOLS)
+        if disallowed:
+            raise ContractError(f"{where} smoke tools {disallowed} are not allowed build tools")
         packages = _string_list(smoke["packages"], f"{where} smoke packages", PACKAGE_NAME)
         outside = sorted(set(packages) - available)
         if outside:

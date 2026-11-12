@@ -58,8 +58,8 @@ scripts/xodus-studio-new.py --template sdl3-c --name demo --dest ./demo --dry-ru
 The scaffolder copies the template into a new or empty directory and replaces `__XODUS_PROJECT_NAME__` with the project name. It:
 
 - loads templates only through the fail-closed templates contract, so a drifted or tampered template tree is refused;
-- accepts names matching lowercase ASCII letters, digits, `_` and `-`, starting with a letter, at most 48 characters (valid for Cargo, CMake and Godot; no path separators, dots, leading dashes or Unicode look-alikes);
-- refuses a symlinked destination, a non-empty one, and one inside the template tree; files are created with `O_EXCL | O_NOFOLLOW`, so nothing is overwritten;
+- accepts names matching lowercase ASCII letters, digits, `_` and `-`, starting with a letter, at most 48 characters, and not a Rust keyword or Cargo build-directory name such as `test`, `fn` or `deps` (so the name is valid for Cargo, CMake and Godot; no path separators, dots, leading dashes or Unicode look-alikes);
+- refuses a destination whose final path component is a symlink, a non-empty destination, and one inside the template tree. Parent components of `--dest` are resolved normally. Every directory and file is created relative to one `O_NOFOLLOW` handle on the destination with `O_EXCL`, so a path swapped for a symlink mid-run cannot redirect writes and nothing is overwritten;
 - never runs a build or any other program and never uses the network; it prints a JSON summary (files with SHA-256, profiles, install hint, smoke steps) with `executed: false`, and exits `2` on bad input.
 
 Install a template's tools first with the planner, e.g. `scripts/xodus-studio-plan.py --profile engines`.

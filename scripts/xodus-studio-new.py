@@ -35,6 +35,8 @@ RESERVED_NAMES = frozenset({
     "impl", "in", "let", "loop", "macro", "match", "mod", "move", "mut", "override", "priv",
     "pub", "ref", "return", "self", "static", "struct", "super", "trait", "true", "try",
     "type", "typeof", "unsafe", "unsized", "use", "virtual", "where", "while", "yield",
+    # Cargo forbids binary targets that collide with its build directory names.
+    "build", "deps", "examples", "incremental",
 })
 # Explicit contract markers, matching the other Xodus planners.
 network_used = False
@@ -127,24 +129,57 @@ def build_plan(manifest: dict, template_id: str, name: str, dest: Path,
     return plan, files
 
 
+_DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+_FILE_FLAGS = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+
+
+def _open_child_dir(parent_fd: int, name: str, create: bool) -> int:
+    if create:
+        os.mkdir(name, 0o755, dir_fd=parent_fd)
+    try:
+        return os.open(name, _DIR_FLAGS, dir_fd=parent_fd)
+    except OSError as exc:
+        raise ValueError(f"refusing to write through non-directory or symlink {name!r}") from exc
+
+
 def write_files(dest: Path, files: list[tuple[str, bytes]]) -> None:
-    """Create every file exclusively; never follow or replace an existing path."""
-    if dest.is_symlink():
-        raise ValueError(f"destination {dest} is a symlink; refusing to follow it")
-    dest.mkdir(parents=True, exist_ok=True)
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
-    for rel, data in files:
-        target = dest.joinpath(*rel.split("/"))
-        parent = target.parent
-        for ancestor in reversed([parent, *parent.parents]):
-            if ancestor == dest or dest not in ancestor.parents:
-                continue
-            if ancestor.is_symlink():
-                raise ValueError(f"refusing to write through symlink {ancestor}")
-            ancestor.mkdir(exist_ok=True)
-        fd = os.open(target, flags, 0o644)
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(data)
+    """Create every file exclusively, relative to one opened destination handle.
+
+    The destination's final component is opened with O_NOFOLLOW and every
+    subdirectory and file is created relative to that handle (dir_fd), so the
+    tree cannot be redirected by swapping a path for a symlink between checks
+    and writes. Parent components of --dest are resolved normally.
+    """
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    parent_fd = os.open(dest.parent, os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_CLOEXEC", 0))
+    try:
+        try:
+            os.mkdir(dest.name, 0o755, dir_fd=parent_fd)
+        except FileExistsError:
+            pass
+        root_fd = _open_child_dir(parent_fd, dest.name, create=False)
+    finally:
+        os.close(parent_fd)
+    try:
+        if os.listdir(root_fd):
+            raise ValueError(f"destination {dest} is not empty; refusing to overwrite")
+        made: dict[tuple[str, ...], int] = {(): root_fd}
+        try:
+            for rel, data in files:
+                parts = tuple(rel.split("/"))
+                for depth in range(1, len(parts)):
+                    key = parts[:depth]
+                    if key not in made:
+                        made[key] = _open_child_dir(made[key[:-1]], key[-1], create=True)
+                fd = os.open(parts[-1], _FILE_FLAGS, 0o644, dir_fd=made[parts[:-1]])
+                with os.fdopen(fd, "wb") as handle:
+                    handle.write(data)
+        finally:
+            for key, fd in made.items():
+                if key:
+                    os.close(fd)
+    finally:
+        os.close(root_fd)
 
 
 def main(argv: list[str] | None = None) -> int:
