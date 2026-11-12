@@ -26,6 +26,16 @@ SCHEMA = 1
 # project, Godot project name and file name. No dots, slashes or leading '-'.
 NAME_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789_-")
 NAME_MAX = 48
+# Names Cargo refuses as package names (Rust keywords and the built-in `test`
+# crate), plus Rust's reserved words. Rejected for every template so a project
+# name stays portable across templates.
+RESERVED_NAMES = frozenset({
+    "test", "abstract", "as", "async", "await", "become", "box", "break", "const", "continue",
+    "crate", "do", "dyn", "else", "enum", "extern", "false", "final", "fn", "for", "gen", "if",
+    "impl", "in", "let", "loop", "macro", "match", "mod", "move", "mut", "override", "priv",
+    "pub", "ref", "return", "self", "static", "struct", "super", "trait", "true", "try",
+    "type", "typeof", "unsafe", "unsized", "use", "virtual", "where", "while", "yield",
+})
 # Explicit contract markers, matching the other Xodus planners.
 network_used = False
 executes_commands = False
@@ -60,6 +70,8 @@ def validate_name(name: str) -> str:
         raise ValueError("project name must start with a lowercase letter")
     if name.endswith("-"):
         raise ValueError("project name must not end with '-'")
+    if name.replace("-", "_") in RESERVED_NAMES:
+        raise ValueError(f"project name {name!r} is a reserved word (Cargo refuses it)")
     return name
 
 

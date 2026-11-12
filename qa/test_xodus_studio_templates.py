@@ -302,6 +302,22 @@ class ScaffolderTests(unittest.TestCase):
                     new_mod.build_plan(self.manifest, "love2d", name, self.tmp / "dest")
                 self.assertFalse((self.tmp / "dest").exists())
 
+    def test_rejects_names_cargo_refuses(self) -> None:
+        for name in ("test", "fn", "self", "async", "type", "crate"):
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(ValueError, "reserved"):
+                    new_mod.validate_name(name)
+
+    @unittest.skipUnless(shutil.which("cargo"), "cargo not installed")
+    def test_accepted_names_are_valid_cargo_packages(self) -> None:
+        for name in ("game", "my-game", "core", "tester", "fnord"):
+            with self.subTest(name=name):
+                dest = self.tmp / f"cargo-{name}"
+                proc = subprocess.run(["cargo", "new", "--vcs", "none", "--offline", "-q", "--name", name, str(dest)],
+                                      capture_output=True, text=True)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                new_mod.validate_name(name)
+
     def test_accepts_reasonable_names(self) -> None:
         for name in ("a", "game", "my-game", "my_game2", "a" * 48):
             with self.subTest(name=name):
