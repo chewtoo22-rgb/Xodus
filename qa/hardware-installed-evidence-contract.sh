@@ -63,6 +63,13 @@ expect_refusal() {
 
 mkdir -p "$tmp/out"
 installed_root=(XODUS_CONTRACT_ROOT_SOURCE=/dev/sda2 XODUS_CONTRACT_ROOT_FSTYPE=ext4)
+# The collector always checks the real root too, so gates after 40 are only
+# reachable on a host whose own root is a real block device.
+case "$(findmnt -n -o SOURCE,FSTYPE / 2>/dev/null || true)" in
+  *overlay*|*airootfs*|*squashfs*|*tmpfs*)
+    fail 'this host has a live/overlay root; run the contract on a VM or block-device root' ;;
+esac
+if [[ -d /sys/firmware/efi ]]; then expected_boot_mode=uefi; else expected_boot_mode=not-uefi-contract-override; fi
 
 # --- 40: live-media and ephemeral roots (from PR #44) ------------------------
 expect_refusal 40 overlay-source "$collector" XODUS_CONTRACT_ROOT_SOURCE=overlay XODUS_CONTRACT_ROOT_FSTYPE=ext4 XODUS_CONTRACT_ALLOW_NO_EFI=1
@@ -155,6 +162,21 @@ grep -Fqx 'root=/' "$tmp/stub.log" || fail 'verifier was not asked to check "/"'
 grep -Fqx "expected=$good_sha" "$tmp/stub.log" || fail 'verifier was not bound to the candidate SHA'
 pass 'verifier is called on "/" with XODUS_EXPECTED_SOURCE_COMMIT=candidate'
 
+# --- 40 cannot be masked: a fake live root wins over the /dev override -------
+fakebin="$tmp/fakebin"
+mkdir -p "$fakebin"
+cat >"$fakebin/findmnt" <<'FAKE'
+#!/usr/bin/env bash
+case "$*" in *SOURCE*) echo overlay ;; *FSTYPE*) echo overlay ;; esac
+FAKE
+chmod +x "$fakebin/findmnt"
+masked_rc=0
+env -i PATH="$fakebin:$PATH" HOME="$tmp" "${sb_env[@]}" STUB_MODE=pass \
+  bash "$sandboxed" "$tmp/out/masked" >/dev/null 2>"$tmp/masked.stderr" || masked_rc=$?
+[[ "$masked_rc" -eq 40 ]] || fail "override masked a live root (rc=$masked_rc)"
+[[ ! -e "$tmp/out/masked" ]] || fail 'masked live root wrote evidence'
+pass 'live root refused even when the root-source override claims /dev/sda2'
+
 # --- 44: upstream provenance missing, duplicated or malformed ----------------
 expect_refusal 44 upstream-missing "$sandboxed" "${sb_env[@]}" STUB_MODE=missing
 expect_refusal 44 upstream-duplicate "$sandboxed" "${sb_env[@]}" STUB_MODE=duplicate
@@ -173,9 +195,9 @@ summary="$installed/summary.txt"
 for line in \
   "candidate_sha=$good_sha" \
   "upstream_sha=$upstream" \
-  'root_source=/dev/sda2' \
-  'root_fstype=ext4' \
-  'boot_mode=uefi' \
+  "root_source=$(findmnt -n -o SOURCE / 2>/dev/null || true)" \
+  "root_fstype=$(findmnt -n -o FSTYPE / 2>/dev/null || true)" \
+  "boot_mode=$expected_boot_mode" \
   'collector=pass' \
   'physical_install_claim=not_automatic'; do
   grep -Fqx "$line" "$summary" || fail "summary missing line: $line"
