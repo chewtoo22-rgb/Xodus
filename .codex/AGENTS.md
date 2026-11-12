@@ -1,26 +1,5 @@
-# ECC for Codex CLI
+# Xodus for Codex CLI
 
-This supplements the root `AGENTS.md` with a repo-local ECC baseline.
+Repository conventions live in `.agents/skills/Xodus/SKILL.md` (Claude Code reads the identical copy at `.claude/skills/Xodus/SKILL.md`). Keep the two files identical.
 
-## Repo Skill
-
-- Repo-generated Codex skill: `.agents/skills/Xodus/SKILL.md`
-- Claude-facing companion skill: `.claude/skills/Xodus/SKILL.md`
-- Keep user-specific credentials and private MCPs in `~/.codex/config.toml`, not in this repo.
-
-## MCP Baseline
-
-Treat `.codex/config.toml` as the default ECC-safe baseline for work in this repository.
-The generated baseline enables GitHub, Context7, Exa, Memory, Playwright, and Sequential Thinking.
-
-## Multi-Agent Support
-
-- Explorer: read-only evidence gathering
-- Reviewer: correctness, security, and regression review
-- Docs researcher: API and release-note verification
-
-## Workflow Files
-
-- No dedicated workflow command files were generated for this repo.
-
-Use these workflow files as reusable task scaffolds when the detected repository workflows recur.
+No repo-local MCP servers or Codex config are committed: this repository pins its inputs, and unpinned `npx …@latest` servers would run unreviewed code in every session. Keep personal MCP servers and credentials in `~/.codex/config.toml`.

@@ -1,133 +1,64 @@
 ---
 name: xodus-conventions
-description: Development conventions and patterns for Xodus. Python project with freeform commits.
+description: Conventions for working in the Xodus OS integration repository (Arch/pearOS-based gaming + local-AI desktop). Use when changing qa/ contracts, scripts/ planners, overlay/ boot services, GitHub workflows, or docs in this repo.
 ---
 
-# Xodus Conventions
+# Xodus conventions
 
-> Generated from [chewtoo22-rgb/Xodus](https://github.com/chewtoo22-rgb/Xodus) on 2026-11-12
+Xodus is an **integration repository**, not a fork: upstream pearOS sources are pinned in `upstream/*.lock` and Xodus behaviour lives in overlays, scripts, QA contracts and workflows. Read `docs/ARCHITECTURE.md` and `docs/ROADMAP.md` before structural changes.
 
-## Overview
+## Layout and ownership
 
-This skill teaches Claude the development patterns and conventions used in Xodus.
+| Path | Holds |
+| --- | --- |
+| `overlay/` | Files injected into the ISO before the Arch build (identity, first-boot and live-desktop systemd units/scripts) |
+| `scripts/` | Planners and tooling. Planners are **deterministic and non-executing**: they emit a plan (JSON / argv) and never run it (`xodus-arena-session-plan`, `xodus-ai-launch-plan.py`, `xodus-studio-plan.py`) |
+| `qa/` | Fail-closed contracts (`*_contract.py`, `*-contract.sh`, `check_*.py`) and their tests (`test_*.py` / `test-*.py`), plus `qa/fixtures/` |
+| `studio/`, `labs/` | Workstream manifests (Xodus Studio dev tools, AI Labs) |
+| `.github/workflows/` | One workflow per contract, path-filtered to the files it guards |
+| `docs/` | Architecture, roadmap, per-workstream specs |
 
-## Tech Stack
+`vendor/`, `build/`, `out/`, `*.iso`, `*.img` are generated and git-ignored.
 
-- **Primary Language**: Python
-- **Architecture**: hybrid module organization
-- **Test Location**: separate
+## Python
 
-## When to Use This Skill
+- **Standard library only.** No third-party imports; no `pip install` in CI.
+- `from __future__ import annotations`, `pathlib.Path`, `ROOT = Path(__file__).resolve().parents[1]`.
+- snake_case for functions, variables and module files; PascalCase classes; UPPER_SNAKE constants. Executable scripts in `scripts/` may use kebab-case names; load them in tests with `importlib.util.spec_from_file_location`.
+- Tests use **`unittest`** (`python3 -m unittest qa/test_x.py` or `python3 qa/test_x.py`), not pytest. Tests live in `qa/`, not `tests/`.
 
-Activate this skill when:
-- Making changes to this repository
-- Adding new features following established patterns
-- Writing tests that match project conventions
-- Creating commits with proper message format
+## Contract style (fail closed)
 
-## Commit Conventions
+- Exact key sets: reject missing *and* unexpected keys; reject duplicate JSON keys via `object_pairs_hook`.
+- Reject symlinks and non-regular files for evidence/manifest inputs.
+- Claims stay `false` until evidence exists (`hardware_validation_claim: false`, `network_required: false`).
+- Type-strict checks (`type(x) is int`, so `True` is not accepted as `1`).
+- Planners mark `executed: false`, `network_used: false`, and never import `subprocess`/`socket`/`urllib`.
+- Each new contract gets negative tests for every rule, not just a happy path.
 
-Follow these commit message conventions based on 3 analyzed commits.
+## Shell
 
-### Commit Style: Free-form Messages
+- `set -euo pipefail`; quote every expansion.
+- Syntax-check **one script per `bash -n`** call (`for f in …; do bash -n "$f"; done`). `bash -n a b` checks only `a`; `qa/check_shell_syntax_invocations.py` enforces this.
 
-### Prefixes Used
+## Workflows
 
-- `qa`
-- `studio`
+- Every workflow declares top-level `permissions:` (normally `contents: read`); `qa/check_workflow_permissions.py` and `qa/check_workflow_permission_boundary.py` must pass.
+- Path-filter `pull_request`/`push` triggers to the files the contract guards.
+- Destructive or hardware steps are gated behind explicit qualification and evidence bound to the exact commit SHA; never weaken those gates.
 
-### Message Guidelines
+## Commits and PRs
 
-- Average message length: ~61 characters
-- Keep first line concise and descriptive
-- Use imperative mood ("Add feature" not "Added feature")
+- Subject: `Area: imperative summary`, e.g. `QA: …`, `CI: …`, `AI: …`, `Arena: …`, `Installer: …`, `Studio: …`, `Docs: …`, `M0: …`.
+- Body explains why, and states what was verified and what was **not** (no hardware or VM claims without evidence).
 
+## Before pushing
 
-*Commit message example*
+Run the affected contract and its tests, plus:
 
-```text
-QA: syntax-check every shell script, not just the first operand
+```sh
+for f in qa/test*.py; do python3 "$f" >/dev/null || echo "FAIL $f"; done
+python3 qa/check_workflow_permissions.py
+python3 qa/check_workflow_permission_boundary.py
+python3 qa/check_shell_syntax_invocations.py
 ```
-
-*Commit message example*
-
-```text
-Studio: add opt-in game/app development workstream (M7)
-```
-
-*Commit message example*
-
-```text
-Review fixes: shell guard precision, Studio fail-closed planning
-```
-
-## Architecture
-
-### Project Structure: Single Package
-
-This project uses **hybrid** module organization.
-
-### Configuration Files
-
-- `.github/workflows/ai-first-boot-contract.yml`
-- `.github/workflows/ai-runtime-overlay-contract.yml`
-- `.github/workflows/qa-qemu-smoke.yml`
-- `.github/workflows/validate.yml`
-- `.github/workflows/xodus-studio-contract.yml`
-
-### Guidelines
-
-- This project uses a hybrid organization
-- Follow existing patterns when adding new code
-
-## Code Style
-
-### Language: Python
-
-### Naming Conventions
-
-| Element | Convention |
-|---------|------------|
-| Files | snake_case |
-| Functions | camelCase |
-| Classes | PascalCase |
-| Constants | SCREAMING_SNAKE_CASE |
-
-### Import Style: Relative Imports
-
-### Export Style: Named Exports
-
-
-*Preferred import style*
-
-```typescript
-// Use relative imports
-import { Button } from '../components/Button'
-import { useAuth } from './hooks/useAuth'
-```
-
-*Preferred export style*
-
-```typescript
-// Use named exports
-export function calculateTotal() { ... }
-export const TAX_RATE = 0.1
-export interface Order { ... }
-```
-
-## Best Practices
-
-Based on analysis of the codebase, follow these practices:
-
-### Do
-
-- Use snake_case for file names
-- Prefer named exports
-
-### Don't
-
-- Don't deviate from established patterns without discussion
-
----
-
-*This skill was auto-generated by [ECC Tools](https://ecc.tools). Review and customize as needed for your team.*
