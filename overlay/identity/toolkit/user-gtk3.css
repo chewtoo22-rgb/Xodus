@@ -1,0 +1,9 @@
+/* Copyright 2026 Xodus contributors. SPDX-License-Identifier: MIT */
+/* Keep the selected theme's light/dark surfaces. Add only Xodus typography and accent. */
+@define-color theme_selected_bg_color #AD85F5;
+@define-color theme_selected_fg_color #100B18;
+* { font-family: "Noto Sans"; }
+button, entry { border-radius: 8px; }
+button.suggested-action { background-color: #7547C0; color: #FFFFFF; }
+progressbar progress, scale highlight { background-color: @theme_selected_bg_color; color: @theme_selected_fg_color; }
+selection, row:selected { background-color: @theme_selected_bg_color; color: @theme_selected_fg_color; }

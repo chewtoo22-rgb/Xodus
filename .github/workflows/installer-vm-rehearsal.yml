@@ -6,6 +6,8 @@ on:
       - 'qa/installer-vm-rehearsal.sh'
       - '.github/workflows/installer-vm-rehearsal.yml'
       - 'scripts/installer-target-guard.sh'
+      - 'overlay/identity/installer/**'
+      - 'overlay/identity/installed/**'
       - 'docs/INSTALLER_SAFETY.md'
   workflow_dispatch:
     inputs:

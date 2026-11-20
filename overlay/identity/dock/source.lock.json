@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "package": "pearos-dock",
+  "version": "26.6.10-5",
+  "package_sha256": "662cda638466461cd0a5d5c58385bb85308b4ecfa15306d6d26e173579bbfac5",
+  "source_files": {
+    "ui/main.qml": "ce9e8b537828b41d848a787983714a3f9a0783000a2fab84a19f76911e6d6b13",
+    "ui/ConfigAppearance.qml": "a74db61b2cf3c74fba12195dc31ef7fd97fce54fc82c130a320e7fb625cd6b5f",
+    "config/main.xml": "41caf9d7af4cde3fb75d5ba451e2a3b45a2afea1ca50444cd05e429509dda882"
+  },
+  "upstream_skin_files": {
+    "Big Sur Light/bg.png": "b7192daa81c12ffb6668859649018d90e1e36bab14a683538ae251dd2a95c054",
+    "Big Sur Light/bgl.png": "87ba06f1464779bc59e1fcc17b4b885b5e894fed78b3163084f8056ac6618715",
+    "Big Sur Light/bgr.png": "7226b6e3b6dfd23679a774ff735d993f68703efee67c475ec3047f0d393fb5e9",
+    "Big Sur Light/bgt.png": "657865b8c97d8a5038dcbbaed898a892e26a0bc6e6e58bcf4837af735c069e40",
+    "Big Sur Light/Config.qml": "e0b16097719b390c552ff1738ee49d2caa6927136d3c11ed792954a3110ddd0d",
+    "Big Sur Light/readme": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "Big Sur Light/tasks.svgz": "5894378587d47d6f24ee672fc9e110f55bd94d3e7299cadb00c9fd67cb6ae672",
+    "Big Sur Night/bg.png": "fe6b7a5bb86c36bda71bc888efc5ef070cc641a84ad0046660591dcaea4fbc08",
+    "Big Sur Night/bgl.png": "5dcb9585569be6ca815e33fbb07fb1a61956bce131ea4e7c006d635c11413c1d",
+    "Big Sur Night/bgr.png": "8baa4186bf63454a0ab60edde33f8534cd9bc555b1603f2baf7035d0593c9048",
+    "Big Sur Night/bgt.png": "568f953cce19b66c8abb46a40af3c4f699733032a510d22399cd5bbab62f03de",
+    "Big Sur Night/Config.qml": "098b9653b6033d6b3735622f96de508118e1467f7a2c7e3ac2ebdbe8c76a0ad8",
+    "Big Sur Night/readme": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "Big Sur Night/tasks.svgz": "8bfe0529d87b5d1b84c153318703aab24d229e3830b61aeb35932ccdb4335bbd",
+    "readme": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "Tahoe/bg.png": "e2fdf70e637914c4ef7de2544d8129d70155d096e3390da5cb6365cbc9c1ec62",
+    "Tahoe/bgl.png": "c1c5e30a6d4ec0430e893dcff64ac4a28e2f24594611385226977ed03b327803",
+    "Tahoe/bgr.png": "a5064283c8ec94c1582cf9c3a3a63118d07777d6b8fe0f640705c40818e32d6b",
+    "Tahoe/bgt.png": "9357bf654ebceb8ac67ebc92366b587855b93864cddce17f1baeefcf101dcd08",
+    "Tahoe/Config.qml": "5bb90ec0d500bb149ac59e03de100eba33d43f94ade835e5fb1a8f04192ea269",
+    "Tahoe/tasks.svgz": "5894378587d47d6f24ee672fc9e110f55bd94d3e7299cadb00c9fd67cb6ae672",
+    "Tahoe Dark/bg.png": "030336241dc3c9c939882118f6d4c969211f16cbe87889abbaf6448b78fa57e6",
+    "Tahoe Dark/bgl.png": "64964c9dedbd9ce19571ab431b0c23cd6dfd9fd2742d305ee85c88c86bf3ee18",
+    "Tahoe Dark/bgr.png": "5b24a35ea91df3d782a4785d5bb210aa0c1f06f87b7887e5ee8e38edb40645f6",
+    "Tahoe Dark/bgt.png": "9e6a62f4a115e6bdf46def2cfa0e3918e38e96e4c30e2dec4ef8ea369a24d348",
+    "Tahoe Dark/Config.qml": "dbbb6c3322d003024b864abef0093c4a747e1ea6866af54d467f0bb63d987b48",
+    "Tahoe Dark/tasks.svgz": "8bfe0529d87b5d1b84c153318703aab24d229e3830b61aeb35932ccdb4335bbd"
+  },
+  "patched_files": {
+    "ui/main.qml": "2fcb3d728af554eb5fbf43262a32ed8122502a4138b2a228b47d28b1a991dbd9",
+    "ui/ConfigAppearance.qml": "3cf4aff204c3435334e54e6e94d42e1263d170b3bfcf718beedccc282fd7def7",
+    "config/main.xml": "c15feccd699a0606e3c12fcbbe3edcaa5d7b11ac2b5d475bc569ce7134300153"
+  }
+}

@@ -1,0 +1,56 @@
+# Xodus installed boot menu. Upstream font licenses remain beside their fonts.
+desktop-image: "background.png"
+title-text: " "
+message-font: "Poppins Regular 14"
+message-color: "#EEE8FF"
+terminal-font: "Terminus Regular 14"
+
++ label {
+  text = "Xodus"
+  font = "Poppins Regular 48"
+  color = "#EEE8FF"
+  left = 12%
+  top = 15%
+  width = 44%
+  height = 60
+  align = "left"
+}
+
++ boot_menu {
+  left = 12%
+  top = 30%
+  width = 44%
+  height = 42%
+  icon_width = 0
+  icon_height = 0
+  item_height = 34
+  item_padding = 8
+  item_spacing = 10
+  item_font = "Poppins Regular 18"
+  item_color = "#EEE8FF"
+  selected_item_color = "#CBB6FF"
+  scrollbar = false
+}
+
++ label {
+  left = 12%
+  top = 83%
+  width = 76%
+  height = 30
+  font = "Poppins Regular 14"
+  color = "#EEE8FF"
+  align = "left"
+  text = "@KEYMAP_SHORT@"
+}
+
++ label {
+  id = "__timeout__"
+  left = 12%
+  top = 90%
+  width = 76%
+  height = 30
+  font = "Poppins Regular 14"
+  color = "#CBB6FF"
+  align = "left"
+  text = "@TIMEOUT_NOTIFICATION_LONG@"
+}

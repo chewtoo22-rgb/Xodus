@@ -1,0 +1,604 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: GPL-2.0-or-later; original Xodus task frames -->
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="160" viewBox="0 0 256 160">
+  <g fill="#bd94ff" fill-opacity="0">
+    <rect id="normal-center" x="4" y="4" width="16" height="16"/>
+    <rect id="normal-top" x="4" y="0" width="16" height="4"/>
+    <rect id="normal-bottom" x="4" y="20" width="16" height="4"/>
+    <rect id="normal-left" x="0" y="4" width="4" height="16"/>
+    <rect id="normal-right" x="20" y="4" width="4" height="16"/>
+    <path id="normal-topleft" transform="translate(0 0)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="normal-topright" transform="translate(20 0)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="normal-bottomleft" transform="translate(0 20)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="normal-bottomright" transform="translate(20 20)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="normal-hint-left-margin" x="0" y="0" width="4" height="4" fill="none"/>
+  <rect id="normal-hint-top-margin" x="0" y="0" width="4" height="4" fill="none"/>
+  <rect id="normal-hint-right-margin" x="0" y="0" width="4" height="4" fill="none"/>
+  <rect id="normal-hint-bottom-margin" x="0" y="0" width="4" height="4" fill="none"/>
+  <g fill="#bd94ff" fill-opacity="0.04">
+    <rect id="minimized-center" x="36" y="4" width="16" height="16"/>
+    <rect id="minimized-top" x="36" y="0" width="16" height="4"/>
+    <rect id="minimized-bottom" x="36" y="20" width="16" height="4"/>
+    <rect id="minimized-left" x="32" y="4" width="4" height="16"/>
+    <rect id="minimized-right" x="52" y="4" width="4" height="16"/>
+    <path id="minimized-topleft" transform="translate(32 0)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="minimized-topright" transform="translate(52 0)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="minimized-bottomleft" transform="translate(32 20)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="minimized-bottomright" transform="translate(52 20)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="minimized-hint-left-margin" x="32" y="0" width="4" height="4" fill="none"/>
+  <rect id="minimized-hint-top-margin" x="32" y="0" width="4" height="4" fill="none"/>
+  <rect id="minimized-hint-right-margin" x="32" y="0" width="4" height="4" fill="none"/>
+  <rect id="minimized-hint-bottom-margin" x="32" y="0" width="4" height="4" fill="none"/>
+  <g fill="#bd94ff" fill-opacity="0.22">
+    <rect id="focus-center" x="68" y="4" width="16" height="16"/>
+    <rect id="focus-top" x="68" y="0" width="16" height="4"/>
+    <rect id="focus-bottom" x="68" y="20" width="16" height="4"/>
+    <rect id="focus-left" x="64" y="4" width="4" height="16"/>
+    <rect id="focus-right" x="84" y="4" width="4" height="16"/>
+    <path id="focus-topleft" transform="translate(64 0)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="focus-topright" transform="translate(84 0)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="focus-bottomleft" transform="translate(64 20)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="focus-bottomright" transform="translate(84 20)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="focus-hint-left-margin" x="64" y="0" width="4" height="4" fill="none"/>
+  <rect id="focus-hint-top-margin" x="64" y="0" width="4" height="4" fill="none"/>
+  <rect id="focus-hint-right-margin" x="64" y="0" width="4" height="4" fill="none"/>
+  <rect id="focus-hint-bottom-margin" x="64" y="0" width="4" height="4" fill="none"/>
+  <g fill="#bd94ff" fill-opacity="0.12">
+    <rect id="hover-center" x="100" y="4" width="16" height="16"/>
+    <rect id="hover-top" x="100" y="0" width="16" height="4"/>
+    <rect id="hover-bottom" x="100" y="20" width="16" height="4"/>
+    <rect id="hover-left" x="96" y="4" width="4" height="16"/>
+    <rect id="hover-right" x="116" y="4" width="4" height="16"/>
+    <path id="hover-topleft" transform="translate(96 0)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="hover-topright" transform="translate(116 0)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="hover-bottomleft" transform="translate(96 20)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="hover-bottomright" transform="translate(116 20)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="hover-hint-left-margin" x="96" y="0" width="4" height="4" fill="none"/>
+  <rect id="hover-hint-top-margin" x="96" y="0" width="4" height="4" fill="none"/>
+  <rect id="hover-hint-right-margin" x="96" y="0" width="4" height="4" fill="none"/>
+  <rect id="hover-hint-bottom-margin" x="96" y="0" width="4" height="4" fill="none"/>
+  <g fill="#e9a14b" fill-opacity="0.24">
+    <rect id="attention-center" x="132" y="4" width="16" height="16"/>
+    <rect id="attention-top" x="132" y="0" width="16" height="4"/>
+    <rect id="attention-bottom" x="132" y="20" width="16" height="4"/>
+    <rect id="attention-left" x="128" y="4" width="4" height="16"/>
+    <rect id="attention-right" x="148" y="4" width="4" height="16"/>
+    <path id="attention-topleft" transform="translate(128 0)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="attention-topright" transform="translate(148 0)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="attention-bottomleft" transform="translate(128 20)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="attention-bottomright" transform="translate(148 20)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="attention-hint-left-margin" x="128" y="0" width="4" height="4" fill="none"/>
+  <rect id="attention-hint-top-margin" x="128" y="0" width="4" height="4" fill="none"/>
+  <rect id="attention-hint-right-margin" x="128" y="0" width="4" height="4" fill="none"/>
+  <rect id="attention-hint-bottom-margin" x="128" y="0" width="4" height="4" fill="none"/>
+  <g fill="#bd94ff" fill-opacity="0.18">
+    <rect id="progress-center" x="164" y="4" width="16" height="16"/>
+    <rect id="progress-top" x="164" y="0" width="16" height="4"/>
+    <rect id="progress-bottom" x="164" y="20" width="16" height="4"/>
+    <rect id="progress-left" x="160" y="4" width="4" height="16"/>
+    <rect id="progress-right" x="180" y="4" width="4" height="16"/>
+    <path id="progress-topleft" transform="translate(160 0)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="progress-topright" transform="translate(180 0)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="progress-bottomleft" transform="translate(160 20)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="progress-bottomright" transform="translate(180 20)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="progress-hint-left-margin" x="160" y="0" width="4" height="4" fill="none"/>
+  <rect id="progress-hint-top-margin" x="160" y="0" width="4" height="4" fill="none"/>
+  <rect id="progress-hint-right-margin" x="160" y="0" width="4" height="4" fill="none"/>
+  <rect id="progress-hint-bottom-margin" x="160" y="0" width="4" height="4" fill="none"/>
+  <g fill="#bd94ff" fill-opacity="0">
+    <rect id="launcher-center" x="196" y="4" width="16" height="16"/>
+    <rect id="launcher-top" x="196" y="0" width="16" height="4"/>
+    <rect id="launcher-bottom" x="196" y="20" width="16" height="4"/>
+    <rect id="launcher-left" x="192" y="4" width="4" height="16"/>
+    <rect id="launcher-right" x="212" y="4" width="4" height="16"/>
+    <path id="launcher-topleft" transform="translate(192 0)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="launcher-topright" transform="translate(212 0)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="launcher-bottomleft" transform="translate(192 20)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="launcher-bottomright" transform="translate(212 20)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="launcher-hint-left-margin" x="192" y="0" width="4" height="4" fill="none"/>
+  <rect id="launcher-hint-top-margin" x="192" y="0" width="4" height="4" fill="none"/>
+  <rect id="launcher-hint-right-margin" x="192" y="0" width="4" height="4" fill="none"/>
+  <rect id="launcher-hint-bottom-margin" x="192" y="0" width="4" height="4" fill="none"/>
+  <g fill="#bd94ff" fill-opacity="0.12">
+    <rect id="launcher-hover-center" x="228" y="4" width="16" height="16"/>
+    <rect id="launcher-hover-top" x="228" y="0" width="16" height="4"/>
+    <rect id="launcher-hover-bottom" x="228" y="20" width="16" height="4"/>
+    <rect id="launcher-hover-left" x="224" y="4" width="4" height="16"/>
+    <rect id="launcher-hover-right" x="244" y="4" width="4" height="16"/>
+    <path id="launcher-hover-topleft" transform="translate(224 0)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="launcher-hover-topright" transform="translate(244 0)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="launcher-hover-bottomleft" transform="translate(224 20)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="launcher-hover-bottomright" transform="translate(244 20)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="launcher-hover-hint-left-margin" x="224" y="0" width="4" height="4" fill="none"/>
+  <rect id="launcher-hover-hint-top-margin" x="224" y="0" width="4" height="4" fill="none"/>
+  <rect id="launcher-hover-hint-right-margin" x="224" y="0" width="4" height="4" fill="none"/>
+  <rect id="launcher-hover-hint-bottom-margin" x="224" y="0" width="4" height="4" fill="none"/>
+  <g fill="#bd94ff" fill-opacity="0">
+    <rect id="north-normal-center" x="4" y="36" width="16" height="16"/>
+    <rect id="north-normal-top" x="4" y="32" width="16" height="4"/>
+    <rect id="north-normal-bottom" x="4" y="52" width="16" height="4"/>
+    <rect id="north-normal-left" x="0" y="36" width="4" height="16"/>
+    <rect id="north-normal-right" x="20" y="36" width="4" height="16"/>
+    <path id="north-normal-topleft" transform="translate(0 32)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="north-normal-topright" transform="translate(20 32)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="north-normal-bottomleft" transform="translate(0 52)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="north-normal-bottomright" transform="translate(20 52)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="north-normal-hint-left-margin" x="0" y="32" width="4" height="4" fill="none"/>
+  <rect id="north-normal-hint-top-margin" x="0" y="32" width="4" height="4" fill="none"/>
+  <rect id="north-normal-hint-right-margin" x="0" y="32" width="4" height="4" fill="none"/>
+  <rect id="north-normal-hint-bottom-margin" x="0" y="32" width="4" height="4" fill="none"/>
+  <g fill="#bd94ff" fill-opacity="0.04">
+    <rect id="north-minimized-center" x="36" y="36" width="16" height="16"/>
+    <rect id="north-minimized-top" x="36" y="32" width="16" height="4"/>
+    <rect id="north-minimized-bottom" x="36" y="52" width="16" height="4"/>
+    <rect id="north-minimized-left" x="32" y="36" width="4" height="16"/>
+    <rect id="north-minimized-right" x="52" y="36" width="4" height="16"/>
+    <path id="north-minimized-topleft" transform="translate(32 32)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="north-minimized-topright" transform="translate(52 32)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="north-minimized-bottomleft" transform="translate(32 52)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="north-minimized-bottomright" transform="translate(52 52)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="north-minimized-hint-left-margin" x="32" y="32" width="4" height="4" fill="none"/>
+  <rect id="north-minimized-hint-top-margin" x="32" y="32" width="4" height="4" fill="none"/>
+  <rect id="north-minimized-hint-right-margin" x="32" y="32" width="4" height="4" fill="none"/>
+  <rect id="north-minimized-hint-bottom-margin" x="32" y="32" width="4" height="4" fill="none"/>
+  <g fill="#bd94ff" fill-opacity="0.22">
+    <rect id="north-focus-center" x="68" y="36" width="16" height="16"/>
+    <rect id="north-focus-top" x="68" y="32" width="16" height="4"/>
+    <rect id="north-focus-bottom" x="68" y="52" width="16" height="4"/>
+    <rect id="north-focus-left" x="64" y="36" width="4" height="16"/>
+    <rect id="north-focus-right" x="84" y="36" width="4" height="16"/>
+    <path id="north-focus-topleft" transform="translate(64 32)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="north-focus-topright" transform="translate(84 32)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="north-focus-bottomleft" transform="translate(64 52)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="north-focus-bottomright" transform="translate(84 52)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="north-focus-hint-left-margin" x="64" y="32" width="4" height="4" fill="none"/>
+  <rect id="north-focus-hint-top-margin" x="64" y="32" width="4" height="4" fill="none"/>
+  <rect id="north-focus-hint-right-margin" x="64" y="32" width="4" height="4" fill="none"/>
+  <rect id="north-focus-hint-bottom-margin" x="64" y="32" width="4" height="4" fill="none"/>
+  <g fill="#bd94ff" fill-opacity="0.12">
+    <rect id="north-hover-center" x="100" y="36" width="16" height="16"/>
+    <rect id="north-hover-top" x="100" y="32" width="16" height="4"/>
+    <rect id="north-hover-bottom" x="100" y="52" width="16" height="4"/>
+    <rect id="north-hover-left" x="96" y="36" width="4" height="16"/>
+    <rect id="north-hover-right" x="116" y="36" width="4" height="16"/>
+    <path id="north-hover-topleft" transform="translate(96 32)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="north-hover-topright" transform="translate(116 32)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="north-hover-bottomleft" transform="translate(96 52)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="north-hover-bottomright" transform="translate(116 52)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="north-hover-hint-left-margin" x="96" y="32" width="4" height="4" fill="none"/>
+  <rect id="north-hover-hint-top-margin" x="96" y="32" width="4" height="4" fill="none"/>
+  <rect id="north-hover-hint-right-margin" x="96" y="32" width="4" height="4" fill="none"/>
+  <rect id="north-hover-hint-bottom-margin" x="96" y="32" width="4" height="4" fill="none"/>
+  <g fill="#e9a14b" fill-opacity="0.24">
+    <rect id="north-attention-center" x="132" y="36" width="16" height="16"/>
+    <rect id="north-attention-top" x="132" y="32" width="16" height="4"/>
+    <rect id="north-attention-bottom" x="132" y="52" width="16" height="4"/>
+    <rect id="north-attention-left" x="128" y="36" width="4" height="16"/>
+    <rect id="north-attention-right" x="148" y="36" width="4" height="16"/>
+    <path id="north-attention-topleft" transform="translate(128 32)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="north-attention-topright" transform="translate(148 32)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="north-attention-bottomleft" transform="translate(128 52)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="north-attention-bottomright" transform="translate(148 52)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="north-attention-hint-left-margin" x="128" y="32" width="4" height="4" fill="none"/>
+  <rect id="north-attention-hint-top-margin" x="128" y="32" width="4" height="4" fill="none"/>
+  <rect id="north-attention-hint-right-margin" x="128" y="32" width="4" height="4" fill="none"/>
+  <rect id="north-attention-hint-bottom-margin" x="128" y="32" width="4" height="4" fill="none"/>
+  <g fill="#bd94ff" fill-opacity="0.18">
+    <rect id="north-progress-center" x="164" y="36" width="16" height="16"/>
+    <rect id="north-progress-top" x="164" y="32" width="16" height="4"/>
+    <rect id="north-progress-bottom" x="164" y="52" width="16" height="4"/>
+    <rect id="north-progress-left" x="160" y="36" width="4" height="16"/>
+    <rect id="north-progress-right" x="180" y="36" width="4" height="16"/>
+    <path id="north-progress-topleft" transform="translate(160 32)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="north-progress-topright" transform="translate(180 32)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="north-progress-bottomleft" transform="translate(160 52)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="north-progress-bottomright" transform="translate(180 52)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="north-progress-hint-left-margin" x="160" y="32" width="4" height="4" fill="none"/>
+  <rect id="north-progress-hint-top-margin" x="160" y="32" width="4" height="4" fill="none"/>
+  <rect id="north-progress-hint-right-margin" x="160" y="32" width="4" height="4" fill="none"/>
+  <rect id="north-progress-hint-bottom-margin" x="160" y="32" width="4" height="4" fill="none"/>
+  <g fill="#bd94ff" fill-opacity="0">
+    <rect id="north-launcher-center" x="196" y="36" width="16" height="16"/>
+    <rect id="north-launcher-top" x="196" y="32" width="16" height="4"/>
+    <rect id="north-launcher-bottom" x="196" y="52" width="16" height="4"/>
+    <rect id="north-launcher-left" x="192" y="36" width="4" height="16"/>
+    <rect id="north-launcher-right" x="212" y="36" width="4" height="16"/>
+    <path id="north-launcher-topleft" transform="translate(192 32)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="north-launcher-topright" transform="translate(212 32)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="north-launcher-bottomleft" transform="translate(192 52)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="north-launcher-bottomright" transform="translate(212 52)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="north-launcher-hint-left-margin" x="192" y="32" width="4" height="4" fill="none"/>
+  <rect id="north-launcher-hint-top-margin" x="192" y="32" width="4" height="4" fill="none"/>
+  <rect id="north-launcher-hint-right-margin" x="192" y="32" width="4" height="4" fill="none"/>
+  <rect id="north-launcher-hint-bottom-margin" x="192" y="32" width="4" height="4" fill="none"/>
+  <g fill="#bd94ff" fill-opacity="0.12">
+    <rect id="north-launcher-hover-center" x="228" y="36" width="16" height="16"/>
+    <rect id="north-launcher-hover-top" x="228" y="32" width="16" height="4"/>
+    <rect id="north-launcher-hover-bottom" x="228" y="52" width="16" height="4"/>
+    <rect id="north-launcher-hover-left" x="224" y="36" width="4" height="16"/>
+    <rect id="north-launcher-hover-right" x="244" y="36" width="4" height="16"/>
+    <path id="north-launcher-hover-topleft" transform="translate(224 32)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="north-launcher-hover-topright" transform="translate(244 32)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="north-launcher-hover-bottomleft" transform="translate(224 52)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="north-launcher-hover-bottomright" transform="translate(244 52)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="north-launcher-hover-hint-left-margin" x="224" y="32" width="4" height="4" fill="none"/>
+  <rect id="north-launcher-hover-hint-top-margin" x="224" y="32" width="4" height="4" fill="none"/>
+  <rect id="north-launcher-hover-hint-right-margin" x="224" y="32" width="4" height="4" fill="none"/>
+  <rect id="north-launcher-hover-hint-bottom-margin" x="224" y="32" width="4" height="4" fill="none"/>
+  <g fill="#bd94ff" fill-opacity="0">
+    <rect id="south-normal-center" x="4" y="68" width="16" height="16"/>
+    <rect id="south-normal-top" x="4" y="64" width="16" height="4"/>
+    <rect id="south-normal-bottom" x="4" y="84" width="16" height="4"/>
+    <rect id="south-normal-left" x="0" y="68" width="4" height="16"/>
+    <rect id="south-normal-right" x="20" y="68" width="4" height="16"/>
+    <path id="south-normal-topleft" transform="translate(0 64)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="south-normal-topright" transform="translate(20 64)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="south-normal-bottomleft" transform="translate(0 84)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="south-normal-bottomright" transform="translate(20 84)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="south-normal-hint-left-margin" x="0" y="64" width="4" height="4" fill="none"/>
+  <rect id="south-normal-hint-top-margin" x="0" y="64" width="4" height="4" fill="none"/>
+  <rect id="south-normal-hint-right-margin" x="0" y="64" width="4" height="4" fill="none"/>
+  <rect id="south-normal-hint-bottom-margin" x="0" y="64" width="4" height="4" fill="none"/>
+  <g fill="#bd94ff" fill-opacity="0.04">
+    <rect id="south-minimized-center" x="36" y="68" width="16" height="16"/>
+    <rect id="south-minimized-top" x="36" y="64" width="16" height="4"/>
+    <rect id="south-minimized-bottom" x="36" y="84" width="16" height="4"/>
+    <rect id="south-minimized-left" x="32" y="68" width="4" height="16"/>
+    <rect id="south-minimized-right" x="52" y="68" width="4" height="16"/>
+    <path id="south-minimized-topleft" transform="translate(32 64)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="south-minimized-topright" transform="translate(52 64)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="south-minimized-bottomleft" transform="translate(32 84)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="south-minimized-bottomright" transform="translate(52 84)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="south-minimized-hint-left-margin" x="32" y="64" width="4" height="4" fill="none"/>
+  <rect id="south-minimized-hint-top-margin" x="32" y="64" width="4" height="4" fill="none"/>
+  <rect id="south-minimized-hint-right-margin" x="32" y="64" width="4" height="4" fill="none"/>
+  <rect id="south-minimized-hint-bottom-margin" x="32" y="64" width="4" height="4" fill="none"/>
+  <g fill="#bd94ff" fill-opacity="0.22">
+    <rect id="south-focus-center" x="68" y="68" width="16" height="16"/>
+    <rect id="south-focus-top" x="68" y="64" width="16" height="4"/>
+    <rect id="south-focus-bottom" x="68" y="84" width="16" height="4"/>
+    <rect id="south-focus-left" x="64" y="68" width="4" height="16"/>
+    <rect id="south-focus-right" x="84" y="68" width="4" height="16"/>
+    <path id="south-focus-topleft" transform="translate(64 64)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="south-focus-topright" transform="translate(84 64)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="south-focus-bottomleft" transform="translate(64 84)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="south-focus-bottomright" transform="translate(84 84)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="south-focus-hint-left-margin" x="64" y="64" width="4" height="4" fill="none"/>
+  <rect id="south-focus-hint-top-margin" x="64" y="64" width="4" height="4" fill="none"/>
+  <rect id="south-focus-hint-right-margin" x="64" y="64" width="4" height="4" fill="none"/>
+  <rect id="south-focus-hint-bottom-margin" x="64" y="64" width="4" height="4" fill="none"/>
+  <g fill="#bd94ff" fill-opacity="0.12">
+    <rect id="south-hover-center" x="100" y="68" width="16" height="16"/>
+    <rect id="south-hover-top" x="100" y="64" width="16" height="4"/>
+    <rect id="south-hover-bottom" x="100" y="84" width="16" height="4"/>
+    <rect id="south-hover-left" x="96" y="68" width="4" height="16"/>
+    <rect id="south-hover-right" x="116" y="68" width="4" height="16"/>
+    <path id="south-hover-topleft" transform="translate(96 64)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="south-hover-topright" transform="translate(116 64)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="south-hover-bottomleft" transform="translate(96 84)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="south-hover-bottomright" transform="translate(116 84)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="south-hover-hint-left-margin" x="96" y="64" width="4" height="4" fill="none"/>
+  <rect id="south-hover-hint-top-margin" x="96" y="64" width="4" height="4" fill="none"/>
+  <rect id="south-hover-hint-right-margin" x="96" y="64" width="4" height="4" fill="none"/>
+  <rect id="south-hover-hint-bottom-margin" x="96" y="64" width="4" height="4" fill="none"/>
+  <g fill="#e9a14b" fill-opacity="0.24">
+    <rect id="south-attention-center" x="132" y="68" width="16" height="16"/>
+    <rect id="south-attention-top" x="132" y="64" width="16" height="4"/>
+    <rect id="south-attention-bottom" x="132" y="84" width="16" height="4"/>
+    <rect id="south-attention-left" x="128" y="68" width="4" height="16"/>
+    <rect id="south-attention-right" x="148" y="68" width="4" height="16"/>
+    <path id="south-attention-topleft" transform="translate(128 64)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="south-attention-topright" transform="translate(148 64)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="south-attention-bottomleft" transform="translate(128 84)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="south-attention-bottomright" transform="translate(148 84)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="south-attention-hint-left-margin" x="128" y="64" width="4" height="4" fill="none"/>
+  <rect id="south-attention-hint-top-margin" x="128" y="64" width="4" height="4" fill="none"/>
+  <rect id="south-attention-hint-right-margin" x="128" y="64" width="4" height="4" fill="none"/>
+  <rect id="south-attention-hint-bottom-margin" x="128" y="64" width="4" height="4" fill="none"/>
+  <g fill="#bd94ff" fill-opacity="0.18">
+    <rect id="south-progress-center" x="164" y="68" width="16" height="16"/>
+    <rect id="south-progress-top" x="164" y="64" width="16" height="4"/>
+    <rect id="south-progress-bottom" x="164" y="84" width="16" height="4"/>
+    <rect id="south-progress-left" x="160" y="68" width="4" height="16"/>
+    <rect id="south-progress-right" x="180" y="68" width="4" height="16"/>
+    <path id="south-progress-topleft" transform="translate(160 64)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="south-progress-topright" transform="translate(180 64)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="south-progress-bottomleft" transform="translate(160 84)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="south-progress-bottomright" transform="translate(180 84)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="south-progress-hint-left-margin" x="160" y="64" width="4" height="4" fill="none"/>
+  <rect id="south-progress-hint-top-margin" x="160" y="64" width="4" height="4" fill="none"/>
+  <rect id="south-progress-hint-right-margin" x="160" y="64" width="4" height="4" fill="none"/>
+  <rect id="south-progress-hint-bottom-margin" x="160" y="64" width="4" height="4" fill="none"/>
+  <g fill="#bd94ff" fill-opacity="0">
+    <rect id="south-launcher-center" x="196" y="68" width="16" height="16"/>
+    <rect id="south-launcher-top" x="196" y="64" width="16" height="4"/>
+    <rect id="south-launcher-bottom" x="196" y="84" width="16" height="4"/>
+    <rect id="south-launcher-left" x="192" y="68" width="4" height="16"/>
+    <rect id="south-launcher-right" x="212" y="68" width="4" height="16"/>
+    <path id="south-launcher-topleft" transform="translate(192 64)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="south-launcher-topright" transform="translate(212 64)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="south-launcher-bottomleft" transform="translate(192 84)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="south-launcher-bottomright" transform="translate(212 84)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="south-launcher-hint-left-margin" x="192" y="64" width="4" height="4" fill="none"/>
+  <rect id="south-launcher-hint-top-margin" x="192" y="64" width="4" height="4" fill="none"/>
+  <rect id="south-launcher-hint-right-margin" x="192" y="64" width="4" height="4" fill="none"/>
+  <rect id="south-launcher-hint-bottom-margin" x="192" y="64" width="4" height="4" fill="none"/>
+  <g fill="#bd94ff" fill-opacity="0.12">
+    <rect id="south-launcher-hover-center" x="228" y="68" width="16" height="16"/>
+    <rect id="south-launcher-hover-top" x="228" y="64" width="16" height="4"/>
+    <rect id="south-launcher-hover-bottom" x="228" y="84" width="16" height="4"/>
+    <rect id="south-launcher-hover-left" x="224" y="68" width="4" height="16"/>
+    <rect id="south-launcher-hover-right" x="244" y="68" width="4" height="16"/>
+    <path id="south-launcher-hover-topleft" transform="translate(224 64)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="south-launcher-hover-topright" transform="translate(244 64)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="south-launcher-hover-bottomleft" transform="translate(224 84)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="south-launcher-hover-bottomright" transform="translate(244 84)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="south-launcher-hover-hint-left-margin" x="224" y="64" width="4" height="4" fill="none"/>
+  <rect id="south-launcher-hover-hint-top-margin" x="224" y="64" width="4" height="4" fill="none"/>
+  <rect id="south-launcher-hover-hint-right-margin" x="224" y="64" width="4" height="4" fill="none"/>
+  <rect id="south-launcher-hover-hint-bottom-margin" x="224" y="64" width="4" height="4" fill="none"/>
+  <g fill="#bd94ff" fill-opacity="0">
+    <rect id="west-normal-center" x="4" y="100" width="16" height="16"/>
+    <rect id="west-normal-top" x="4" y="96" width="16" height="4"/>
+    <rect id="west-normal-bottom" x="4" y="116" width="16" height="4"/>
+    <rect id="west-normal-left" x="0" y="100" width="4" height="16"/>
+    <rect id="west-normal-right" x="20" y="100" width="4" height="16"/>
+    <path id="west-normal-topleft" transform="translate(0 96)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="west-normal-topright" transform="translate(20 96)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="west-normal-bottomleft" transform="translate(0 116)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="west-normal-bottomright" transform="translate(20 116)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="west-normal-hint-left-margin" x="0" y="96" width="4" height="4" fill="none"/>
+  <rect id="west-normal-hint-top-margin" x="0" y="96" width="4" height="4" fill="none"/>
+  <rect id="west-normal-hint-right-margin" x="0" y="96" width="4" height="4" fill="none"/>
+  <rect id="west-normal-hint-bottom-margin" x="0" y="96" width="4" height="4" fill="none"/>
+  <g fill="#bd94ff" fill-opacity="0.04">
+    <rect id="west-minimized-center" x="36" y="100" width="16" height="16"/>
+    <rect id="west-minimized-top" x="36" y="96" width="16" height="4"/>
+    <rect id="west-minimized-bottom" x="36" y="116" width="16" height="4"/>
+    <rect id="west-minimized-left" x="32" y="100" width="4" height="16"/>
+    <rect id="west-minimized-right" x="52" y="100" width="4" height="16"/>
+    <path id="west-minimized-topleft" transform="translate(32 96)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="west-minimized-topright" transform="translate(52 96)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="west-minimized-bottomleft" transform="translate(32 116)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="west-minimized-bottomright" transform="translate(52 116)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="west-minimized-hint-left-margin" x="32" y="96" width="4" height="4" fill="none"/>
+  <rect id="west-minimized-hint-top-margin" x="32" y="96" width="4" height="4" fill="none"/>
+  <rect id="west-minimized-hint-right-margin" x="32" y="96" width="4" height="4" fill="none"/>
+  <rect id="west-minimized-hint-bottom-margin" x="32" y="96" width="4" height="4" fill="none"/>
+  <g fill="#bd94ff" fill-opacity="0.22">
+    <rect id="west-focus-center" x="68" y="100" width="16" height="16"/>
+    <rect id="west-focus-top" x="68" y="96" width="16" height="4"/>
+    <rect id="west-focus-bottom" x="68" y="116" width="16" height="4"/>
+    <rect id="west-focus-left" x="64" y="100" width="4" height="16"/>
+    <rect id="west-focus-right" x="84" y="100" width="4" height="16"/>
+    <path id="west-focus-topleft" transform="translate(64 96)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="west-focus-topright" transform="translate(84 96)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="west-focus-bottomleft" transform="translate(64 116)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="west-focus-bottomright" transform="translate(84 116)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="west-focus-hint-left-margin" x="64" y="96" width="4" height="4" fill="none"/>
+  <rect id="west-focus-hint-top-margin" x="64" y="96" width="4" height="4" fill="none"/>
+  <rect id="west-focus-hint-right-margin" x="64" y="96" width="4" height="4" fill="none"/>
+  <rect id="west-focus-hint-bottom-margin" x="64" y="96" width="4" height="4" fill="none"/>
+  <g fill="#bd94ff" fill-opacity="0.12">
+    <rect id="west-hover-center" x="100" y="100" width="16" height="16"/>
+    <rect id="west-hover-top" x="100" y="96" width="16" height="4"/>
+    <rect id="west-hover-bottom" x="100" y="116" width="16" height="4"/>
+    <rect id="west-hover-left" x="96" y="100" width="4" height="16"/>
+    <rect id="west-hover-right" x="116" y="100" width="4" height="16"/>
+    <path id="west-hover-topleft" transform="translate(96 96)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="west-hover-topright" transform="translate(116 96)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="west-hover-bottomleft" transform="translate(96 116)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="west-hover-bottomright" transform="translate(116 116)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="west-hover-hint-left-margin" x="96" y="96" width="4" height="4" fill="none"/>
+  <rect id="west-hover-hint-top-margin" x="96" y="96" width="4" height="4" fill="none"/>
+  <rect id="west-hover-hint-right-margin" x="96" y="96" width="4" height="4" fill="none"/>
+  <rect id="west-hover-hint-bottom-margin" x="96" y="96" width="4" height="4" fill="none"/>
+  <g fill="#e9a14b" fill-opacity="0.24">
+    <rect id="west-attention-center" x="132" y="100" width="16" height="16"/>
+    <rect id="west-attention-top" x="132" y="96" width="16" height="4"/>
+    <rect id="west-attention-bottom" x="132" y="116" width="16" height="4"/>
+    <rect id="west-attention-left" x="128" y="100" width="4" height="16"/>
+    <rect id="west-attention-right" x="148" y="100" width="4" height="16"/>
+    <path id="west-attention-topleft" transform="translate(128 96)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="west-attention-topright" transform="translate(148 96)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="west-attention-bottomleft" transform="translate(128 116)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="west-attention-bottomright" transform="translate(148 116)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="west-attention-hint-left-margin" x="128" y="96" width="4" height="4" fill="none"/>
+  <rect id="west-attention-hint-top-margin" x="128" y="96" width="4" height="4" fill="none"/>
+  <rect id="west-attention-hint-right-margin" x="128" y="96" width="4" height="4" fill="none"/>
+  <rect id="west-attention-hint-bottom-margin" x="128" y="96" width="4" height="4" fill="none"/>
+  <g fill="#bd94ff" fill-opacity="0.18">
+    <rect id="west-progress-center" x="164" y="100" width="16" height="16"/>
+    <rect id="west-progress-top" x="164" y="96" width="16" height="4"/>
+    <rect id="west-progress-bottom" x="164" y="116" width="16" height="4"/>
+    <rect id="west-progress-left" x="160" y="100" width="4" height="16"/>
+    <rect id="west-progress-right" x="180" y="100" width="4" height="16"/>
+    <path id="west-progress-topleft" transform="translate(160 96)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="west-progress-topright" transform="translate(180 96)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="west-progress-bottomleft" transform="translate(160 116)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="west-progress-bottomright" transform="translate(180 116)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="west-progress-hint-left-margin" x="160" y="96" width="4" height="4" fill="none"/>
+  <rect id="west-progress-hint-top-margin" x="160" y="96" width="4" height="4" fill="none"/>
+  <rect id="west-progress-hint-right-margin" x="160" y="96" width="4" height="4" fill="none"/>
+  <rect id="west-progress-hint-bottom-margin" x="160" y="96" width="4" height="4" fill="none"/>
+  <g fill="#bd94ff" fill-opacity="0">
+    <rect id="west-launcher-center" x="196" y="100" width="16" height="16"/>
+    <rect id="west-launcher-top" x="196" y="96" width="16" height="4"/>
+    <rect id="west-launcher-bottom" x="196" y="116" width="16" height="4"/>
+    <rect id="west-launcher-left" x="192" y="100" width="4" height="16"/>
+    <rect id="west-launcher-right" x="212" y="100" width="4" height="16"/>
+    <path id="west-launcher-topleft" transform="translate(192 96)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="west-launcher-topright" transform="translate(212 96)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="west-launcher-bottomleft" transform="translate(192 116)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="west-launcher-bottomright" transform="translate(212 116)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="west-launcher-hint-left-margin" x="192" y="96" width="4" height="4" fill="none"/>
+  <rect id="west-launcher-hint-top-margin" x="192" y="96" width="4" height="4" fill="none"/>
+  <rect id="west-launcher-hint-right-margin" x="192" y="96" width="4" height="4" fill="none"/>
+  <rect id="west-launcher-hint-bottom-margin" x="192" y="96" width="4" height="4" fill="none"/>
+  <g fill="#bd94ff" fill-opacity="0.12">
+    <rect id="west-launcher-hover-center" x="228" y="100" width="16" height="16"/>
+    <rect id="west-launcher-hover-top" x="228" y="96" width="16" height="4"/>
+    <rect id="west-launcher-hover-bottom" x="228" y="116" width="16" height="4"/>
+    <rect id="west-launcher-hover-left" x="224" y="100" width="4" height="16"/>
+    <rect id="west-launcher-hover-right" x="244" y="100" width="4" height="16"/>
+    <path id="west-launcher-hover-topleft" transform="translate(224 96)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="west-launcher-hover-topright" transform="translate(244 96)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="west-launcher-hover-bottomleft" transform="translate(224 116)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="west-launcher-hover-bottomright" transform="translate(244 116)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="west-launcher-hover-hint-left-margin" x="224" y="96" width="4" height="4" fill="none"/>
+  <rect id="west-launcher-hover-hint-top-margin" x="224" y="96" width="4" height="4" fill="none"/>
+  <rect id="west-launcher-hover-hint-right-margin" x="224" y="96" width="4" height="4" fill="none"/>
+  <rect id="west-launcher-hover-hint-bottom-margin" x="224" y="96" width="4" height="4" fill="none"/>
+  <g fill="#bd94ff" fill-opacity="0">
+    <rect id="east-normal-center" x="4" y="132" width="16" height="16"/>
+    <rect id="east-normal-top" x="4" y="128" width="16" height="4"/>
+    <rect id="east-normal-bottom" x="4" y="148" width="16" height="4"/>
+    <rect id="east-normal-left" x="0" y="132" width="4" height="16"/>
+    <rect id="east-normal-right" x="20" y="132" width="4" height="16"/>
+    <path id="east-normal-topleft" transform="translate(0 128)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="east-normal-topright" transform="translate(20 128)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="east-normal-bottomleft" transform="translate(0 148)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="east-normal-bottomright" transform="translate(20 148)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="east-normal-hint-left-margin" x="0" y="128" width="4" height="4" fill="none"/>
+  <rect id="east-normal-hint-top-margin" x="0" y="128" width="4" height="4" fill="none"/>
+  <rect id="east-normal-hint-right-margin" x="0" y="128" width="4" height="4" fill="none"/>
+  <rect id="east-normal-hint-bottom-margin" x="0" y="128" width="4" height="4" fill="none"/>
+  <g fill="#bd94ff" fill-opacity="0.04">
+    <rect id="east-minimized-center" x="36" y="132" width="16" height="16"/>
+    <rect id="east-minimized-top" x="36" y="128" width="16" height="4"/>
+    <rect id="east-minimized-bottom" x="36" y="148" width="16" height="4"/>
+    <rect id="east-minimized-left" x="32" y="132" width="4" height="16"/>
+    <rect id="east-minimized-right" x="52" y="132" width="4" height="16"/>
+    <path id="east-minimized-topleft" transform="translate(32 128)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="east-minimized-topright" transform="translate(52 128)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="east-minimized-bottomleft" transform="translate(32 148)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="east-minimized-bottomright" transform="translate(52 148)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="east-minimized-hint-left-margin" x="32" y="128" width="4" height="4" fill="none"/>
+  <rect id="east-minimized-hint-top-margin" x="32" y="128" width="4" height="4" fill="none"/>
+  <rect id="east-minimized-hint-right-margin" x="32" y="128" width="4" height="4" fill="none"/>
+  <rect id="east-minimized-hint-bottom-margin" x="32" y="128" width="4" height="4" fill="none"/>
+  <g fill="#bd94ff" fill-opacity="0.22">
+    <rect id="east-focus-center" x="68" y="132" width="16" height="16"/>
+    <rect id="east-focus-top" x="68" y="128" width="16" height="4"/>
+    <rect id="east-focus-bottom" x="68" y="148" width="16" height="4"/>
+    <rect id="east-focus-left" x="64" y="132" width="4" height="16"/>
+    <rect id="east-focus-right" x="84" y="132" width="4" height="16"/>
+    <path id="east-focus-topleft" transform="translate(64 128)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="east-focus-topright" transform="translate(84 128)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="east-focus-bottomleft" transform="translate(64 148)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="east-focus-bottomright" transform="translate(84 148)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="east-focus-hint-left-margin" x="64" y="128" width="4" height="4" fill="none"/>
+  <rect id="east-focus-hint-top-margin" x="64" y="128" width="4" height="4" fill="none"/>
+  <rect id="east-focus-hint-right-margin" x="64" y="128" width="4" height="4" fill="none"/>
+  <rect id="east-focus-hint-bottom-margin" x="64" y="128" width="4" height="4" fill="none"/>
+  <g fill="#bd94ff" fill-opacity="0.12">
+    <rect id="east-hover-center" x="100" y="132" width="16" height="16"/>
+    <rect id="east-hover-top" x="100" y="128" width="16" height="4"/>
+    <rect id="east-hover-bottom" x="100" y="148" width="16" height="4"/>
+    <rect id="east-hover-left" x="96" y="132" width="4" height="16"/>
+    <rect id="east-hover-right" x="116" y="132" width="4" height="16"/>
+    <path id="east-hover-topleft" transform="translate(96 128)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="east-hover-topright" transform="translate(116 128)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="east-hover-bottomleft" transform="translate(96 148)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="east-hover-bottomright" transform="translate(116 148)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="east-hover-hint-left-margin" x="96" y="128" width="4" height="4" fill="none"/>
+  <rect id="east-hover-hint-top-margin" x="96" y="128" width="4" height="4" fill="none"/>
+  <rect id="east-hover-hint-right-margin" x="96" y="128" width="4" height="4" fill="none"/>
+  <rect id="east-hover-hint-bottom-margin" x="96" y="128" width="4" height="4" fill="none"/>
+  <g fill="#e9a14b" fill-opacity="0.24">
+    <rect id="east-attention-center" x="132" y="132" width="16" height="16"/>
+    <rect id="east-attention-top" x="132" y="128" width="16" height="4"/>
+    <rect id="east-attention-bottom" x="132" y="148" width="16" height="4"/>
+    <rect id="east-attention-left" x="128" y="132" width="4" height="16"/>
+    <rect id="east-attention-right" x="148" y="132" width="4" height="16"/>
+    <path id="east-attention-topleft" transform="translate(128 128)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="east-attention-topright" transform="translate(148 128)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="east-attention-bottomleft" transform="translate(128 148)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="east-attention-bottomright" transform="translate(148 148)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="east-attention-hint-left-margin" x="128" y="128" width="4" height="4" fill="none"/>
+  <rect id="east-attention-hint-top-margin" x="128" y="128" width="4" height="4" fill="none"/>
+  <rect id="east-attention-hint-right-margin" x="128" y="128" width="4" height="4" fill="none"/>
+  <rect id="east-attention-hint-bottom-margin" x="128" y="128" width="4" height="4" fill="none"/>
+  <g fill="#bd94ff" fill-opacity="0.18">
+    <rect id="east-progress-center" x="164" y="132" width="16" height="16"/>
+    <rect id="east-progress-top" x="164" y="128" width="16" height="4"/>
+    <rect id="east-progress-bottom" x="164" y="148" width="16" height="4"/>
+    <rect id="east-progress-left" x="160" y="132" width="4" height="16"/>
+    <rect id="east-progress-right" x="180" y="132" width="4" height="16"/>
+    <path id="east-progress-topleft" transform="translate(160 128)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="east-progress-topright" transform="translate(180 128)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="east-progress-bottomleft" transform="translate(160 148)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="east-progress-bottomright" transform="translate(180 148)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="east-progress-hint-left-margin" x="160" y="128" width="4" height="4" fill="none"/>
+  <rect id="east-progress-hint-top-margin" x="160" y="128" width="4" height="4" fill="none"/>
+  <rect id="east-progress-hint-right-margin" x="160" y="128" width="4" height="4" fill="none"/>
+  <rect id="east-progress-hint-bottom-margin" x="160" y="128" width="4" height="4" fill="none"/>
+  <g fill="#bd94ff" fill-opacity="0">
+    <rect id="east-launcher-center" x="196" y="132" width="16" height="16"/>
+    <rect id="east-launcher-top" x="196" y="128" width="16" height="4"/>
+    <rect id="east-launcher-bottom" x="196" y="148" width="16" height="4"/>
+    <rect id="east-launcher-left" x="192" y="132" width="4" height="16"/>
+    <rect id="east-launcher-right" x="212" y="132" width="4" height="16"/>
+    <path id="east-launcher-topleft" transform="translate(192 128)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="east-launcher-topright" transform="translate(212 128)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="east-launcher-bottomleft" transform="translate(192 148)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="east-launcher-bottomright" transform="translate(212 148)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="east-launcher-hint-left-margin" x="192" y="128" width="4" height="4" fill="none"/>
+  <rect id="east-launcher-hint-top-margin" x="192" y="128" width="4" height="4" fill="none"/>
+  <rect id="east-launcher-hint-right-margin" x="192" y="128" width="4" height="4" fill="none"/>
+  <rect id="east-launcher-hint-bottom-margin" x="192" y="128" width="4" height="4" fill="none"/>
+  <g fill="#bd94ff" fill-opacity="0.12">
+    <rect id="east-launcher-hover-center" x="228" y="132" width="16" height="16"/>
+    <rect id="east-launcher-hover-top" x="228" y="128" width="16" height="4"/>
+    <rect id="east-launcher-hover-bottom" x="228" y="148" width="16" height="4"/>
+    <rect id="east-launcher-hover-left" x="224" y="132" width="4" height="16"/>
+    <rect id="east-launcher-hover-right" x="244" y="132" width="4" height="16"/>
+    <path id="east-launcher-hover-topleft" transform="translate(224 128)" d="M4 0V4H0A4 4 0 0 1 4 0Z"/>
+    <path id="east-launcher-hover-topright" transform="translate(244 128)" d="M0 0A4 4 0 0 1 4 4H0Z"/>
+    <path id="east-launcher-hover-bottomleft" transform="translate(224 148)" d="M0 0H4V4A4 4 0 0 1 0 0Z"/>
+    <path id="east-launcher-hover-bottomright" transform="translate(244 148)" d="M0 0H4A4 4 0 0 1 0 4Z"/>
+  </g>
+  <rect id="east-launcher-hover-hint-left-margin" x="224" y="128" width="4" height="4" fill="none"/>
+  <rect id="east-launcher-hover-hint-top-margin" x="224" y="128" width="4" height="4" fill="none"/>
+  <rect id="east-launcher-hover-hint-right-margin" x="224" y="128" width="4" height="4" fill="none"/>
+  <rect id="east-launcher-hover-hint-bottom-margin" x="224" y="128" width="4" height="4" fill="none"/>
+</svg>
